@@ -71,6 +71,32 @@ func (s *UserRepoSuite) TestUpdate_DoesNotRevertConcurrentBan() {
 	s.Require().Equal(service.StatusDisabled, got.Status, "ban must survive a stale profile save")
 }
 
+// 风控读取普通用户后，管理员可能先把该用户提升为管理员。Status 更新必须
+// 基于行锁内的当前 role 再校验，不能把陈旧快照中的普通用户封成 disabled admin。
+func (s *UserRepoSuite) TestUpdate_RejectsBanAfterConcurrentAdminPromotion() {
+	user := s.mustCreateUser(&service.User{
+		Email:  "ban-promotion-race@example.com",
+		Role:   service.RoleUser,
+		Status: service.StatusActive,
+	})
+
+	stale, err := s.repo.GetByID(s.ctx, user.ID)
+	s.Require().NoError(err, "GetByID before promotion")
+	s.Require().Equal(service.RoleUser, stale.Role)
+
+	_, err = s.client.User.UpdateOneID(user.ID).SetRole(service.RoleAdmin).Save(s.ctx)
+	s.Require().NoError(err, "promote user")
+
+	stale.Status = service.StatusDisabled
+	err = s.repo.Update(s.ctx, stale, service.UserUpdateFields{Status: true})
+	s.Require().ErrorIs(err, service.ErrAdminCannotBeDisabled)
+
+	got, err := s.repo.GetByID(s.ctx, user.ID)
+	s.Require().NoError(err, "GetByID after rejected ban")
+	s.Require().Equal(service.RoleAdmin, got.Role)
+	s.Require().Equal(service.StatusActive, got.Status)
+}
+
 // 未声明的列不写，也意味着并发的限额调整不会被资料保存回滚。
 func (s *UserRepoSuite) TestUpdate_DoesNotRevertConcurrentLimitChanges() {
 	user := s.mustCreateUser(&service.User{

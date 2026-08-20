@@ -160,8 +160,10 @@ type contentModerationTestHashCache struct {
 }
 
 type contentModerationTestUserRepo struct {
-	user    *User
-	updated []User
+	user         *User
+	updated      []User
+	beforeUpdate func()
+	updateErr    error
 }
 
 func (r *contentModerationTestUserRepo) Create(ctx context.Context, user *User) error {
@@ -189,6 +191,12 @@ func (r *contentModerationTestUserRepo) GetFirstAdmin(ctx context.Context) (*Use
 }
 
 func (r *contentModerationTestUserRepo) Update(ctx context.Context, user *User, fields UserUpdateFields) error {
+	if r.beforeUpdate != nil {
+		r.beforeUpdate()
+	}
+	if r.updateErr != nil {
+		return r.updateErr
+	}
 	if user == nil {
 		return nil
 	}
@@ -1581,6 +1589,34 @@ func TestContentModerationAutoBanDisablesRegularUserAtThreshold(t *testing.T) {
 	require.Len(t, userRepo.updated, 1)
 	require.Equal(t, StatusDisabled, userRepo.user.Status)
 	require.Equal(t, []int64{userID}, invalidator.userIDs)
+}
+
+func TestContentModerationAutoBanDoesNotReportSuccessAfterConcurrentAdminPromotion(t *testing.T) {
+	cfg := defaultContentModerationConfig()
+	cfg.BanThreshold = 2
+	cfg.ViolationWindowHours = 24
+
+	userID := int64(1001)
+	repo := &contentModerationTestRepo{}
+	require.NoError(t, repo.CreateLog(context.Background(), newContentModerationFlaggedLog(userID)))
+	userRepo := &contentModerationTestUserRepo{
+		user:      &User{ID: userID, Role: RoleUser, Status: StatusActive},
+		updateErr: ErrAdminCannotBeDisabled,
+	}
+	userRepo.beforeUpdate = func() {
+		userRepo.user.Role = RoleAdmin
+	}
+	invalidator := &contentModerationTestAuthCacheInvalidator{}
+	svc := NewContentModerationService(nil, repo, nil, nil, userRepo, nil, invalidator, nil)
+
+	svc.persistContentModerationLog(context.Background(), cfg, newContentModerationFlaggedLog(userID), "", false, true)
+
+	logs := requireContentModerationLogCount(t, repo, 2)
+	require.False(t, logs[1].AutoBanned)
+	require.Empty(t, userRepo.updated)
+	require.Equal(t, RoleAdmin, userRepo.user.Role)
+	require.Equal(t, StatusActive, userRepo.user.Status)
+	require.Empty(t, invalidator.userIDs)
 }
 
 func TestContentModerationAdminBelowBanThresholdRecordsViolationOnly(t *testing.T) {

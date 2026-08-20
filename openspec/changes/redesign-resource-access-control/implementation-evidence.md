@@ -240,3 +240,40 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 - Actor Resolver、Handler/DI 接线与 HTTP `Unavailable -> 503` 仍属于后续切片，当前没有新增普通用户授权放行路径。
 - 真实 Actor → opaque `AccessibleScope` → 公开 reader 的跨包贯通测试等待 1.8 Actor Resolver 提供唯一可信 Actor 构造路径；本切片不为测试暴露 Actor/Scope 后门。当前分别覆盖 Policy 生成的 Scope 契约、公开 service 调用契约和 PostgreSQL reader SQL 行为。
 - 自动完成、用量聚合和关系 hydration 尚未作为普通资源读取能力开放；实现时必须分别使用同一 Actor Scope，不能扩展当前 DTO 或复用管理员查询。
+
+## 2026-08-20 - RoleService Core（1.7a）
+
+### 实现范围
+
+- 新增 RoleService/RoleRepository，作为 legacy/shadow 下 admin/user 角色变更的唯一 command path；管理员用户更新已接入生产 DI，通用 `UserRepository.Update` 的 Role 写能力已删除，不能绕过 RoleService。
+- Role mutation 在同一 PostgreSQL 事务中串行锁定 actor/target，维护 `users.role`、`system_bootstrap` 拥有的兼容 `user_roles`、`users.authz_version` 和相邻管理员用户字段；任一步失败都整体回滚。
+- migration 233 扩展既有用户缓存失效 trigger，使纯 `authz_version` 变化也为该用户每个有效 API Key 写入哈希后的 `auth_cache_invalidation_outbox`；重复应用安全，普通非授权字段更新不入队。
+- 所有生产用户创建路径经 `userRepository.create` 事务内补齐 admin/user 兼容角色，避免 232 后新用户再次产生 shadow readiness 缺口。
+- 角色命令要求 actor 是 active legacy admin，并拒绝陈旧 expected role、自我降级、最后一个 active admin 降级，以及 disabled 用户提升为 admin；普通 status writer 在用户行锁内按数据库当前角色复核，阻止自动封禁与并发提升形成 disabled admin。
+- Role management 使用 PostgreSQL transaction advisory lock，actor/target 按 ID 排序后取行锁；普通用户更新预先取得 `ROW EXCLUSIVE` 表锁再取用户行锁，readiness 预先取得 `SHARE` 表锁，从而固定锁顺序并避免 transition/update 锁升级死锁。
+- 内部 readiness 对 legacy→shadow 检查 migration 229/232/233、系统角色、active `system_bootstrap`、旧角色可映射性、兼容角色完整/无陈旧项及主体/角色版本；shadow→legacy 拒绝不能映射到 legacy admin 的 RBAC 权限与任何 active Service Principal role。
+- 通用 settings PUT 不再写 `role_authorization_mode`，直接修改会返回 guarded-transition 错误；内部 `TransitionAuthorizationMode` 仅允许 legacy↔shadow，任何涉及 RBAC 的 transition 都硬拒绝。
+- 本切片没有新增生产 mode transition Handler/CLI，也没有 step-up authentication 或 mode transition durable audit。`TransitionAuthorizationMode` 只是内部 service/repository core，因此完整 1.7 仍未完成，1.7b 必须单独交付；RBAC 也未交付。
+- 没有打开任何 Feature Flag、没有新增普通用户资源路由，当前授权权威和 `role_authorization_mode=legacy` 行为保持不变。
+
+### 自动化与动态验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| `make -C backend test-unit` | 通过 |
+| RoleService、AdminService 与 ContentModeration 定向 race tests | 通过 |
+| Role/用户更新/setting guard 相关包 `go vet` | 通过 |
+| `make -C backend build` | 通过；生产 Wire 已包含 RoleRepository/RoleService |
+| `CI=1 npx --yes pnpm@9.15.9 run build`（frontend） | 通过；仅有既有 chunk/dynamic import 警告 |
+| `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
+| `git diff --check` | 通过 |
+| migration 233 contract + 本机 PostgreSQL 18.6 isolated dynamic test | 通过；覆盖 reapply、纯版本更新入队、非授权字段不入队、role+version 每个 key 仅一条 |
+| 本机 PostgreSQL 18.6 临时 harness：RoleRepository 7 个 top-level integration 场景 | 通过；覆盖 create compatibility、外层事务回滚、promotion/version/outbox、并发互降、混合更新回滚、readiness/mode 和 transition/update 无死锁 |
+| 本机 PostgreSQL 18.6 自动封禁/管理员提升竞态场景 | 通过；最终保持 active admin |
+| PostgreSQL 临时测试库与临时 harness 改动残留检查 | 通过，均已删除 |
+
+### 未完成门禁
+
+- 1.7b 必须提供独立、可授权的 mode transition 管理入口，验证近期管理员认证（step-up），以 expected mode 做 CAS，回显 readiness blockers，并在 mode 更新同一事务内写 durable audit；在此之前不得通过通用 settings API 或数据库手工切换。
+- RBAC transition 必须继续硬拒绝，直到 1.8 Actor Resolver 及全部授权 consumer 迁移完成；legacy↔shadow readiness 通过不等于 RBAC 可用。
+- 本机 PostgreSQL 18.6 动态验证已完成，但 Docker/Testcontainers repository integration suite 仍未执行；必须在 CI 或有 Docker 的机器运行 `CI=1 go test -tags=integration ./internal/repository`，不得把本机临时 harness 记录为 CI 等价门禁。

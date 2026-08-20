@@ -74,6 +74,21 @@
 | Owner/public/direct/role Grant、严格到期边界、Count 与分页使用同一 predicate | PostgreSQL Account/Group Scope 动态测试 | 通过 |
 | 真实 scoped reader 的筛选、排序、total、分页、聚合/hydration 禁用和窄 DTO | 1.6b repository/service/DTO 单测 + PostgreSQL 18.6 动态测试 | 通过 |
 
+## RoleService Core 门禁（1.7a）
+
+| 门禁 | 证据 | 状态 |
+| --- | --- | --- |
+| legacy 用户角色变更只经 RoleService；管理员入口已接入且通用 UserRepository Update 不能写 Role | AdminService/RoleService unit contract、repository 写掩码审查、生产 Wire build | 通过 |
+| legacy/shadow 下 `users.role`、bootstrap 兼容 `user_roles` 与 `users.authz_version` 原子提交，相邻用户字段失败时整体回滚 | RoleRepository transaction tests + 本机 PostgreSQL 18.6 动态场景 | 通过 |
+| 纯 `authz_version` 变化也为每个有效 API Key 写入 hashed durable cache invalidation | migration 233 contract + PostgreSQL 18.6 reapply/触发器动态测试 | 通过 |
+| active admin actor、expected-role CAS、自我降级、最后一个 active admin 和 disabled admin 不变量 fail closed | RoleService/AdminService 表驱动测试 + PostgreSQL 并发互降测试 | 通过 |
+| 自动封禁与角色提升不能形成 disabled admin，mode readiness 与普通用户更新不会锁升级死锁 | ContentModeration/UserRepository race tests + PostgreSQL 18.6 真实并发测试 | 通过 |
+| 所有生产用户创建路径事务内补 `system_bootstrap` 兼容角色 | UserRepository create integration 场景 | 通过 |
+| legacy→shadow readiness 检查 229/232/233、系统角色/bootstrap、兼容角色与版本；shadow→legacy 检查不可映射 RBAC admin/Service Principal 角色 | RoleService contract + PostgreSQL 18.6 readiness/mode 动态测试 | 通过 |
+| 通用 settings PUT 不能改变 mode，内部 transition 仅允许 legacy↔shadow，任何 RBAC transition 硬拒绝 | settings handler/service contract + RoleService transition tests | 通过 |
+| 专用生产 mode transition 入口强制 step-up authentication、readiness 回显和事务内 durable audit | 1.7b API/service/repository/security tests | 待实现 |
+| CI/Testcontainers RoleRepository integration | `CI=1 go test -tags=integration ./internal/repository` | 待实现（本机 PostgreSQL 18.6 动态验证已完成，但本机无 Docker） |
+
 ## 标准命令
 
 ```bash

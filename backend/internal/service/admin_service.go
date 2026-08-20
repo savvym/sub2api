@@ -644,6 +644,7 @@ var ErrRPMStatusUnavailable = infraerrors.New(http.StatusNotImplemented, "RPM_ST
 // adminServiceImpl implements AdminService
 type adminServiceImpl struct {
 	userRepo             UserRepository
+	roleService          *RoleService
 	groupRepo            GroupRepository
 	groupDuplicateRepo   GroupDuplicateRepository
 	accountRepo          AccountRepository
@@ -688,6 +689,7 @@ type userGroupRateBatchReader interface {
 // NewAdminService creates a new AdminService
 func NewAdminService(
 	userRepo UserRepository,
+	roleService *RoleService,
 	groupRepo AdminGroupRepository,
 	accountRepo AdminAccountRepository,
 	proxyRepo ProxyRepository,
@@ -712,6 +714,7 @@ func NewAdminService(
 ) AdminService {
 	return &adminServiceImpl{
 		userRepo:             userRepo,
+		roleService:          roleService,
 		groupRepo:            groupRepo,
 		groupDuplicateRepo:   groupRepo,
 		accountRepo:          accountRepo,

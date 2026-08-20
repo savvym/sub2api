@@ -209,7 +209,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 
 	// Protect admin users: cannot disable admin accounts
 	if user.Role == "admin" && input.Status == "disabled" {
-		return nil, errors.New("cannot disable admin user")
+		return nil, ErrAdminCannotBeDisabled
 	}
 
 	oldConcurrency := user.Concurrency
@@ -217,6 +217,8 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	oldRole := user.Role
 	oldRPMLimit := user.RPMLimit
 	oldAllowedGroups := append([]int64(nil), user.AllowedGroups...)
+	desiredRole := oldRole
+	roleRequested := false
 
 	// fields 与下面的 input.X 判空条件一一对应：管理员没提交的列不写回，
 	// 避免这份快照回滚并发的扣费、状态变更或批量限额调整。
@@ -253,15 +255,11 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		if err != nil {
 			return nil, err
 		}
-		// 防锁死保护：不允许降级系统中最后一个管理员（自我降级已在 handler 层拦截，
-		// 此处兜底覆盖跨管理员互降导致零 admin 的场景）。
-		if user.Role == RoleAdmin && role == RoleUser {
-			if err := s.ensureNotLastAdmin(ctx); err != nil {
-				return nil, err
-			}
-		}
-		user.Role = role
-		fields.Role = true
+		desiredRole = role
+		roleRequested = true
+	}
+	if desiredRole == RoleAdmin && user.Status == StatusDisabled {
+		return nil, ErrAdminCannotBeDisabled
 	}
 
 	if input.Concurrency != nil {
@@ -279,7 +277,28 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		fields.AllowedGroups = true
 	}
 
-	if err := s.userRepo.Update(ctx, user, fields); err != nil {
+	persistAdjacentFields := func(updateCtx context.Context) error {
+		return s.userRepo.Update(updateCtx, user, fields)
+	}
+	if roleRequested {
+		if s.roleService == nil {
+			return nil, ErrRoleAuthorizationUnavailable
+		}
+		roleResult, err := s.roleService.ChangeLegacyRole(ctx, LegacyRoleChangeInput{
+			ActorUserID:        input.ActorAdminID,
+			TargetUserID:       id,
+			ExpectedLegacyRole: oldRole,
+			DesiredLegacyRole:  desiredRole,
+			DesiredStatus:      input.Status,
+		}, persistAdjacentFields)
+		if err != nil {
+			return nil, err
+		}
+		user.Role = desiredRole
+		if fields.IsEmpty() && !roleResult.UpdatedAt.IsZero() {
+			user.UpdatedAt = roleResult.UpdatedAt
+		}
+	} else if err := persistAdjacentFields(ctx); err != nil {
 		return nil, err
 	}
 

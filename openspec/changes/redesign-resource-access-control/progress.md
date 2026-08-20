@@ -11,7 +11,8 @@
 - Authorization Domain Contract 提交：`0d66334c9`，已推送同一远程分支。
 - Fresh Setup Compatibility Bootstrap 提交：`4505b0301`，已推送同一远程分支。
 - Policy 与 SQL Scope Foundation 提交：`75b6582c2`，已推送同一远程分支。
-- 当前切片：0.4/0.5 静态审计已到 Review Ready；1.6 PolicyService、PolicyStore、可信 AccessibleScope、Account/Group SQL predicate 与独立 scoped reader 已实现并完成本机验证；下一切片为 1.7 RoleService，Phase 0 尚未批准退出。
+- Scoped Resource Reader 提交：`af49971aa`，已推送同一远程分支。
+- 当前切片：0.4/0.5 静态审计已到 Review Ready；1.7a RoleService core 已实现并完成本机验证，1.7b 专用 step-up + durable audit mode transition 管理入口尚未实现；完整 1.7 与 RBAC 均未交付，Phase 0 尚未批准退出。
 - 当前权威行为：旧 `users.role` 与旧分组资格；不得启用任何新 ACL 放行。
 
 ## 已完成
@@ -39,27 +40,33 @@
 - 已新增独立 `ResourceReadService` 与 Account/Group scoped reader；SQL Scope 始终先于业务筛选、Count、白名单排序和分页，详情查询对不存在与不可见资源统一返回 not found。
 - 普通资源读取使用专用窄投影与 DTO；帐号 credentials/extra/proxy/错误/额度/调度状态/关系字段、分组帐号拓扑/计数/价格/路由/利润字段均不会查询或序列化，`account_count` 排序显式拒绝。
 - PostgreSQL 18.6 动态测试已覆盖 Owner、public、直接用户 Grant、角色 Grant、私有/过期 Grant、筛选后 total、稳定分页、窄 SELECT 和 stale subject fail closed，临时数据库残留为 0。
+- 已新增 RoleService/RoleRepository 作为 legacy 用户角色变更的唯一 command path；管理员角色修改已接入，通用 `UserRepository.Update` 不再接受 Role 写入，所有生产用户创建路径都会补齐 `system_bootstrap` 兼容角色。
+- legacy/shadow 角色变更在同一 PostgreSQL 事务中维护 `users.role`、兼容 `user_roles`、`users.authz_version` 与 API Key 缓存失效 Outbox；migration 233 补齐了纯授权版本变化的 durable invalidation。
+- 角色约束覆盖 active admin actor、expected-role CAS、自我降级、最后一个 active admin、disabled 用户提升和角色/状态竞态；事务 advisory lock、稳定行锁顺序及 readiness 表锁顺序已通过真实并发验证。
+- 内部 readiness/transition 状态机已检查 migration 229/232/233、系统角色、bootstrap principal、兼容角色一致性和版本；shadow 回 legacy 额外拒绝不可映射的 RBAC admin 与 Service Principal 角色，任何 RBAC transition 仍硬拒绝。
+- 通用 settings PUT 已禁止修改 `role_authorization_mode`，RoleService 已接入生产 Wire；但内部 `TransitionAuthorizationMode` 尚无生产管理入口、step-up authentication 或 durable audit，因此 1.7 仍未完成且当前 mode 保持 `legacy`。
 - 没有新增普通用户资源路由/UI，也没有将任何运行时授权切换到 ACL/RBAC。
-- OpenSpec 严格校验、后端完整单测/构建、前端完整测试/构建和 PostgreSQL 18 动态迁移验证通过。
+- OpenSpec 严格校验、后端完整单测/构建、前端构建，以及 PostgreSQL 18.6 migration 233、RoleRepository 与角色/状态竞态动态验证通过。
 
 ## 下一步
 
 1. 由平台/认证/安全负责人复核并批准 0.4 credentials/extra 清单和 0.5 自助平台/出站 allowlist。
 2. 对真实服务器只读数据运行 `data-preflight.sql`，记录异常角色、名称冲突、孤立关系和回填规模。
 3. 在 Docker/CI 环境执行 `CI=1 go test -tags=integration ./internal/repository` 严格门禁。
-4. 实现 1.7 RoleService：legacy/shadow 阶段原子维护 `users.role`、系统兼容角色、主体版本与失效事件，并建立 shadow/rbac readiness gate。
-5. 在 1.7 readiness gate 中把 migration 232 覆盖、全量兼容角色一致性和 role 双写状态作为 shadow/rbac 的强制前置检查。
+4. 实现 1.7b：提供专用 `role_authorization_mode` 管理入口，强制近期管理员认证（step-up）、expected-mode CAS、readiness 结果回显和事务内 durable audit；不得恢复通用 settings PUT 写入。
+5. 完成 1.7b 后进入 1.8：增加 ActorResolver，将管理员 JWT 映射为 User Actor、Admin API Key 映射为独立 Service Principal Actor，并补齐审计主体与幂等作用域。
 
 ## 阻塞与风险
 
 - 本机没有 Docker，带 `integration` tag 的 repository 测试无法获得 CI 等价覆盖；不带 `CI=1` 会静默跳过，禁止把它记录为通过。
 - 本地 `sub2api` 只是空测试实例，仅有 1 个管理员和 1 个平台默认分组；本地预检不能替代真实服务器只读报告。
 - Phase 0 的 credentials/extra 与自助出站文档均为 Review Ready、尚未 Accepted；这是开放自助托管前的硬阻塞。
-- fresh setup 缺失兼容角色的问题已修复，本地管理员也已由 migration 232 补齐；真实服务器仍必须在升级后通过 1.7 readiness gate 验证全量一致性。
+- fresh setup 缺失兼容角色的问题已修复，本地管理员也已由 migration 232 补齐；readiness core 已实现，但真实服务器仍必须在升级后通过未来 1.7b 专用入口验证全量一致性。
 - 分组名称唯一索引本切片不修改，先完成大小写和 Owner 范围冲突预检。
 - 1.6 scoped reader 已完成，但尚无 Actor Resolver、Handler 或 DI 接线；当前仍是 dark foundation，不能作为已开放的普通用户资源读取入口。
-- `role_authorization_mode` 当前没有运行时 consumer；进入 shadow/rbac 前必须由 1.7 的专用 transition/readiness gate 接管。
-- 通用管理员 settings PUT 跨多个服务不是单一数据库事务；新开关当前没有 consumer，因此不阻塞 dark launch，但需在 1.10 收口。
+- `role_authorization_mode` 当前没有授权 consumer；内部 transition/readiness 已实现但没有生产入口、step-up 或 durable audit，通用 settings PUT 又已被禁止写入，因此当前不得切换 mode。
+- RBAC transition 被 RoleService 硬拒绝；即使 1.7b 完成，也必须等待 Actor 和全部授权 consumer 迁移后才能解除，不能把 readiness core 记录成 RBAC 已交付。
+- 通用管理员 settings PUT 跨多个服务不是单一数据库事务；`role_authorization_mode` 已从该路径移除，其余新开关当前没有 consumer，因此不阻塞 dark launch，但需在 1.10 收口。
 
 ## 续作检查
 

@@ -502,6 +502,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if _, sent := sentFields["role_authorization_mode"]; sent &&
+		strings.TrimSpace(req.RoleAuthorizationMode) != previousSettings.RoleAuthorizationMode {
+		response.ErrorFrom(c, service.ErrRoleAuthorizationModeTransitionRequired)
+		return
+	}
 	previousAuthSourceDefaults, err := h.settingService.GetAuthSourceDefaultSettings(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)

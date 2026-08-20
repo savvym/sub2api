@@ -83,6 +83,30 @@ func TestUpdateSettingsFullPayloadStillClearsSentEmptyFields(t *testing.T) {
 		"an explicitly sent empty value is a deliberate clear, not an omission")
 }
 
+func TestUpdateSettingsRejectsRoleAuthorizationModeTransition(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
+		service.SettingKeyRoleAuthorizationMode: service.RoleAuthorizationModeLegacy,
+	})
+
+	rec := doUpdateSettings(t, h, map[string]any{
+		"role_authorization_mode": service.RoleAuthorizationModeShadow,
+	}, nil)
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Equal(t, service.RoleAuthorizationModeLegacy, repo.values[service.SettingKeyRoleAuthorizationMode])
+}
+
+func TestUpdateSettingsAcceptsUnchangedRoleAuthorizationModeWithoutWritingIt(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
+		service.SettingKeyRoleAuthorizationMode: service.RoleAuthorizationModeShadow,
+	})
+
+	rec := doUpdateSettings(t, h, map[string]any{
+		"role_authorization_mode": service.RoleAuthorizationModeShadow,
+	}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, service.RoleAuthorizationModeShadow, repo.values[service.SettingKeyRoleAuthorizationMode])
+}
+
 // smtp_from_email is the one request field whose JSON name differs from its
 // setting key; the alias keeps it from being treated as always-omitted.
 func TestUpdateSettingsSMTPFromAliasIsWritable(t *testing.T) {
