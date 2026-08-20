@@ -73,7 +73,7 @@ CI=1 go test -tags=integration ./internal/repository
 - 第二个验证命令：`SUB2API_UPGRADE_CHECK_DSN='postgres://.../sub2api_codex_upgrade_check_20260820?...' go test ./internal/repository -run '^TestTemporaryResourceAccessUpgradeFrom228$' -count=1 -v`，结果 PASS（1.47s）。一次性测试文件和数据库均已删除，`pg_database` 复查数量为 0。
 - 迁移专项还动态验证了 Grant XOR/访问级别/FK/部分唯一索引、版本/模式约束和 authz event 的 UPDATE/DELETE/TRUNCATE 拒绝。
 
-### 未完成门禁
+### 1.6a 当时未完成的门禁（已由下一节 1.6b 收口）
 
 - Docker/Testcontainers repository integration suite 未执行；必须在 CI 或有 Docker 的机器补跑。
 - 本地测试库已完成只读预检，但不是生产数据；仍需对真实服务器只读数据运行同一脚本。
@@ -205,3 +205,38 @@ PGOPTIONS='-c default_transaction_read_only=on' \
 - 1.6b 尚未将 Scope 接入真实帐号/分组 reader；因此搜索、排序、分页、total、聚合和 hydration 的端到端同范围约束仍不得标为通过。
 - 普通用户资源 DTO 尚未定义；管理员 Account DTO 包含 credentials/extra/proxy/调度字段，管理员 Group DTO 的 `account_count` 等聚合也可能跨可见帐号泄漏，均不得复用。
 - Actor Resolver、Handler/DI 接线及 `Unavailable -> 503` 仍属于后续切片；当前没有新增授权放行路径。
+
+## 2026-08-20 - Scoped Resource Reader（1.6b）
+
+### 实现范围
+
+- 新增独立 `ResourceReadService` 和 Account/Group scoped repository，不修改或复用现有管理员读取链。
+- 帐号/分组列表均以同一可信 SQL Scope 为首个 predicate，再应用业务筛选、Count、白名单稳定排序和分页；详情查询在同一 SQL 中合并 Scope 与资源 ID。
+- 不存在与不可见的详情统一返回既有 Account/Group not found，避免 ID 枚举；无效 Scope、查询、分页、排序和 ID 在访问数据库前 fail closed。
+- 帐号 SELECT 仅包含 id/name/platform/type/status/owner/public level/时间；分组 SELECT 仅增加 description。帐号凭证、extra、代理、错误、额度、调度和关系字段，以及分组帐号拓扑、计数、价格、利润和路由字段均不会被读取。
+- 普通 HTTP DTO 只序列化共享安全白名单；Owner ID 仅在进程内计算 `owned_by_me`，不会输出。Group 的 `account_count` 排序、聚合和 edge hydration 在本读取模型中显式拒绝，后续若开放必须使用独立 `account.view` Scope。
+- 查询归一化拒绝未知排序、超长/非法 UTF-8/控制字符筛选和会导致 `int` offset 溢出的极端分页，避免客户端输入在 scoped Count 后退化为数据库 500 或错误页。
+- 本切片不注册 Handler、路由或 DI，不开启 Feature Flag，不改变管理员或存量运行时行为。
+
+### 自动化与动态验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| `make -C backend test-unit` | 通过 |
+| `cd backend && go test -race ./internal/service ./internal/handler/dto -run '^(TestResourceRead)' -count=1` | 通过 |
+| scoped repository/authz scope 定向 race 测试 | 通过 |
+| `cd backend && go vet ./internal/service ./internal/repository ./internal/handler/dto` | 通过 |
+| `make -C backend build` | 通过 |
+| `npx --yes pnpm@9.15.9 run build`（frontend） | 通过；仅有既有 chunk/dynamic import 警告 |
+| `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
+| `git diff --check` | 通过 |
+| PostgreSQL 18.6 `TestScopedResourceReaderPostgres` | 通过 |
+| PostgreSQL 临时测试库残留检查 | 通过，残留数量为 0 |
+
+PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant、私有资源、严格过期 direct/role Grant、筛选后 total、稳定排序分页、不可见详情 not found、主体授权版本失效和窄字段 SELECT。Repository SQL 断言同时证明 Count 与页面查询均保留 Scope，且页面投影不含敏感列或未授权聚合列。
+
+### 后续门禁
+
+- Actor Resolver、Handler/DI 接线与 HTTP `Unavailable -> 503` 仍属于后续切片，当前没有新增普通用户授权放行路径。
+- 真实 Actor → opaque `AccessibleScope` → 公开 reader 的跨包贯通测试等待 1.8 Actor Resolver 提供唯一可信 Actor 构造路径；本切片不为测试暴露 Actor/Scope 后门。当前分别覆盖 Policy 生成的 Scope 契约、公开 service 调用契约和 PostgreSQL reader SQL 行为。
+- 自动完成、用量聚合和关系 hydration 尚未作为普通资源读取能力开放；实现时必须分别使用同一 Actor Scope，不能扩展当前 DTO 或复用管理员查询。

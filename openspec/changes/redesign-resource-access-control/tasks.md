@@ -17,9 +17,9 @@
 - [x] 1.4 新增 5 个默认关闭 Feature Flag 和 `role_authorization_mode=legacy`，验证缺失/错误时 fail closed。
 - [x] 1.5 新增 Actor、能力、动作、访问级别与稳定拒绝原因领域类型。
 - [x] 1.5a 修复 fresh setup 管理员兼容角色的事务性引导，并为已受影响实例增加幂等补偿迁移。
-- [ ] 1.6 实现 PolicyService 决策矩阵和 Repository SQL 可访问范围。
+- [x] 1.6 实现 PolicyService 决策矩阵和 Repository SQL 可访问范围。
 - [x] 1.6a 实现 PolicyService、可信 AccessibleScope、PolicyStore 和 Account/Group SQL scope predicate，并完成 PostgreSQL 动态验证。
-- [ ] 1.6b 将同一 SQL scope 接入帐号/分组 scoped reader，覆盖筛选、total、排序、分页、聚合与 hydration，且不复用管理员敏感 DTO。
+- [x] 1.6b 将同一 SQL scope 接入帐号/分组 scoped reader，覆盖筛选、total、排序和分页；聚合与 edge hydration 在普通读取模型中显式禁用，并使用独立窄字段 DTO，不复用管理员敏感 DTO。
 - [ ] 1.7 实现 RoleService，在 shadow 阶段原子双写旧角色、新角色、版本和失效事件。
 - [ ] 1.8 管理员 JWT 接入 User Actor，Admin API Key 接入独立 Service Principal Actor。
 - [ ] 1.9 帐号/分组管理员入口显式传 Actor，保持响应和行为不变。
