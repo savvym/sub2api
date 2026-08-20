@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1243,26 +1244,44 @@ func TestConfigAddressHelpers(t *testing.T) {
 		DBName:   "sub2api",
 		SSLMode:  "disable",
 	}
-	if !strings.Contains(dbCfg.DSN(), "password=") {
-	} else {
-		t.Fatalf("DatabaseConfig.DSN() should not include password when empty")
+	parsed, err := url.Parse(dbCfg.DSN())
+	if err != nil {
+		t.Fatalf("url.Parse(DatabaseConfig.DSN()) error = %v", err)
+	}
+	if _, passwordSet := parsed.User.Password(); passwordSet {
+		t.Fatal("DatabaseConfig.DSN() should omit an empty password")
+	}
+	if parsed.Path != "/sub2api" || parsed.Query().Get("sslmode") != "disable" {
+		t.Fatalf("DatabaseConfig.DSN() target = %q?%s", parsed.Path, parsed.RawQuery)
 	}
 
-	dbCfg.Password = "secret"
-	if !strings.Contains(dbCfg.DSN(), "password=secret") {
-		t.Fatalf("DatabaseConfig.DSN() missing password")
+	dbCfg.Password = "s ecr@t:/?#[]"
+	parsed, err = url.Parse(dbCfg.DSN())
+	if err != nil {
+		t.Fatalf("url.Parse(DatabaseConfig.DSN()) with password error = %v", err)
+	}
+	password, passwordSet := parsed.User.Password()
+	if !passwordSet || password != dbCfg.Password {
+		t.Fatalf("DatabaseConfig.DSN() password = %q (set %v), want %q", password, passwordSet, dbCfg.Password)
 	}
 
 	dbCfg.Password = ""
-	if strings.Contains(dbCfg.DSNWithTimezone("UTC"), "password=") {
-		t.Fatalf("DatabaseConfig.DSNWithTimezone() should omit password when empty")
+	parsed, err = url.Parse(dbCfg.DSNWithTimezone("UTC"))
+	if err != nil {
+		t.Fatalf("url.Parse(DatabaseConfig.DSNWithTimezone()) error = %v", err)
 	}
-
-	if !strings.Contains(dbCfg.DSNWithTimezone(""), "TimeZone=Asia/Shanghai") {
-		t.Fatalf("DatabaseConfig.DSNWithTimezone() should use default timezone")
+	if _, passwordSet := parsed.User.Password(); passwordSet {
+		t.Fatal("DatabaseConfig.DSNWithTimezone() should omit an empty password")
 	}
-	if !strings.Contains(dbCfg.DSNWithTimezone("UTC"), "TimeZone=UTC") {
-		t.Fatalf("DatabaseConfig.DSNWithTimezone() should use provided timezone")
+	if parsed.Query().Get("TimeZone") != "UTC" {
+		t.Fatalf("DatabaseConfig.DSNWithTimezone() timezone = %q, want UTC", parsed.Query().Get("TimeZone"))
+	}
+	defaultTimezoneDSN, err := url.Parse(dbCfg.DSNWithTimezone(""))
+	if err != nil {
+		t.Fatalf("url.Parse(default DatabaseConfig.DSNWithTimezone()) error = %v", err)
+	}
+	if defaultTimezoneDSN.Query().Get("TimeZone") != "Asia/Shanghai" {
+		t.Fatalf("default timezone = %q, want Asia/Shanghai", defaultTimezoneDSN.Query().Get("TimeZone"))
 	}
 
 	redis := RedisConfig{Host: "redis", Port: 6379}
@@ -1483,16 +1502,21 @@ func TestDatabaseDSNWithTimezone_WithPassword(t *testing.T) {
 		Host:     "localhost",
 		Port:     5432,
 		User:     "u",
-		Password: "p",
+		Password: "p@ss word:/?#[]",
 		DBName:   "db",
 		SSLMode:  "prefer",
 	}
 	got := d.DSNWithTimezone("UTC")
-	if !strings.Contains(got, "password=p") {
-		t.Fatalf("DSNWithTimezone should include password: %q", got)
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("url.Parse(DSNWithTimezone) error = %v", err)
 	}
-	if !strings.Contains(got, "TimeZone=UTC") {
-		t.Fatalf("DSNWithTimezone should include TimeZone=UTC: %q", got)
+	password, passwordSet := parsed.User.Password()
+	if !passwordSet || password != d.Password {
+		t.Fatalf("DSNWithTimezone password = %q (set %v), want %q", password, passwordSet, d.Password)
+	}
+	if parsed.Query().Get("TimeZone") != "UTC" {
+		t.Fatalf("DSNWithTimezone timezone = %q, want UTC", parsed.Query().Get("TimeZone"))
 	}
 }
 

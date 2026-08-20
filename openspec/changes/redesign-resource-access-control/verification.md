@@ -53,12 +53,13 @@
 | 门禁 | 证据 | 状态 |
 | --- | --- | --- |
 | 管理员与 `system_bootstrap/admin` 兼容角色同事务提交 | setup sqlmock 成功/静默缺种子回滚测试 + PostgreSQL 18.6 fresh 动态验证 | 通过 |
-| Web、CLI、AutoSetup 和多进程入口不会并发创建多个管理员 | `users` 数据库锁 + PostgreSQL 双并发初始化验证 | 通过 |
+| Web、CLI、AutoSetup 和多进程入口不会并发创建多个管理员 | 完整安装 advisory lock + `users` 事务锁 + PostgreSQL 双并发初始化验证 | 通过 |
+| 并发安装不会把 loser 的 JWT/config 与 winner 的管理员混合 | PostgreSQL/Redis 双 `Install` 动态验证：单一成功、config/JWT/admin/password 同源 | 通过 |
 | 重复 setup 不重复管理员或兼容 Grant | setup repeat 单测 + PostgreSQL repeat 动态验证 | 通过 |
 | 已应用 229 后才创建的用户可由 232 修复 | 232 与 229 收敛 SQL 等价 contract + 本地开发库动态验证 | 通过 |
 | 人工、其他 Service Principal 和其他角色 Grant 均保留 | 229/232 收敛边界 contract + migration integration 场景 | 通过 |
 | `users.role` 仍为权威且 mode 保持 `legacy` | PostgreSQL fresh 查询 + 未写 settings contract | 通过 |
-| 空密码/特殊字符不会改变目标数据库 | 结构化 PostgreSQL URL 单测 + 独立临时数据库 fresh 验证 | 通过 |
+| setup 与正常启动对空密码/特殊字符/时区使用同一目标数据库 | 统一结构化 PostgreSQL URL 单测 + 独立临时数据库 fresh/重启验证 | 通过 |
 
 ## 标准命令
 
