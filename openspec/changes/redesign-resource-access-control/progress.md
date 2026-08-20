@@ -4,10 +4,11 @@
 
 ## 当前状态
 
-- 当前阶段：Phase 0 安全基线 + Phase 1 dark schema foundation。
+- 当前阶段：Phase 0 安全评审 + Phase 1 权限领域契约。
 - 当前分支：`codex/resource-access-control-foundation`。
 - 基线提交：`58de21e70`（总体设计文档）。
-- 当前切片：1.1-1.4 已实现并完成本机验证，等待评审/提交。
+- Foundation 提交：`215536582`，已推送 `origin/codex/resource-access-control-foundation`。
+- 当前切片：0.4/0.5 静态审计已到 Review Ready，1.5 已实现并完成本机验证；Phase 0 尚未批准退出。
 - 当前权威行为：旧 `users.role` 与旧分组资格；不得启用任何新 ACL 放行。
 
 ## 已完成
@@ -21,23 +22,28 @@
 - 已为帐号/分组增加 Owner、creator、public level、access version/mode，并新增 typed Grant 与 append-only authz event。
 - 已同步 9 个 Ent Schema 和生成代码；存量表索引通过独立 `_notx` migration 并发创建。
 - 已新增 5 个默认关闭开关和 `role_authorization_mode=legacy`；缺失、读取失败或非法值均 fail closed。
+- 已将 credentials/extra 与自助出站安全清单补全为 Review Ready；仍需生产键名统计和安全/平台负责人批准。
+- 已在本地初始化库只读运行 `data-preflight.sql`，所有异常查询为 0；该空实例结果不能替代真实服务器数据预检。
+- 已新增独立 `internal/authz` 领域契约：可信 Actor、11 个能力、13 个动作、四级访问映射、typed provenance 和稳定拒绝类别。
 - 没有新增普通用户资源路由/UI，也没有将任何运行时授权切换到 ACL/RBAC。
 - OpenSpec 严格校验、后端完整单测/构建、前端完整测试/构建和 PostgreSQL 18 动态迁移验证通过。
 
 ## 下一步
 
-1. 评审并提交本切片；确认所有环境继续保持新开关关闭、角色模式为 legacy。
-2. 由平台/认证负责人完成 0.4 credentials/extra 清单和 0.5 自助平台/出站 allowlist 复核。
-3. 对真实只读数据运行 `data-preflight.sql`，记录异常角色、名称冲突、孤立关系和回填规模。
-4. 在 Docker/CI 环境执行 `CI=1 go test -tags=integration ./internal/repository` 严格门禁。
-5. 完成 Phase 0 退出评审后，下一切片从 1.5 Actor/领域类型和 1.6 PolicyService 开始；不得提前增加普通用户资源路由。
+1. 由平台/认证/安全负责人复核并批准 0.4 credentials/extra 清单和 0.5 自助平台/出站 allowlist。
+2. 对真实服务器只读数据运行 `data-preflight.sql`，记录异常角色、名称冲突、孤立关系和回填规模。
+3. 在 Docker/CI 环境执行 `CI=1 go test -tags=integration ./internal/repository` 严格门禁。
+4. 修复 fresh setup 管理员晚于迁移创建导致缺少兼容 `user_roles` 的路径，并纳入 1.7 readiness gate。
+5. 完成 Phase 0 退出评审后实现 1.6 PolicyService 与 SQL AccessibleScope；不得提前增加普通用户资源路由。
 
 ## 阻塞与风险
 
 - 本机没有 Docker，带 `integration` tag 的 repository 测试无法获得 CI 等价覆盖；不带 `CI=1` 会静默跳过，禁止把它记录为通过。
-- 当前本地 `sub2api` 数据库尚未初始化业务表，因此 `data-preflight.sql` 只完成编写，尚未形成真实数据报告。
-- Phase 0 的 credentials/extra 键族与自助出站 allowlist 仍需负责人复核；这是开放自助托管前的硬阻塞。
+- 本地 `sub2api` 只是空测试实例，仅有 1 个管理员和 1 个平台默认分组；本地预检不能替代真实服务器只读报告。
+- Phase 0 的 credentials/extra 与自助出站文档均为 Review Ready、尚未 Accepted；这是开放自助托管前的硬阻塞。
+- fresh setup 先执行迁移、后创建管理员，当前本地管理员没有兼容 `user_roles` 行；legacy 不受影响，但进入 shadow/rbac 前必须修复并验证。
 - 分组名称唯一索引本切片不修改，先完成大小写和 Owner 范围冲突预检。
+- 1.5 只有领域类型和测试，没有 Actor Resolver、Policy consumer 或授权放行路径；1.6 完成前不能作为权限边界使用。
 - `role_authorization_mode` 当前没有运行时 consumer；进入 shadow/rbac 前必须由 1.7 的专用 transition/readiness gate 接管。
 - 通用管理员 settings PUT 跨多个服务不是单一数据库事务；新开关当前没有 consumer，因此不阻塞 dark launch，但需在 1.10 收口。
 

@@ -76,5 +76,66 @@ CI=1 go test -tags=integration ./internal/repository
 ### 未完成门禁
 
 - Docker/Testcontainers repository integration suite 未执行；必须在 CI 或有 Docker 的机器补跑。
-- 当前本地业务库没有 `users` 表，`data-preflight.sql` 尚未对真实数据运行。
-- credentials/extra 清单和自助 outbound allowlist 尚待负责人复核，不得据此开放 Phase 2。
+- 本地测试库已完成只读预检，但不是生产数据；仍需对真实服务器只读数据运行同一脚本。
+- credentials/extra 与自助 outbound allowlist 已达到 Review Ready，尚待负责人批准，不得据此开放 Phase 2。
+
+### 提交与远程
+
+- 提交：`215536582`（`feat(authz): add resource access control foundation`）。
+- 远程：`origin/codex/resource-access-control-foundation`，已设置为当前分支 upstream。
+- 推送前再次通过 `git diff --check`、OpenSpec strict validate、`make -C backend test-unit` 和迁移/Ent/Repository 专项测试。
+
+## 2026-08-20 - Phase 0 本地数据预检
+
+执行命令：
+
+```bash
+PGOPTIONS='-c default_transaction_read_only=on' \
+  psql -X -v ON_ERROR_STOP=1 -P pager=off \
+  -h 127.0.0.1 -U sub2api -d sub2api \
+  -f openspec/changes/redesign-resource-access-control/data-preflight.sql
+```
+
+脚本以 `BEGIN TRANSACTION READ ONLY` 开始、`ROLLBACK` 结束，退出码 0。
+
+- legacy role：`admin=1`；异常或 NULL role 为 0。
+- 活动帐号/分组大小写重名、默认组重名、孤立 `user_allowed_groups` 和孤立 `account_groups` 均为 0。
+- 规模：users 1、active accounts 0、active groups 1、legacy group grants 0、account-group links 0、active API keys 0。
+- 229/230/231 已登记；4 roles、11 permissions、17 role_permissions、5 个并发索引和 append-only event schema 均存在。
+- 唯一分组是 platform-owned legacy 默认分组；Account/Group Grant 和授权事件均为空。
+- 6 个新 setting 没有物理行，runtime getter 仍按缺失值安全返回全 false 和 `legacy`。
+
+本地实例只有 setup 管理员和默认分组，异常为 0 只能证明脚本可执行与空实例基线干净，不能替代真实服务器数据门禁。
+
+预检发现 fresh setup 顺序缺口：迁移在管理员创建前完成，因此当前 admin 没有 `user_roles` 兼容行。legacy 模式不受影响；进入 shadow/rbac 前必须由 1.7 的 bootstrap/readiness 逻辑补齐并增加 fresh setup 测试。
+
+## 2026-08-20 - Phase 0 安全清单 Review Ready
+
+- `credential-inventory.md` 已覆盖 credentials/extra 键族、PostgreSQL/Redis/DTO/日志/导出/备份暴露面、JSONB/CAS/调度依赖和加密迁移批次。
+- `outbound-security.md` 已冻结 Review Ready 候选：首批仅考虑固定官方端点的 OpenAI/Anthropic/Gemini API Key；其他平台、OAuth、代理、自定义 URL/Header 和云凭证暂缓或禁止。
+- 两份文档均未标为 Accepted；生产键名统计、direct safe dialer、专用 DTO、Owner-bound OAuth、限频/配额、泄漏 canary 和负责人批准仍是硬门禁。
+
+## 2026-08-20 - Authorization Domain Contract（1.5）
+
+### 实现范围
+
+- 新增 `backend/internal/authz`，定义 User、Service Principal 与进程内 System Actor；Actor 状态和构造器均为包内，HTTP/业务包不能注入管理员、能力或版本快照。
+- 定义 11 个平台能力并用测试机械对照 migration 229 seed；未知能力 fail closed。
+- 定义 Account/Group 13 个原子动作、ResourceRef 和 viewer/consumer/maintainer/manager 固定映射；manager 不含 delete/transfer，public 只允许 viewer/consumer。
+- Decision 使用 typed provenance 保存 legacy admin、平台 capability、Owner、public、user Grant 或 role Grant 来源，以及 capability/grant/role ID。
+- 稳定拒绝原因分为 not_found、forbidden、unauthenticated、unavailable 和 invalid；资源不可见与可见但动作不足可区分。
+- 进程内 System Actor 没有 durable subject；任何写授权事件的 Worker 必须使用持久 Service Principal Actor。
+- 本切片不接 DI、路由、Repository 或 Policy consumer，不改变 legacy 行为，也不打开任何开关。
+
+### 自动化验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| `cd backend && go test ./internal/authz` | 通过 |
+| `cd backend && go test -race ./internal/authz` | 通过 |
+| `cd backend && go vet ./internal/authz` | 通过 |
+| `make -C backend test-unit` | 通过 |
+| `make -C backend build` | 通过 |
+| `git diff --check` | 通过 |
+
+独立安全审查提出的 Actor 可伪造、legacy admin 来源缺失、拒绝传输类别混淆、System Actor durable audit 和 provenance 不足问题已在本切片内修正。复审确认原 6 项均关闭、无残余 blocker；Phase 1.6/1.10 仍须落实事务内版本重校验、`Unavailable -> 503` 和 System Actor durable mutation 拒绝。
