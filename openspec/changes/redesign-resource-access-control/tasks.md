@@ -21,7 +21,7 @@
 - [x] 1.6a 实现 PolicyService、可信 AccessibleScope、PolicyStore 和 Account/Group SQL scope predicate，并完成 PostgreSQL 动态验证。
 - [x] 1.6b 将同一 SQL scope 接入帐号/分组 scoped reader，覆盖筛选、total、排序和分页；聚合与 edge hydration 在普通读取模型中显式禁用，并使用独立窄字段 DTO，不复用管理员敏感 DTO。
 - [x] 1.7a 实现 RoleService core：在 legacy/shadow 阶段原子维护 `users.role`、`system_bootstrap` 兼容 `user_roles`、`users.authz_version` 和 durable cache invalidation；补齐角色约束、readiness、RBAC 硬拒绝、通用 settings 写保护与生产 DI。
-- [ ] 1.7b 新增专用 `role_authorization_mode` 管理入口，强制 step-up authentication 和 durable audit；入口完成前不得宣称 1.7 完成或开放 shadow/rbac 切换。
+- [x] 1.7b 新增专用 GET read-only status/readiness 与 POST CAS transition 管理入口；POST 无条件要求 session-bound JWT TOTP step-up，拒绝 sid-less/未知 auth/Admin API Key，以固定事务内 durable audit 记录成功；失败仅进入现有异步 best-effort 尝试审计，RBAC 仍硬拒绝。
 - [ ] 1.8 管理员 JWT 接入 User Actor，Admin API Key 接入独立 Service Principal Actor。
 - [ ] 1.9 帐号/分组管理员入口显式传 Actor，保持响应和行为不变。
 - [ ] 1.10 把安全关键资源写、durable audit、Auth Outbox、Scheduler Outbox 纳入同一事务。

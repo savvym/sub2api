@@ -40,6 +40,9 @@ func RegisterAdminRoutes(
 		// 用户管理
 		registerUserManagementRoutes(admin, h)
 
+		// 授权模式管理
+		registerAuthorizationRoutes(admin, h)
+
 		// 分组管理
 		registerGroupRoutes(admin, h)
 
@@ -130,6 +133,14 @@ func RegisterAdminRoutes(
 
 		// 操作审计日志
 		registerAuditLogRoutes(admin, h, stepUpAuth)
+	}
+}
+
+func registerAuthorizationRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	authorization := admin.Group("/authorization")
+	{
+		authorization.GET("/role-mode", h.Admin.Authorization.GetRoleAuthorizationMode)
+		authorization.POST("/role-mode/transitions", h.Admin.Authorization.TransitionRoleAuthorizationMode)
 	}
 }
 

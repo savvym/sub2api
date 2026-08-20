@@ -152,6 +152,11 @@ func TestPasskeyLoginAuditUsesCanonicalLoginActionAndOmitsCredentialBody(t *test
 	require.Contains(t, auditBodyOmittedRoutes, route)
 }
 
+func TestRoleAuthorizationModeTransitionUsesStableAuditAction(t *testing.T) {
+	route := "POST /api/v1/admin/authorization/role-mode/transitions"
+	require.Equal(t, service.AuditActionRoleAuthorizationModeTransition, auditActionOverrides[route])
+}
+
 // Ollama 会话保存的请求体整体就是浏览器 Cookie 明文，键级脱敏清单曾漏掉裸键
 // "session"，必须走整体不入库路径，防止会话凭证长期留存在 audit_logs。
 func TestOllamaCloudUsageSessionRouteOmitsAuditBody(t *testing.T) {

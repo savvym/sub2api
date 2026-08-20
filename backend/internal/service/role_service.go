@@ -51,6 +51,8 @@ var (
 )
 
 const (
+	AuditActionRoleAuthorizationModeTransition = "admin.authorization.role_mode.transition"
+
 	RoleReadinessMigrationMissing                = "MIGRATION_MISSING"
 	RoleReadinessSystemRoleMissing               = "SYSTEM_ROLE_MISSING"
 	RoleReadinessBootstrapPrincipalMissing       = "BOOTSTRAP_PRINCIPAL_MISSING"
@@ -66,6 +68,7 @@ const (
 // RoleSubject is the narrow user projection needed by role-management commands.
 type RoleSubject struct {
 	ID           int64
+	Email        string
 	LegacyRole   string
 	Status       string
 	AuthzVersion int64
@@ -108,19 +111,41 @@ type RoleAuthorizationModeTransitionInput struct {
 	ActorUserID  int64
 	ExpectedMode string
 	TargetMode   string
+	AuditTrace   RoleAuthorizationModeAuditTrace
+}
+
+// RoleAuthorizationModeAuditTrace is the bounded request context persisted
+// with a successful authorization-mode transition.
+type RoleAuthorizationModeAuditTrace struct {
+	RequestID string
+	ClientIP  string
+	UserAgent string
 }
 
 type RoleAuthorizationModeTransitionResult struct {
-	PreviousMode string
-	CurrentMode  string
-	Changed      bool
-	Readiness    RoleAuthorizationReadiness
+	PreviousMode string                     `json:"previous_mode"`
+	CurrentMode  string                     `json:"current_mode"`
+	Changed      bool                       `json:"changed"`
+	Readiness    RoleAuthorizationReadiness `json:"readiness"`
 }
 
-// RoleRepository owns serialization, row locking and the compatibility-role writes.
-// Every method except WithRoleManagementTx must be called with the transaction
-// context supplied to its callback.
+// RoleAuthorizationModeStatus describes the only permitted next transition
+// and its readiness, evaluated from a stable database snapshot.
+type RoleAuthorizationModeStatus struct {
+	CurrentMode   string                     `json:"current_mode"`
+	TargetMode    string                     `json:"target_mode"`
+	Readiness     RoleAuthorizationReadiness `json:"readiness"`
+	CanTransition bool                       `json:"can_transition"`
+}
+
+// RoleRepository owns stable read snapshots plus serialization, row locking and
+// compatibility-role writes for commands. Repository methods must be called with
+// the context supplied by the matching snapshot/transaction callback.
 type RoleRepository interface {
+	WithRoleAuthorizationSnapshot(ctx context.Context, fn func(snapshotCtx context.Context) error) error
+	GetAuthorizationMode(ctx context.Context) (string, error)
+	ReadRoleSubjects(ctx context.Context, userIDs []int64) (map[int64]RoleSubject, error)
+	InspectAuthorizationReadinessSnapshot(ctx context.Context, targetMode string) (RoleAuthorizationReadiness, error)
 	WithRoleManagementTx(ctx context.Context, fn func(txCtx context.Context) error) error
 	GetAuthorizationModeForUpdate(ctx context.Context) (string, error)
 	LockRoleSubjects(ctx context.Context, userIDs []int64) (map[int64]RoleSubject, error)
@@ -128,6 +153,13 @@ type RoleRepository interface {
 	ReconcileLegacyRole(ctx context.Context, userID int64, expectedRole, desiredRole string) (LegacyRoleMutationResult, error)
 	InspectAuthorizationReadiness(ctx context.Context, targetMode string) (RoleAuthorizationReadiness, error)
 	SetAuthorizationMode(ctx context.Context, mode string) error
+	AppendAuthorizationModeTransitionAudit(
+		ctx context.Context,
+		actor RoleSubject,
+		previousMode string,
+		currentMode string,
+		trace RoleAuthorizationModeAuditTrace,
+	) error
 }
 
 // RoleService is the sole command path for legacy admin/user role changes and
@@ -138,6 +170,64 @@ type RoleService struct {
 
 func NewRoleService(repo RoleRepository) *RoleService {
 	return &RoleService{repo: repo}
+}
+
+// GetAuthorizationModeStatus returns the readiness of the only permitted next
+// hop (legacy -> shadow or shadow -> legacy). RBAC remains unavailable until
+// every authorization consumer has migrated.
+func (s *RoleService) GetAuthorizationModeStatus(
+	ctx context.Context,
+	actorUserID int64,
+) (RoleAuthorizationModeStatus, error) {
+	status := RoleAuthorizationModeStatus{
+		Readiness: RoleAuthorizationReadiness{Blockers: make([]RoleAuthorizationReadinessBlocker, 0)},
+	}
+	if s == nil || s.repo == nil {
+		return status, ErrRoleAuthorizationUnavailable
+	}
+	if actorUserID <= 0 {
+		return status, ErrRoleActorNotAuthorized
+	}
+
+	err := s.repo.WithRoleAuthorizationSnapshot(ctx, func(snapshotCtx context.Context) error {
+		currentRaw, getErr := s.repo.GetAuthorizationMode(snapshotCtx)
+		if getErr != nil {
+			return getErr
+		}
+		currentMode, valid := parseRoleAuthorizationMode(currentRaw)
+		if !valid {
+			return ErrRoleAuthorizationUnavailable.WithMetadata(map[string]string{"mode": currentRaw})
+		}
+		status.CurrentMode = currentMode
+
+		subjects, readErr := s.repo.ReadRoleSubjects(snapshotCtx, []int64{actorUserID})
+		if readErr != nil {
+			return readErr
+		}
+		actor, ok := subjects[actorUserID]
+		if !ok || actor.Deleted || actor.Status != StatusActive || actor.LegacyRole != RoleAdmin {
+			return ErrRoleActorNotAuthorized
+		}
+		if currentMode == RoleAuthorizationModeRBAC {
+			return ErrRBACConsumersNotMigrated
+		}
+
+		if currentMode == RoleAuthorizationModeLegacy {
+			status.TargetMode = RoleAuthorizationModeShadow
+		} else {
+			status.TargetMode = RoleAuthorizationModeLegacy
+		}
+		status.Readiness, getErr = s.repo.InspectAuthorizationReadinessSnapshot(snapshotCtx, status.TargetMode)
+		if getErr != nil {
+			return getErr
+		}
+		if status.Readiness.Blockers == nil {
+			status.Readiness.Blockers = make([]RoleAuthorizationReadinessBlocker, 0)
+		}
+		status.CanTransition = status.Readiness.Ready()
+		return nil
+	})
+	return status, err
 }
 
 // ChangeLegacyRole serializes role changes and lets the caller include adjacent
@@ -236,7 +326,9 @@ func (s *RoleService) TransitionAuthorizationMode(
 	ctx context.Context,
 	input RoleAuthorizationModeTransitionInput,
 ) (RoleAuthorizationModeTransitionResult, error) {
-	var result RoleAuthorizationModeTransitionResult
+	result := RoleAuthorizationModeTransitionResult{
+		Readiness: RoleAuthorizationReadiness{Blockers: make([]RoleAuthorizationReadinessBlocker, 0)},
+	}
 	if s == nil || s.repo == nil {
 		return result, ErrRoleAuthorizationUnavailable
 	}
@@ -279,6 +371,9 @@ func (s *RoleService) TransitionAuthorizationMode(
 			if getErr != nil {
 				return getErr
 			}
+			if result.Readiness.Blockers == nil {
+				result.Readiness.Blockers = make([]RoleAuthorizationReadinessBlocker, 0)
+			}
 		}
 
 		subjects, lockErr := s.repo.LockRoleSubjects(txCtx, []int64{input.ActorUserID})
@@ -309,8 +404,23 @@ func (s *RoleService) TransitionAuthorizationMode(
 		}
 		result.CurrentMode = targetMode
 		result.Changed = true
+		if auditErr := s.repo.AppendAuthorizationModeTransitionAudit(
+			txCtx,
+			actor,
+			currentMode,
+			targetMode,
+			input.AuditTrace,
+		); auditErr != nil {
+			return fmt.Errorf("append authorization mode transition audit: %w", auditErr)
+		}
 		return nil
 	})
+	if err != nil && result.Changed {
+		// SetAuthorizationMode and the durable audit share the repository
+		// transaction. Any audit or commit failure means no transition persisted.
+		result.CurrentMode = result.PreviousMode
+		result.Changed = false
+	}
 	return result, err
 }
 
