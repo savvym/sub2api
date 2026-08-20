@@ -253,7 +253,7 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 - Role management 使用 PostgreSQL transaction advisory lock，actor/target 按 ID 排序后取行锁；普通用户更新预先取得 `ROW EXCLUSIVE` 表锁再取用户行锁，readiness 预先取得 `SHARE` 表锁，从而固定锁顺序并避免 transition/update 锁升级死锁。
 - 内部 readiness 对 legacy→shadow 检查 migration 229/232/233、系统角色、active `system_bootstrap`、旧角色可映射性、兼容角色完整/无陈旧项及主体/角色版本；shadow→legacy 拒绝不能映射到 legacy admin 的 RBAC 权限与任何 active Service Principal role。
 - 通用 settings PUT 不再写 `role_authorization_mode`，直接修改会返回 guarded-transition 错误；内部 `TransitionAuthorizationMode` 仅允许 legacy↔shadow，任何涉及 RBAC 的 transition 都硬拒绝。
-- 本切片没有新增生产 mode transition Handler/CLI，也没有 step-up authentication 或 mode transition durable audit。`TransitionAuthorizationMode` 只是内部 service/repository core，因此完整 1.7 仍未完成，1.7b 必须单独交付；RBAC 也未交付。
+- 1.7a 交付时尚无生产 mode transition Handler/CLI、step-up authentication 或 mode transition durable audit，`TransitionAuthorizationMode` 仅为内部 service/repository core；这些缺口现由下节 1.7b 代码收口，RBAC 仍未交付。
 - 没有打开任何 Feature Flag、没有新增普通用户资源路由，当前授权权威和 `role_authorization_mode=legacy` 行为保持不变。
 
 ### 自动化与动态验证
@@ -272,8 +272,39 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 | 本机 PostgreSQL 18.6 自动封禁/管理员提升竞态场景 | 通过；最终保持 active admin |
 | PostgreSQL 临时测试库与临时 harness 改动残留检查 | 通过，均已删除 |
 
-### 未完成门禁
+### 1.7a 结束时的未完成门禁
 
-- 1.7b 必须提供独立、可授权的 mode transition 管理入口，验证近期管理员认证（step-up），以 expected mode 做 CAS，回显 readiness blockers，并在 mode 更新同一事务内写 durable audit；在此之前不得通过通用 settings API 或数据库手工切换。
+- 1.7b 管理入口、step-up、CAS/readiness 和事务内 durable audit 的代码缺口已由下一节收口；当前验证状态以 1.7b 记录为准。
 - RBAC transition 必须继续硬拒绝，直到 1.8 Actor Resolver 及全部授权 consumer 迁移完成；legacy↔shadow readiness 通过不等于 RBAC 可用。
 - 本机 PostgreSQL 18.6 动态验证已完成，但 Docker/Testcontainers repository integration suite 仍未执行；必须在 CI 或有 Docker 的机器运行 `CI=1 go test -tags=integration ./internal/repository`，不得把本机临时 harness 记录为 CI 等价门禁。
+
+## 2026-08-20 - Role Authorization Mode Management（1.7b）
+
+### 实现范围
+
+- 新增管理员认证后的 `GET /api/v1/admin/authorization/role-mode`，通过 read-only repeatable-read snapshot 返回 `current_mode`、唯一允许的 `target_mode`、稳定数组形式的 readiness blockers 和 `can_transition`；GET 不取得 command advisory/表锁、不执行 step-up，也不写 mode。
+- 新增 `POST /api/v1/admin/authorization/role-mode/transitions`，请求体只允许非空 `expected_mode`/`target_mode`，拒绝未知字段、尾随 JSON 和请求内 actor；actor 只取认证上下文，RoleService 以 expected mode 做 CAS。
+- POST 在解析和事务之前调用 session-bound TOTP step-up gate，不读取全局 step-up 开关；只接受具有非空 session ID 和近期 TOTP grant 的 JWT 管理员。Admin API Key 返回 `STEP_UP_ADMIN_API_KEY_FORBIDDEN`，未知认证方式与 sid-less legacy JWT 也在读取用户/grant 前 fail closed，均不进入 RoleService transaction。
+- 成功 transition 在设置 mode 的同一 RoleRepository transaction 中直接写 `audit_logs`：固定 action `admin.authorization.role_mode.transition`、POST path、JWT auth method、actor user/email/role 快照、request ID/client IP/user agent，以及 previous/current mode。审计 insert 或 commit 失败时 mode 更新一起回滚。
+- 成功变更后 handler 调用 `SkipAudit`，避免事务内成功记录与通用 AuditLog middleware 重复；CAS conflict、readiness blocker、请求错误和依赖失败不设置 skip，仍进入现有异步 middleware 的 best-effort 尝试审计。该失败路径可能在队列满、服务停止或批量写失败时丢失，不作为 durable 审计承诺。
+- GET/POST 路由、AuthorizationHandler 和 RoleService/TOTP/UserService 依赖已接入生产 Wire；通用 settings PUT 仍不能写 `role_authorization_mode`。
+- 入口只允许 legacy↔shadow。GET 遇到 RBAC mode、POST expected/target 涉及 RBAC 均返回 `RBAC_CONSUMERS_NOT_MIGRATED`；1.7b 没有交付 RBAC consumer 或启用 RBAC。
+- 当前代码没有新增 mode 管理 UI，也没有切换本地/生产 mode；权威行为仍为 `legacy`。
+
+### 当前已通过验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| RoleService、AuthorizationHandler、authorization routes 与 audit action 聚焦 unit tests | 通过；覆盖 read-only GET、strict POST、session-bound JWT step-up、sid-less/未知 auth/Admin API Key 拒绝、CAS、trace、SkipAudit/失败 best-effort eligibility 和 audit failure rollback contract |
+| 1.7b 相关 service/handler/routes/middleware/repository 包 `go vet` | 通过 |
+| `make -C backend build` | 通过 |
+| production Wire 生成/依赖图与编译 | 通过；AuthorizationHandler 已注入 AdminHandlers |
+| `make -C backend test-unit` | 通过 |
+| OpenSpec strict validate | 通过；`redesign-resource-access-control` valid |
+| 本机 PostgreSQL 18.6 role mode 场景 | 通过；read-only GET 不阻塞持有中的 user write、成功 audit 恰好一条、audit trigger 失败时 mode 回滚 |
+| 本地 HTTP 烟测 | 通过；未认证/无 TOTP/Admin API Key 拒绝、`blockers: []`、legacy↔shadow、409 CAS 与两条成功 durable audit；结束后恢复 legacy fallback 并清理测试状态 |
+| `git diff --check` | 通过 |
+
+### 剩余外部验证
+
+- Docker/Testcontainers repository integration suite 仍待 CI 或有 Docker 的机器执行；本机没有 Docker。

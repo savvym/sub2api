@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -16,6 +17,11 @@ import (
 
 const roleManagementAdvisoryLockID int64 = 0x7375623261706937
 
+const (
+	roleAuthorizationModeTransitionAuditMethod = "POST"
+	roleAuthorizationModeTransitionAuditPath   = "/api/v1/admin/authorization/role-mode/transitions"
+)
+
 var roleManagementProcessLock sync.Mutex
 
 type roleRepository struct {
@@ -25,6 +31,33 @@ type roleRepository struct {
 
 func NewRoleRepository(client *dbent.Client, sqlDB *sql.DB) service.RoleRepository {
 	return &roleRepository{client: client, sql: sqlDB}
+}
+
+func (r *roleRepository) WithRoleAuthorizationSnapshot(ctx context.Context, fn func(snapshotCtx context.Context) error) error {
+	if r == nil || r.client == nil || fn == nil {
+		return service.ErrRoleAuthorizationUnavailable
+	}
+	if dbent.TxFromContext(ctx) != nil {
+		return fn(ctx)
+	}
+
+	tx, err := r.client.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelRepeatableRead,
+		ReadOnly:  true,
+	})
+	if errors.Is(err, dbent.ErrTxStarted) {
+		return fn(ctx)
+	}
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	snapshotCtx := dbent.NewTxContext(ctx, tx)
+	if err := fn(snapshotCtx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *roleRepository) WithRoleManagementTx(ctx context.Context, fn func(txCtx context.Context) error) error {
@@ -77,12 +110,23 @@ func (r *roleRepository) acquireRoleManagementLock(ctx context.Context) error {
 }
 
 func (r *roleRepository) GetAuthorizationModeForUpdate(ctx context.Context) (string, error) {
+	return r.getAuthorizationMode(ctx, true)
+}
+
+func (r *roleRepository) GetAuthorizationMode(ctx context.Context) (string, error) {
+	return r.getAuthorizationMode(ctx, false)
+}
+
+func (r *roleRepository) getAuthorizationMode(ctx context.Context, forUpdate bool) (string, error) {
 	client := clientFromContext(ctx, r.client)
-	rows, err := client.QueryContext(ctx, `
+	query := `
 SELECT value
 FROM settings
-WHERE key = $1
-FOR UPDATE`, service.SettingKeyRoleAuthorizationMode)
+WHERE key = $1`
+	if forUpdate {
+		query += " FOR UPDATE"
+	}
+	rows, err := client.QueryContext(ctx, query, service.SettingKeyRoleAuthorizationMode)
 	if err != nil {
 		return "", err
 	}
@@ -104,21 +148,36 @@ FOR UPDATE`, service.SettingKeyRoleAuthorizationMode)
 }
 
 func (r *roleRepository) LockRoleSubjects(ctx context.Context, userIDs []int64) (map[int64]service.RoleSubject, error) {
+	return r.readRoleSubjects(ctx, userIDs, true)
+}
+
+func (r *roleRepository) ReadRoleSubjects(ctx context.Context, userIDs []int64) (map[int64]service.RoleSubject, error) {
+	return r.readRoleSubjects(ctx, userIDs, false)
+}
+
+func (r *roleRepository) readRoleSubjects(
+	ctx context.Context,
+	userIDs []int64,
+	forUpdate bool,
+) (map[int64]service.RoleSubject, error) {
 	client := clientFromContext(ctx, r.client)
 	ids := uniqueSortedInt64s(userIDs)
 	result := make(map[int64]service.RoleSubject, len(ids))
 	for _, userID := range ids {
-		rows, err := client.QueryContext(ctx, `
-SELECT id, role, status, authz_version, deleted_at IS NOT NULL
+		query := `
+SELECT id, email, role, status, authz_version, deleted_at IS NOT NULL
 FROM users
-WHERE id = $1
-FOR UPDATE`, userID)
+WHERE id = $1`
+		if forUpdate {
+			query += " FOR UPDATE"
+		}
+		rows, err := client.QueryContext(ctx, query, userID)
 		if err != nil {
 			return nil, err
 		}
 		if rows.Next() {
 			var subject service.RoleSubject
-			if err := rows.Scan(&subject.ID, &subject.LegacyRole, &subject.Status, &subject.AuthzVersion, &subject.Deleted); err != nil {
+			if err := rows.Scan(&subject.ID, &subject.Email, &subject.LegacyRole, &subject.Status, &subject.AuthzVersion, &subject.Deleted); err != nil {
 				_ = rows.Close()
 				return nil, err
 			}
@@ -346,9 +405,26 @@ WHERE user_id = $1
 }
 
 func (r *roleRepository) InspectAuthorizationReadiness(ctx context.Context, targetMode string) (service.RoleAuthorizationReadiness, error) {
-	var readiness service.RoleAuthorizationReadiness
+	return r.inspectAuthorizationReadiness(ctx, targetMode, true)
+}
+
+func (r *roleRepository) InspectAuthorizationReadinessSnapshot(
+	ctx context.Context,
+	targetMode string,
+) (service.RoleAuthorizationReadiness, error) {
+	return r.inspectAuthorizationReadiness(ctx, targetMode, false)
+}
+
+func (r *roleRepository) inspectAuthorizationReadiness(
+	ctx context.Context,
+	targetMode string,
+	lockTables bool,
+) (service.RoleAuthorizationReadiness, error) {
+	readiness := service.RoleAuthorizationReadiness{
+		Blockers: make([]service.RoleAuthorizationReadinessBlocker, 0),
+	}
 	client := clientFromContext(ctx, r.client)
-	if client.Driver().Dialect() == dialect.Postgres {
+	if lockTables && client.Driver().Dialect() == dialect.Postgres {
 		if _, err := client.ExecContext(ctx, `
 LOCK TABLE users, user_roles, roles, permissions, role_permissions, service_principals, service_principal_roles IN SHARE MODE`); err != nil {
 			return readiness, err
@@ -484,6 +560,66 @@ VALUES ($1, $2, NOW())
 ON CONFLICT (key) DO UPDATE
 SET value = EXCLUDED.value,
     updated_at = EXCLUDED.updated_at`, service.SettingKeyRoleAuthorizationMode, mode)
+	return err
+}
+
+func (r *roleRepository) AppendAuthorizationModeTransitionAudit(
+	ctx context.Context,
+	actor service.RoleSubject,
+	previousMode string,
+	currentMode string,
+	trace service.RoleAuthorizationModeAuditTrace,
+) error {
+	if actor.ID <= 0 || actor.Deleted || actor.Status != service.StatusActive || actor.LegacyRole != service.RoleAdmin {
+		return service.ErrRoleActorNotAuthorized
+	}
+	validTransition := (previousMode == service.RoleAuthorizationModeLegacy && currentMode == service.RoleAuthorizationModeShadow) ||
+		(previousMode == service.RoleAuthorizationModeShadow && currentMode == service.RoleAuthorizationModeLegacy)
+	if !validTransition {
+		return service.ErrRoleAuthorizationModeTransitionRequired
+	}
+
+	extra, err := json.Marshal(struct {
+		PreviousMode string `json:"previous_mode"`
+		CurrentMode  string `json:"current_mode"`
+	}{
+		PreviousMode: previousMode,
+		CurrentMode:  currentMode,
+	})
+	if err != nil {
+		return fmt.Errorf("encode authorization mode transition audit: %w", err)
+	}
+
+	client := clientFromContext(ctx, r.client)
+	_, err = client.ExecContext(ctx, `
+INSERT INTO audit_logs (
+    actor_user_id,
+    actor_email,
+    actor_role,
+    auth_method,
+    action,
+    method,
+    path,
+    request_id,
+    client_ip,
+    user_agent,
+    status_code,
+    extra
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)`,
+		actor.ID,
+		truncateString(actor.Email, 255),
+		service.RoleAdmin,
+		service.AuditAuthMethodJWT,
+		service.AuditActionRoleAuthorizationModeTransition,
+		roleAuthorizationModeTransitionAuditMethod,
+		roleAuthorizationModeTransitionAuditPath,
+		truncateString(trace.RequestID, 64),
+		truncateString(trace.ClientIP, 64),
+		truncateString(trace.UserAgent, 512),
+		200,
+		string(extra),
+	)
 	return err
 }
 

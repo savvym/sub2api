@@ -12,7 +12,7 @@
 - Fresh Setup Compatibility Bootstrap 提交：`4505b0301`，已推送同一远程分支。
 - Policy 与 SQL Scope Foundation 提交：`75b6582c2`，已推送同一远程分支。
 - Scoped Resource Reader 提交：`af49971aa`，已推送同一远程分支。
-- 当前切片：0.4/0.5 静态审计已到 Review Ready；1.7a RoleService core 已实现并完成本机验证，1.7b 专用 step-up + durable audit mode transition 管理入口尚未实现；完整 1.7 与 RBAC 均未交付，Phase 0 尚未批准退出。
+- 当前切片：0.4/0.5 静态审计已到 Review Ready；1.7a/1.7b 已完成完整单测、构建、OpenSpec、本地 HTTP 与 PostgreSQL 动态门禁，专用 mode status/readiness 与 guarded transition API 已接入生产 Wire；下一开发切片为 1.8 ActorResolver。RBAC 未交付，Phase 0 尚未批准退出。
 - 当前权威行为：旧 `users.role` 与旧分组资格；不得启用任何新 ACL 放行。
 
 ## 已完成
@@ -44,28 +44,31 @@
 - legacy/shadow 角色变更在同一 PostgreSQL 事务中维护 `users.role`、兼容 `user_roles`、`users.authz_version` 与 API Key 缓存失效 Outbox；migration 233 补齐了纯授权版本变化的 durable invalidation。
 - 角色约束覆盖 active admin actor、expected-role CAS、自我降级、最后一个 active admin、disabled 用户提升和角色/状态竞态；事务 advisory lock、稳定行锁顺序及 readiness 表锁顺序已通过真实并发验证。
 - 内部 readiness/transition 状态机已检查 migration 229/232/233、系统角色、bootstrap principal、兼容角色一致性和版本；shadow 回 legacy 额外拒绝不可映射的 RBAC admin 与 Service Principal 角色，任何 RBAC transition 仍硬拒绝。
-- 通用 settings PUT 已禁止修改 `role_authorization_mode`，RoleService 已接入生产 Wire；但内部 `TransitionAuthorizationMode` 尚无生产管理入口、step-up authentication 或 durable audit，因此 1.7 仍未完成且当前 mode 保持 `legacy`。
+- 已新增专用 `GET /api/v1/admin/authorization/role-mode`，返回当前 mode、唯一允许的下一跳、稳定数组形式的 readiness blockers 与 `can_transition`；该只读入口使用 PostgreSQL read-only repeatable-read snapshot，不取得角色 command advisory/表锁，不要求 step-up，也不修改 mode。
+- 已新增严格 payload 的 `POST /api/v1/admin/authorization/role-mode/transitions`，以认证上下文中的管理员和 `expected_mode` 执行 CAS；入口无条件要求近期、带非空 session ID 的 JWT TOTP step-up，不受全局 step-up 开关影响，并拒绝 Admin API Key、未知认证方式和 sid-less legacy JWT。
+- 成功 transition 在 mode 更新同一 PostgreSQL 事务内写固定 action/method/path、JWT actor 快照和 previous/current mode durable audit；审计写入失败会回滚 mode。成功后 `SkipAudit` 避免中间件重复记录；CAS/readiness/请求/依赖失败不 skip，交由现有异步 AuditLog middleware 做 best-effort 尝试审计，不宣称失败记录 durable。
+- 通用 settings PUT 继续禁止修改 `role_authorization_mode`；新 GET/POST 路由、AuthorizationHandler 和依赖已接入生产 Wire。只允许 legacy↔shadow，任何涉及 RBAC 的 status/transition 仍硬拒绝。
 - 没有新增普通用户资源路由/UI，也没有将任何运行时授权切换到 ACL/RBAC。
-- OpenSpec 严格校验、后端完整单测/构建、前端构建，以及 PostgreSQL 18.6 migration 233、RoleRepository 与角色/状态竞态动态验证通过。
+- 1.7b 已通过完整 `make -C backend test-unit`、相关包 vet、backend build、Wire 编译、OpenSpec strict validate 与 diff check；本机 PostgreSQL 18.6 动态覆盖 GET 非阻塞 snapshot、成功 durable audit 恰好一条及 audit insert 失败原子回滚。
+- 本地 HTTP 已验证未认证拒绝、GET readiness 的 `blockers: []`、未启用 TOTP 拒绝、Admin API Key 拒绝、成功 legacy→shadow→legacy、expected-mode 409 conflict 和两条成功 durable audit；烟测结束后 mode setting、TOTP、临时 Admin API Key、审计记录与临时测试库均恢复/删除。
 
 ## 下一步
 
 1. 由平台/认证/安全负责人复核并批准 0.4 credentials/extra 清单和 0.5 自助平台/出站 allowlist。
 2. 对真实服务器只读数据运行 `data-preflight.sql`，记录异常角色、名称冲突、孤立关系和回填规模。
 3. 在 Docker/CI 环境执行 `CI=1 go test -tags=integration ./internal/repository` 严格门禁。
-4. 实现 1.7b：提供专用 `role_authorization_mode` 管理入口，强制近期管理员认证（step-up）、expected-mode CAS、readiness 结果回显和事务内 durable audit；不得恢复通用 settings PUT 写入。
-5. 完成 1.7b 后进入 1.8：增加 ActorResolver，将管理员 JWT 映射为 User Actor、Admin API Key 映射为独立 Service Principal Actor，并补齐审计主体与幂等作用域。
+4. 下一开发切片进入 1.8：增加 ActorResolver，将管理员 JWT 映射为 User Actor、Admin API Key 映射为独立 Service Principal Actor，并补齐审计主体与幂等作用域。
 
 ## 阻塞与风险
 
 - 本机没有 Docker，带 `integration` tag 的 repository 测试无法获得 CI 等价覆盖；不带 `CI=1` 会静默跳过，禁止把它记录为通过。
 - 本地 `sub2api` 只是空测试实例，仅有 1 个管理员和 1 个平台默认分组；本地预检不能替代真实服务器只读报告。
 - Phase 0 的 credentials/extra 与自助出站文档均为 Review Ready、尚未 Accepted；这是开放自助托管前的硬阻塞。
-- fresh setup 缺失兼容角色的问题已修复，本地管理员也已由 migration 232 补齐；readiness core 已实现，但真实服务器仍必须在升级后通过未来 1.7b 专用入口验证全量一致性。
+- fresh setup 缺失兼容角色的问题已修复，本地管理员也已由 migration 232 补齐；真实服务器升级后仍必须通过专用 GET status/readiness 入口验证全量一致性。
 - 分组名称唯一索引本切片不修改，先完成大小写和 Owner 范围冲突预检。
 - 1.6 scoped reader 已完成，但尚无 Actor Resolver、Handler 或 DI 接线；当前仍是 dark foundation，不能作为已开放的普通用户资源读取入口。
-- `role_authorization_mode` 当前没有授权 consumer；内部 transition/readiness 已实现但没有生产入口、step-up 或 durable audit，通用 settings PUT 又已被禁止写入，因此当前不得切换 mode。
-- RBAC transition 被 RoleService 硬拒绝；即使 1.7b 完成，也必须等待 Actor 和全部授权 consumer 迁移后才能解除，不能把 readiness core 记录成 RBAC 已交付。
+- `role_authorization_mode` 当前仍没有授权 consumer；专用入口和 1.7b 动态门禁已完成，但部署环境仍必须先运行 readiness，且在 consumer 迁移前保持 `legacy`。本地烟测已恢复为缺失 setting 的 legacy fallback。
+- 1.7b 没有解除 RBAC 硬拒绝；必须等待 1.8 ActorResolver 和全部授权 consumer 迁移后才能另行开放，不能把 legacy↔shadow 管理入口记录成 RBAC 已交付。
 - 通用管理员 settings PUT 跨多个服务不是单一数据库事务；`role_authorization_mode` 已从该路径移除，其余新开关当前没有 consumer，因此不阻塞 dark launch，但需在 1.10 收口。
 
 ## 续作检查

@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 )
 
 type roleServiceTxContextKey struct{}
+type roleServiceSnapshotContextKey struct{}
 
 type roleRepositoryFake struct {
 	mode       string
@@ -26,13 +28,20 @@ type roleRepositoryFake struct {
 	setMode         string
 	readinessTarget string
 	callOrder       []string
+	auditActor      RoleSubject
+	auditFrom       string
+	auditTo         string
+	auditTrace      RoleAuthorizationModeAuditTrace
+	auditErr        error
 
+	snapshotCalls  int
 	txCalls        int
 	lockCalls      int
 	countCalls     int
 	reconcileCalls int
 	readinessCalls int
 	setModeCalls   int
+	auditCalls     int
 }
 
 func newRoleRepositoryFake() *roleRepositoryFake {
@@ -41,6 +50,7 @@ func newRoleRepositoryFake() *roleRepositoryFake {
 		subjects: map[int64]RoleSubject{
 			1: {
 				ID:         1,
+				Email:      "admin@example.com",
 				LegacyRole: RoleAdmin,
 				Status:     StatusActive,
 			},
@@ -55,9 +65,53 @@ func (f *roleRepositoryFake) requireTx(ctx context.Context) {
 	}
 }
 
+func (f *roleRepositoryFake) requireSnapshot(ctx context.Context) {
+	if ctx.Value(roleServiceSnapshotContextKey{}) != true {
+		panic("role repository method called outside authorization snapshot")
+	}
+}
+
+func (f *roleRepositoryFake) WithRoleAuthorizationSnapshot(ctx context.Context, fn func(context.Context) error) error {
+	f.snapshotCalls++
+	return fn(context.WithValue(ctx, roleServiceSnapshotContextKey{}, true))
+}
+
+func (f *roleRepositoryFake) GetAuthorizationMode(ctx context.Context) (string, error) {
+	f.requireSnapshot(ctx)
+	return f.mode, nil
+}
+
+func (f *roleRepositoryFake) ReadRoleSubjects(ctx context.Context, userIDs []int64) (map[int64]RoleSubject, error) {
+	f.requireSnapshot(ctx)
+	f.callOrder = append(f.callOrder, "read_subjects")
+	result := make(map[int64]RoleSubject, len(userIDs))
+	for _, userID := range userIDs {
+		if subject, ok := f.subjects[userID]; ok {
+			result[userID] = subject
+		}
+	}
+	return result, nil
+}
+
+func (f *roleRepositoryFake) InspectAuthorizationReadinessSnapshot(
+	ctx context.Context,
+	targetMode string,
+) (RoleAuthorizationReadiness, error) {
+	f.requireSnapshot(ctx)
+	f.readinessCalls++
+	f.readinessTarget = targetMode
+	f.callOrder = append(f.callOrder, "readiness_snapshot")
+	return f.readiness, nil
+}
+
 func (f *roleRepositoryFake) WithRoleManagementTx(ctx context.Context, fn func(context.Context) error) error {
 	f.txCalls++
-	return fn(context.WithValue(ctx, roleServiceTxContextKey{}, true))
+	modeBefore := f.mode
+	err := fn(context.WithValue(ctx, roleServiceTxContextKey{}, true))
+	if err != nil {
+		f.mode = modeBefore
+	}
+	return err
 }
 
 func (f *roleRepositoryFake) GetAuthorizationModeForUpdate(ctx context.Context) (string, error) {
@@ -106,7 +160,25 @@ func (f *roleRepositoryFake) SetAuthorizationMode(ctx context.Context, mode stri
 	f.setModeCalls++
 	f.setMode = mode
 	f.mode = mode
+	f.callOrder = append(f.callOrder, "set_mode")
 	return nil
+}
+
+func (f *roleRepositoryFake) AppendAuthorizationModeTransitionAudit(
+	ctx context.Context,
+	actor RoleSubject,
+	previousMode string,
+	currentMode string,
+	trace RoleAuthorizationModeAuditTrace,
+) error {
+	f.requireTx(ctx)
+	f.auditCalls++
+	f.auditActor = actor
+	f.auditFrom = previousMode
+	f.auditTo = currentMode
+	f.auditTrace = trace
+	f.callOrder = append(f.callOrder, "audit")
+	return f.auditErr
 }
 
 func TestRoleService_ChangeLegacyRole_ActiveAdminCanPromoteUser(t *testing.T) {
@@ -333,7 +405,94 @@ func TestRoleService_RBACHardStop(t *testing.T) {
 		require.ErrorIs(t, err, ErrRBACConsumersNotMigrated)
 		require.Zero(t, repo.txCalls)
 		require.Zero(t, repo.setModeCalls)
+		require.Zero(t, repo.auditCalls)
 	})
+}
+
+func TestRoleService_GetAuthorizationModeStatus_ReturnsNextHopReadiness(t *testing.T) {
+	tests := []struct {
+		name       string
+		mode       string
+		readiness  RoleAuthorizationReadiness
+		targetMode string
+		canChange  bool
+	}{
+		{
+			name:       "legacy to shadow ready",
+			mode:       RoleAuthorizationModeLegacy,
+			readiness:  RoleAuthorizationReadiness{Blockers: []RoleAuthorizationReadinessBlocker{}},
+			targetMode: RoleAuthorizationModeShadow,
+			canChange:  true,
+		},
+		{
+			name: "shadow to legacy blocked",
+			mode: RoleAuthorizationModeShadow,
+			readiness: RoleAuthorizationReadiness{Blockers: []RoleAuthorizationReadinessBlocker{
+				{Code: RoleReadinessServicePrincipalRoleUnmappable, Count: 2},
+			}},
+			targetMode: RoleAuthorizationModeLegacy,
+			canChange:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newRoleRepositoryFake()
+			repo.mode = tt.mode
+			repo.readiness = tt.readiness
+			svc := NewRoleService(repo)
+
+			status, err := svc.GetAuthorizationModeStatus(context.Background(), 1)
+
+			require.NoError(t, err)
+			require.Equal(t, RoleAuthorizationModeStatus{
+				CurrentMode:   tt.mode,
+				TargetMode:    tt.targetMode,
+				Readiness:     tt.readiness,
+				CanTransition: tt.canChange,
+			}, status)
+			require.Equal(t, tt.targetMode, repo.readinessTarget)
+			require.Equal(t, []string{"read_subjects", "readiness_snapshot"}, repo.callOrder)
+			require.Equal(t, 1, repo.snapshotCalls)
+			require.Zero(t, repo.txCalls)
+			require.Zero(t, repo.setModeCalls)
+			require.Zero(t, repo.auditCalls)
+		})
+	}
+}
+
+func TestRoleService_GetAuthorizationModeStatus_RequiresActiveAdmin(t *testing.T) {
+	repo := newRoleRepositoryFake()
+	repo.subjects[1] = RoleSubject{ID: 1, Email: "user@example.com", LegacyRole: RoleUser, Status: StatusActive}
+	svc := NewRoleService(repo)
+
+	_, err := svc.GetAuthorizationModeStatus(context.Background(), 1)
+
+	require.ErrorIs(t, err, ErrRoleActorNotAuthorized)
+	require.Equal(t, []string{"read_subjects"}, repo.callOrder)
+	require.Equal(t, 1, repo.snapshotCalls)
+	require.Zero(t, repo.txCalls)
+	require.Zero(t, repo.readinessCalls)
+	require.Zero(t, repo.setModeCalls)
+	require.Zero(t, repo.auditCalls)
+}
+
+func TestRoleService_GetAuthorizationModeStatus_RBACHardStop(t *testing.T) {
+	repo := newRoleRepositoryFake()
+	repo.mode = RoleAuthorizationModeRBAC
+	svc := NewRoleService(repo)
+
+	status, err := svc.GetAuthorizationModeStatus(context.Background(), 1)
+
+	require.ErrorIs(t, err, ErrRBACConsumersNotMigrated)
+	require.Equal(t, RoleAuthorizationModeRBAC, status.CurrentMode)
+	require.Empty(t, status.TargetMode)
+	require.False(t, status.CanTransition)
+	require.Equal(t, []string{"read_subjects"}, repo.callOrder)
+	require.Equal(t, 1, repo.snapshotCalls)
+	require.Zero(t, repo.txCalls)
+	require.Zero(t, repo.readinessCalls)
+	require.Zero(t, repo.auditCalls)
 }
 
 func TestRoleService_TransitionAuthorizationMode_LegacyToShadowRequiresReadiness(t *testing.T) {
@@ -361,16 +520,23 @@ func TestRoleService_TransitionAuthorizationMode_LegacyToShadowRequiresReadiness
 		require.Equal(t, RoleAuthorizationModeShadow, repo.readinessTarget)
 		require.Equal(t, []string{"readiness", "lock_subjects"}, repo.callOrder)
 		require.Zero(t, repo.setModeCalls)
+		require.Zero(t, repo.auditCalls)
 	})
 
 	t.Run("ready", func(t *testing.T) {
 		repo := newRoleRepositoryFake()
 		svc := NewRoleService(repo)
 
+		trace := RoleAuthorizationModeAuditTrace{
+			RequestID: "request-123",
+			ClientIP:  "203.0.113.7",
+			UserAgent: "role-mode-test",
+		}
 		result, err := svc.TransitionAuthorizationMode(context.Background(), RoleAuthorizationModeTransitionInput{
 			ActorUserID:  1,
 			ExpectedMode: RoleAuthorizationModeLegacy,
 			TargetMode:   RoleAuthorizationModeShadow,
+			AuditTrace:   trace,
 		})
 
 		require.NoError(t, err)
@@ -378,13 +544,18 @@ func TestRoleService_TransitionAuthorizationMode_LegacyToShadowRequiresReadiness
 			PreviousMode: RoleAuthorizationModeLegacy,
 			CurrentMode:  RoleAuthorizationModeShadow,
 			Changed:      true,
-			Readiness:    RoleAuthorizationReadiness{},
+			Readiness:    RoleAuthorizationReadiness{Blockers: []RoleAuthorizationReadinessBlocker{}},
 		}, result)
 		require.Equal(t, 1, repo.readinessCalls)
 		require.Equal(t, RoleAuthorizationModeShadow, repo.readinessTarget)
-		require.Equal(t, []string{"readiness", "lock_subjects"}, repo.callOrder)
+		require.Equal(t, []string{"readiness", "lock_subjects", "set_mode", "audit"}, repo.callOrder)
 		require.Equal(t, 1, repo.setModeCalls)
 		require.Equal(t, RoleAuthorizationModeShadow, repo.setMode)
+		require.Equal(t, 1, repo.auditCalls)
+		require.Equal(t, repo.subjects[1], repo.auditActor)
+		require.Equal(t, RoleAuthorizationModeLegacy, repo.auditFrom)
+		require.Equal(t, RoleAuthorizationModeShadow, repo.auditTo)
+		require.Equal(t, trace, repo.auditTrace)
 	})
 }
 
@@ -410,6 +581,7 @@ func TestRoleService_TransitionAuthorizationMode_ShadowToLegacyRequiresReadiness
 		require.Equal(t, RoleAuthorizationModeLegacy, repo.readinessTarget)
 		require.Equal(t, []string{"readiness", "lock_subjects"}, repo.callOrder)
 		require.Zero(t, repo.setModeCalls)
+		require.Zero(t, repo.auditCalls)
 	})
 
 	t.Run("ready", func(t *testing.T) {
@@ -428,8 +600,9 @@ func TestRoleService_TransitionAuthorizationMode_ShadowToLegacyRequiresReadiness
 		require.Equal(t, RoleAuthorizationModeShadow, result.PreviousMode)
 		require.Equal(t, RoleAuthorizationModeLegacy, result.CurrentMode)
 		require.Equal(t, RoleAuthorizationModeLegacy, repo.readinessTarget)
-		require.Equal(t, []string{"readiness", "lock_subjects"}, repo.callOrder)
+		require.Equal(t, []string{"readiness", "lock_subjects", "set_mode", "audit"}, repo.callOrder)
 		require.Equal(t, RoleAuthorizationModeLegacy, repo.setMode)
+		require.Equal(t, 1, repo.auditCalls)
 	})
 }
 
@@ -454,4 +627,49 @@ func TestRoleService_TransitionAuthorizationMode_UsesExpectedModeCAS(t *testing.
 	require.Equal(t, RoleAuthorizationModeShadow, result.CurrentMode)
 	require.Zero(t, repo.readinessCalls)
 	require.Zero(t, repo.setModeCalls)
+	require.Zero(t, repo.auditCalls)
+}
+
+func TestRoleService_TransitionAuthorizationMode_RequiresActiveAdmin(t *testing.T) {
+	repo := newRoleRepositoryFake()
+	repo.subjects[1] = RoleSubject{ID: 1, Email: "user@example.com", LegacyRole: RoleUser, Status: StatusActive}
+	svc := NewRoleService(repo)
+
+	result, err := svc.TransitionAuthorizationMode(context.Background(), RoleAuthorizationModeTransitionInput{
+		ActorUserID:  1,
+		ExpectedMode: RoleAuthorizationModeLegacy,
+		TargetMode:   RoleAuthorizationModeShadow,
+	})
+
+	require.ErrorIs(t, err, ErrRoleActorNotAuthorized)
+	require.False(t, result.Changed)
+	require.Equal(t, RoleAuthorizationModeLegacy, result.PreviousMode)
+	require.Equal(t, RoleAuthorizationModeLegacy, result.CurrentMode)
+	require.Zero(t, repo.setModeCalls)
+	require.Zero(t, repo.auditCalls)
+}
+
+func TestRoleService_TransitionAuthorizationMode_AuditFailureRollsBackTransition(t *testing.T) {
+	auditFailure := errors.New("audit insert rejected")
+	repo := newRoleRepositoryFake()
+	repo.auditErr = auditFailure
+	svc := NewRoleService(repo)
+
+	result, err := svc.TransitionAuthorizationMode(context.Background(), RoleAuthorizationModeTransitionInput{
+		ActorUserID:  1,
+		ExpectedMode: RoleAuthorizationModeLegacy,
+		TargetMode:   RoleAuthorizationModeShadow,
+		AuditTrace: RoleAuthorizationModeAuditTrace{
+			RequestID: "rollback-request",
+		},
+	})
+
+	require.ErrorIs(t, err, auditFailure)
+	require.False(t, result.Changed)
+	require.Equal(t, RoleAuthorizationModeLegacy, result.PreviousMode)
+	require.Equal(t, RoleAuthorizationModeLegacy, result.CurrentMode)
+	require.Equal(t, RoleAuthorizationModeLegacy, repo.mode)
+	require.Equal(t, []string{"readiness", "lock_subjects", "set_mode", "audit"}, repo.callOrder)
+	require.Equal(t, 1, repo.setModeCalls)
+	require.Equal(t, 1, repo.auditCalls)
 }

@@ -74,7 +74,7 @@
 | Owner/public/direct/role Grant、严格到期边界、Count 与分页使用同一 predicate | PostgreSQL Account/Group Scope 动态测试 | 通过 |
 | 真实 scoped reader 的筛选、排序、total、分页、聚合/hydration 禁用和窄 DTO | 1.6b repository/service/DTO 单测 + PostgreSQL 18.6 动态测试 | 通过 |
 
-## RoleService Core 门禁（1.7a）
+## RoleService 与 Mode Management 门禁（1.7a-1.7b）
 
 | 门禁 | 证据 | 状态 |
 | --- | --- | --- |
@@ -86,8 +86,13 @@
 | 所有生产用户创建路径事务内补 `system_bootstrap` 兼容角色 | UserRepository create integration 场景 | 通过 |
 | legacy→shadow readiness 检查 229/232/233、系统角色/bootstrap、兼容角色与版本；shadow→legacy 检查不可映射 RBAC admin/Service Principal 角色 | RoleService contract + PostgreSQL 18.6 readiness/mode 动态测试 | 通过 |
 | 通用 settings PUT 不能改变 mode，内部 transition 仅允许 legacy↔shadow，任何 RBAC transition 硬拒绝 | settings handler/service contract + RoleService transition tests | 通过 |
-| 专用生产 mode transition 入口强制 step-up authentication、readiness 回显和事务内 durable audit | 1.7b API/service/repository/security tests | 待实现 |
-| CI/Testcontainers RoleRepository integration | `CI=1 go test -tags=integration ./internal/repository` | 待实现（本机 PostgreSQL 18.6 动态验证已完成，但本机无 Docker） |
+| 专用 GET 返回 current/next mode、数组 blockers 与 `can_transition`，使用 read-only repeatable-read snapshot 且不阻塞用户写 | RoleService unit + PostgreSQL 18.6 并发动态场景 + HTTP smoke | 通过 |
+| 专用 POST 使用 strict payload 和 expected-mode CAS，无条件要求带 session ID 的 JWT TOTP step-up，拒绝 sid-less/未知 auth/Admin API Key，RBAC 仍硬拒绝 | AuthorizationHandler/step-up/RoleService unit + HTTP smoke | 通过 |
+| mode 更新与固定成功 durable audit 使用同一 repository transaction；audit 失败必须回滚 mode，单次成功恰好一条 | RoleService contract + PostgreSQL 18.6 durable audit/trigger rollback 场景 | 通过 |
+| 成功 transition 调用 `SkipAudit` 避免重复；失败不 skip，仅进入现有异步 middleware best-effort 尝试审计，不承诺 durable | AuthorizationHandler + AuditLog middleware 聚焦 unit | 通过 |
+| 当前 1.7b 工作区完整后端 unit 与 OpenSpec strict validate | `make -C backend test-unit` + `openspec validate ... --strict` | 通过 |
+| 本地 HTTP 验证 GET、JWT TOTP step-up、Admin API Key 拒绝、CAS、成功审计与清理恢复 | 本地开发环境 API/数据库烟测 | 通过；结束时为 legacy fallback，临时状态已清理 |
+| CI/Testcontainers RoleRepository integration | `CI=1 go test -tags=integration ./internal/repository` | 待实现（本机 PostgreSQL 18.6 动态验证通过；本机无 Docker） |
 
 ## 标准命令
 

@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -61,6 +62,54 @@ func TestEnforceStepUpRejectsAdminAPIKey(t *testing.T) {
 	require.True(t, c.IsAborted())
 	require.Equal(t, http.StatusForbidden, rec.Code)
 	require.Contains(t, rec.Body.String(), "STEP_UP_ADMIN_API_KEY_FORBIDDEN")
+}
+
+func TestEnforceSessionBoundStepUpAlwaysRejectsAdminAPIKeyWithStableReason(t *testing.T) {
+	c, rec := newStepUpTestContext(t)
+	c.Set("auth_method", service.AuditAuthMethodAdminAPIKey)
+
+	ok := EnforceSessionBoundStepUpAlways(c, nil, nil)
+
+	require.False(t, ok)
+	require.True(t, c.IsAborted())
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Contains(t, rec.Body.String(), "STEP_UP_ADMIN_API_KEY_FORBIDDEN")
+}
+
+func TestEnforceSessionBoundStepUpAlwaysRequiresJWTAuthMethod(t *testing.T) {
+	for _, authMethod := range []string{"", "future_auth_method"} {
+		t.Run(authMethod, func(t *testing.T) {
+			c, rec := newStepUpTestContext(t)
+			c.Set("auth_method", authMethod)
+			c.Set(string(ContextKeyUser), AuthSubject{UserID: 1})
+			c.Set(ContextKeySessionID, "session-1")
+
+			ok := EnforceSessionBoundStepUpAlways(c, nil, nil)
+
+			require.False(t, ok)
+			require.True(t, c.IsAborted())
+			require.Equal(t, http.StatusUnauthorized, rec.Code)
+			require.Contains(t, rec.Body.String(), "UNAUTHORIZED")
+		})
+	}
+}
+
+func TestEnforceSessionBoundStepUpAlwaysRejectsJWTWithoutSessionID(t *testing.T) {
+	for _, sessionID := range []string{"", "   "} {
+		t.Run(fmt.Sprintf("session_%q", sessionID), func(t *testing.T) {
+			c, rec := newStepUpTestContext(t)
+			c.Set("auth_method", service.AuditAuthMethodJWT)
+			c.Set(string(ContextKeyUser), AuthSubject{UserID: 1})
+			c.Set(ContextKeySessionID, sessionID)
+
+			ok := EnforceSessionBoundStepUpAlways(c, nil, nil)
+
+			require.False(t, ok)
+			require.True(t, c.IsAborted())
+			require.Equal(t, http.StatusUnauthorized, rec.Code)
+			require.Contains(t, rec.Body.String(), "STEP_UP_SESSION_REQUIRED")
+		})
+	}
 }
 
 func TestEnforceStepUpRequiresAuthSubject(t *testing.T) {

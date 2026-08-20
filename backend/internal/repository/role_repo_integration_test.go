@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,6 +21,10 @@ import (
 )
 
 var roleIntegrationSequence uint64
+
+const (
+	roleIntegrationModeAuditPath = "/api/v1/admin/authorization/role-mode/transitions"
+)
 
 type roleIntegrationLockIdentity struct {
 	pid                int
@@ -275,7 +280,15 @@ func TestRoleRepository_ReadinessAndModeTransitions(t *testing.T) {
 	userRepo := NewUserRepository(integrationEntClient, integrationDB)
 	roleService := service.NewRoleService(NewRoleRepository(integrationEntClient, integrationDB))
 	actor := createRoleIntegrationUser(t, userRepo, service.RoleAdmin, "transition-actor")
+	registerRoleIntegrationAuditCleanup(t, actor.ID)
 	subject := createRoleIntegrationUser(t, userRepo, service.RoleUser, "transition-subject")
+
+	status, err := roleService.GetAuthorizationModeStatus(ctx, actor.ID)
+	require.NoError(t, err)
+	require.Equal(t, service.RoleAuthorizationModeLegacy, status.CurrentMode)
+	require.Equal(t, service.RoleAuthorizationModeShadow, status.TargetMode)
+	require.True(t, status.CanTransition)
+	require.NotNil(t, status.Readiness.Blockers)
 
 	toShadow, err := roleService.TransitionAuthorizationMode(ctx, service.RoleAuthorizationModeTransitionInput{
 		ActorUserID:  actor.ID,
@@ -285,6 +298,7 @@ func TestRoleRepository_ReadinessAndModeTransitions(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, toShadow.Changed)
 	require.True(t, toShadow.Readiness.Ready())
+	require.NotNil(t, toShadow.Readiness.Blockers)
 	require.Equal(t, service.RoleAuthorizationModeShadow, roleIntegrationMode(t))
 
 	toLegacy, err := roleService.TransitionAuthorizationMode(ctx, service.RoleAuthorizationModeTransitionInput{
@@ -332,6 +346,205 @@ WHERE ur.user_id = $1
 	require.Equal(t, service.RoleAuthorizationModeLegacy, roleIntegrationMode(t))
 }
 
+func TestRoleRepository_ModeTransitionWritesDurableAudit(t *testing.T) {
+	ctx := context.Background()
+	forceRoleIntegrationMode(t, service.RoleAuthorizationModeLegacy)
+
+	userRepo := NewUserRepository(integrationEntClient, integrationDB)
+	roleService := service.NewRoleService(NewRoleRepository(integrationEntClient, integrationDB))
+	actor := createRoleIntegrationUser(t, userRepo, service.RoleAdmin, "transition-audit-actor")
+	registerRoleIntegrationAuditCleanup(t, actor.ID)
+
+	trace := service.RoleAuthorizationModeAuditTrace{
+		RequestID: strings.Repeat("r", 80),
+		ClientIP:  strings.Repeat("1", 80),
+		UserAgent: strings.Repeat("u", 600),
+	}
+	result, err := roleService.TransitionAuthorizationMode(ctx, service.RoleAuthorizationModeTransitionInput{
+		ActorUserID:  actor.ID,
+		ExpectedMode: service.RoleAuthorizationModeLegacy,
+		TargetMode:   service.RoleAuthorizationModeShadow,
+		AuditTrace:   trace,
+	})
+	require.NoError(t, err)
+	require.True(t, result.Changed)
+	require.Equal(t, service.RoleAuthorizationModeShadow, roleIntegrationMode(t))
+
+	var actorUserID int64
+	var actorEmail string
+	var actorRole string
+	var authMethod string
+	var action string
+	var method string
+	var path string
+	var requestID string
+	var clientIP string
+	var userAgent string
+	var statusCode int
+	var extra string
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+SELECT actor_user_id,
+       actor_email,
+       actor_role,
+       auth_method,
+       action,
+       method,
+       path,
+       request_id,
+       client_ip,
+       user_agent,
+       status_code,
+       extra::text
+FROM audit_logs
+WHERE actor_user_id = $1
+  AND action = $2
+ORDER BY id DESC
+LIMIT 1`, actor.ID, service.AuditActionRoleAuthorizationModeTransition).Scan(
+		&actorUserID,
+		&actorEmail,
+		&actorRole,
+		&authMethod,
+		&action,
+		&method,
+		&path,
+		&requestID,
+		&clientIP,
+		&userAgent,
+		&statusCode,
+		&extra,
+	))
+	require.Equal(t, actor.ID, actorUserID)
+	require.Equal(t, actor.Email, actorEmail)
+	require.Equal(t, service.RoleAdmin, actorRole)
+	require.Equal(t, service.AuditAuthMethodJWT, authMethod)
+	require.Equal(t, service.AuditActionRoleAuthorizationModeTransition, action)
+	require.Equal(t, "POST", method)
+	require.Equal(t, roleIntegrationModeAuditPath, path)
+	require.Equal(t, strings.Repeat("r", 64), requestID)
+	require.Equal(t, strings.Repeat("1", 64), clientIP)
+	require.Equal(t, strings.Repeat("u", 512), userAgent)
+	require.Equal(t, 200, statusCode)
+	require.JSONEq(t, `{"previous_mode":"legacy","current_mode":"shadow"}`, extra)
+
+	var auditCount int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM audit_logs
+WHERE actor_user_id = $1
+  AND action = $2`, actor.ID, service.AuditActionRoleAuthorizationModeTransition).Scan(&auditCount))
+	require.Equal(t, int64(1), auditCount)
+}
+
+func TestRoleRepository_ModeTransitionAuditFailureRollsBackMode(t *testing.T) {
+	ctx := context.Background()
+	forceRoleIntegrationMode(t, service.RoleAuthorizationModeLegacy)
+
+	userRepo := NewUserRepository(integrationEntClient, integrationDB)
+	roleService := service.NewRoleService(NewRoleRepository(integrationEntClient, integrationDB))
+	actor := createRoleIntegrationUser(t, userRepo, service.RoleAdmin, "transition-audit-failure-actor")
+	registerRoleIntegrationAuditCleanup(t, actor.ID)
+
+	suffix := nextRoleIntegrationSuffix()
+	functionName := fmt.Sprintf("role_mode_audit_failure_%d", suffix)
+	triggerName := fmt.Sprintf("role_mode_audit_failure_%d", suffix)
+	_, err := integrationDB.ExecContext(ctx, fmt.Sprintf(`
+CREATE FUNCTION %s()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NEW.action = '%s' AND NEW.request_id = 'force-role-mode-audit-failure' THEN
+        RAISE EXCEPTION 'forced role mode audit failure';
+    END IF;
+    RETURN NEW;
+END;
+$$`, pq.QuoteIdentifier(functionName), service.AuditActionRoleAuthorizationModeTransition))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, cleanupErr := integrationDB.ExecContext(context.Background(), fmt.Sprintf(
+			"DROP FUNCTION IF EXISTS %s()",
+			pq.QuoteIdentifier(functionName),
+		))
+		require.NoError(t, cleanupErr)
+	})
+	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf(`
+CREATE TRIGGER %s
+BEFORE INSERT ON audit_logs
+FOR EACH ROW
+EXECUTE FUNCTION %s()`, pq.QuoteIdentifier(triggerName), pq.QuoteIdentifier(functionName)))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, cleanupErr := integrationDB.ExecContext(context.Background(), fmt.Sprintf(
+			"DROP TRIGGER IF EXISTS %s ON audit_logs",
+			pq.QuoteIdentifier(triggerName),
+		))
+		require.NoError(t, cleanupErr)
+	})
+
+	result, err := roleService.TransitionAuthorizationMode(ctx, service.RoleAuthorizationModeTransitionInput{
+		ActorUserID:  actor.ID,
+		ExpectedMode: service.RoleAuthorizationModeLegacy,
+		TargetMode:   service.RoleAuthorizationModeShadow,
+		AuditTrace: service.RoleAuthorizationModeAuditTrace{
+			RequestID: "force-role-mode-audit-failure",
+		},
+	})
+	require.Error(t, err)
+	require.False(t, result.Changed)
+	require.Equal(t, service.RoleAuthorizationModeLegacy, result.PreviousMode)
+	require.Equal(t, service.RoleAuthorizationModeLegacy, result.CurrentMode)
+	require.Equal(t, service.RoleAuthorizationModeLegacy, roleIntegrationMode(t))
+
+	var auditCount int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM audit_logs
+WHERE actor_user_id = $1
+  AND action = $2
+  AND request_id = 'force-role-mode-audit-failure'`, actor.ID, service.AuditActionRoleAuthorizationModeTransition).Scan(&auditCount))
+	require.Zero(t, auditCount)
+}
+
+func TestRoleRepository_ModeStatusSnapshotDoesNotBlockUserWrites(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	forceRoleIntegrationMode(t, service.RoleAuthorizationModeLegacy)
+
+	userRepo := NewUserRepository(integrationEntClient, integrationDB)
+	roleService := service.NewRoleService(NewRoleRepository(integrationEntClient, integrationDB))
+	actor := createRoleIntegrationUser(t, userRepo, service.RoleAdmin, "status-snapshot-actor")
+
+	writer, err := integrationDB.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = writer.Rollback() })
+	_, err = writer.ExecContext(ctx, `
+UPDATE users
+SET username = username
+WHERE id = $1`, actor.ID)
+	require.NoError(t, err)
+
+	type statusOutcome struct {
+		status service.RoleAuthorizationModeStatus
+		err    error
+	}
+	statusDone := make(chan statusOutcome, 1)
+	go func() {
+		status, statusErr := roleService.GetAuthorizationModeStatus(ctx, actor.ID)
+		statusDone <- statusOutcome{status: status, err: statusErr}
+	}()
+
+	select {
+	case outcome := <-statusDone:
+		require.NoError(t, outcome.err)
+		require.Equal(t, service.RoleAuthorizationModeLegacy, outcome.status.CurrentMode)
+		require.Equal(t, service.RoleAuthorizationModeShadow, outcome.status.TargetMode)
+		require.True(t, outcome.status.CanTransition)
+	case <-time.After(2 * time.Second):
+		t.Fatal("read-only mode status snapshot blocked behind a user write")
+	}
+	require.NoError(t, writer.Rollback())
+}
+
 func TestRoleRepository_ModeTransitionDoesNotDeadlockWithUserUpdate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -340,6 +553,7 @@ func TestRoleRepository_ModeTransitionDoesNotDeadlockWithUserUpdate(t *testing.T
 	userRepo := NewUserRepository(integrationEntClient, integrationDB)
 	roleService := service.NewRoleService(NewRoleRepository(integrationEntClient, integrationDB))
 	actor := createRoleIntegrationUser(t, userRepo, service.RoleAdmin, "transition-update-actor")
+	registerRoleIntegrationAuditCleanup(t, actor.ID)
 	newEmail := fmt.Sprintf("transition-update-%d@example.com", nextRoleIntegrationSuffix())
 
 	// Hold the email advisory lock so UserRepository.Update pauses after taking
@@ -553,6 +767,17 @@ SELECT COUNT(*)
 FROM auth_cache_invalidation_outbox
 WHERE cache_key = $1`, cacheKey).Scan(&count))
 	return count
+}
+
+func registerRoleIntegrationAuditCleanup(t *testing.T, actorUserID int64) {
+	t.Helper()
+	t.Cleanup(func() {
+		_, err := integrationDB.ExecContext(context.Background(), `
+DELETE FROM audit_logs
+WHERE actor_user_id = $1
+  AND action = $2`, actorUserID, service.AuditActionRoleAuthorizationModeTransition)
+		require.NoError(t, err)
+	})
 }
 
 func forceRoleIntegrationMode(t *testing.T, mode string) {
