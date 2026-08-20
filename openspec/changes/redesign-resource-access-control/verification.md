@@ -61,6 +61,19 @@
 | `users.role` 仍为权威且 mode 保持 `legacy` | PostgreSQL fresh 查询 + 未写 settings contract | 通过 |
 | setup 与正常启动对空密码/特殊字符/时区使用同一目标数据库 | 统一结构化 PostgreSQL URL 单测 + 独立临时数据库 fresh/重启验证 | 通过 |
 
+## Policy 与 SQL Scope Foundation 门禁
+
+| 门禁 | 证据 | 状态 |
+| --- | --- | --- |
+| capability/create/resource Policy 矩阵默认拒绝且 provenance 稳定 | `internal/authz` 表驱动测试 | 通过 |
+| PolicyStore 在数据库时间读取主体、角色、能力、开关、资源和有效 Grant | sqlmock contract + PostgreSQL 18.6 动态测试 | 通过 |
+| 空/缺失/非法 snapshot fail closed | PolicyStore decode 与领域构造测试 | 通过 |
+| legacy/shadow `group.use` 不被 ACL 结果混入 | PolicyService authorization-mode 测试 | 通过 |
+| Scope 绑定精确资源/动作并重校验主体、角色、能力和开关 | Scope contract、SQL plan 与 stale-version 动态测试 | 通过 |
+| Account/Group Ent predicate 在 PostgreSQL 正确编号参数 | 外层 filter + Scope 动态执行测试 | 通过 |
+| Owner/public/direct/role Grant、严格到期边界、Count 与分页使用同一 predicate | PostgreSQL Account/Group Scope 动态测试 | 通过 |
+| 真实 scoped reader 的筛选、排序、total、聚合、hydration 和窄 DTO | 1.6b repository/service/handler 测试 | 待实现 |
+
 ## 标准命令
 
 ```bash

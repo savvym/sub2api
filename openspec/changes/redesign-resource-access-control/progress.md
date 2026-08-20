@@ -4,13 +4,13 @@
 
 ## 当前状态
 
-- 当前阶段：Phase 0 安全评审 + Phase 1 权限领域契约。
+- 当前阶段：Phase 0 安全评审 + Phase 1 Policy/SQL Scope 基础。
 - 当前分支：`codex/resource-access-control-foundation`。
 - 基线提交：`58de21e70`（总体设计文档）。
 - Foundation 提交：`215536582`，已推送 `origin/codex/resource-access-control-foundation`。
 - Authorization Domain Contract 提交：`0d66334c9`，已推送同一远程分支。
 - Fresh Setup Compatibility Bootstrap 提交：`4505b0301`，已推送同一远程分支。
-- 当前切片：0.4/0.5 静态审计已到 Review Ready，1.5 与 fresh setup 兼容角色引导已实现并完成本机验证；Phase 0 尚未批准退出。
+- 当前切片：0.4/0.5 静态审计已到 Review Ready；1.6a PolicyService、PolicyStore、可信 AccessibleScope 与 Account/Group SQL predicate 已实现并完成本机验证；1.6b scoped reader 尚未接入，Phase 0 尚未批准退出。
 - 当前权威行为：旧 `users.role` 与旧分组资格；不得启用任何新 ACL 放行。
 
 ## 已完成
@@ -32,6 +32,9 @@
 - setup 的 PostgreSQL 连接统一改为结构化 URL，修复空密码会吞掉后续 `dbname`、从而迁移到默认数据库的问题。
 - Web、CLI 与 AutoSetup 已统一经过完整安装 advisory lock；同数据库的并发安装只有锁持有者可以创建管理员和写入配置，AutoSetup 不再维护重复流程。
 - setup 与正常启动共用结构化 PostgreSQL DSN，实现空密码、特殊字符密码和时区参数的一致解析。
+- 已新增 PolicyService 的 capability/create/resource 判定矩阵、稳定 provenance、Feature Flag 紧急关闭语义，以及 legacy/shadow group.use 单一权威保护。
+- 已新增 PostgreSQL PolicyStore 与不可伪造 AccessibleScope；Account/Group view predicate 在 SQL 内重校验主体版本、角色版本、能力快照和当前开关，并覆盖 Owner、public、直接用户 Grant、角色 Grant与严格到期边界。
+- Ent predicate 已在 PostgreSQL 18.6 动态验证外层参数编号、筛选、Count、分页和 stale-version fail closed；没有把未受 Scope 约束的资源加载进 Go 再过滤。
 - 没有新增普通用户资源路由/UI，也没有将任何运行时授权切换到 ACL/RBAC。
 - OpenSpec 严格校验、后端完整单测/构建、前端完整测试/构建和 PostgreSQL 18 动态迁移验证通过。
 
@@ -40,7 +43,7 @@
 1. 由平台/认证/安全负责人复核并批准 0.4 credentials/extra 清单和 0.5 自助平台/出站 allowlist。
 2. 对真实服务器只读数据运行 `data-preflight.sql`，记录异常角色、名称冲突、孤立关系和回填规模。
 3. 在 Docker/CI 环境执行 `CI=1 go test -tags=integration ./internal/repository` 严格门禁。
-4. 完成 Phase 0 退出评审后实现 1.6 PolicyService 与 SQL AccessibleScope；不得提前增加普通用户资源路由。
+4. 完成 1.6b scoped reader：同一 SQL Scope 必须先于筛选、Count、排序、分页、聚合和 hydration；使用专用窄字段投影，不得复用管理员 Account/Group DTO。
 5. 在 1.7 readiness gate 中把 migration 232 覆盖、全量兼容角色一致性和 role 双写状态作为 shadow/rbac 的强制前置检查。
 
 ## 阻塞与风险
@@ -50,7 +53,7 @@
 - Phase 0 的 credentials/extra 与自助出站文档均为 Review Ready、尚未 Accepted；这是开放自助托管前的硬阻塞。
 - fresh setup 缺失兼容角色的问题已修复，本地管理员也已由 migration 232 补齐；真实服务器仍必须在升级后通过 1.7 readiness gate 验证全量一致性。
 - 分组名称唯一索引本切片不修改，先完成大小写和 Owner 范围冲突预检。
-- 1.5 只有领域类型和测试，没有 Actor Resolver、Policy consumer 或授权放行路径；1.6 完成前不能作为权限边界使用。
+- 1.6a 只有 Policy/Store/SQL predicate 基础，没有 Actor Resolver、scoped reader、Handler 或运行时授权放行路径；1.6b 完成前不能作为资源读取权限边界使用。
 - `role_authorization_mode` 当前没有运行时 consumer；进入 shadow/rbac 前必须由 1.7 的专用 transition/readiness gate 接管。
 - 通用管理员 settings PUT 跨多个服务不是单一数据库事务；新开关当前没有 consumer，因此不阻塞 dark launch，但需在 1.10 收口。
 

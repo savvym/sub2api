@@ -49,6 +49,10 @@ func TestAllowDecisionPreservesTypedProvenance(t *testing.T) {
 	if !legacyAdmin.Allowed() || legacyAdmin.MatchSource() != MatchSourceLegacyAdmin {
 		t.Fatal("legacy admin source was not preserved")
 	}
+	legacyUser := allow(legacyUserMatch())
+	if !legacyUser.Allowed() || legacyUser.MatchSource() != MatchSourceLegacyUser {
+		t.Fatal("legacy user source was not preserved")
+	}
 }
 
 func TestInvalidMatchProvenanceFailsClosed(t *testing.T) {
@@ -94,7 +98,9 @@ func TestDenyDecisionPreservesReasonAndTransportClass(t *testing.T) {
 	}{
 		{reason: DenyReasonNoMatchingAccess, class: DenialClassNotFound, conceals: true},
 		{reason: DenyReasonInsufficientAccess, class: DenialClassForbidden},
+		{reason: DenyReasonFeatureDisabled, class: DenialClassForbidden},
 		{reason: DenyReasonSessionInvalid, class: DenialClassUnauthenticated},
+		{reason: DenyReasonLegacyGroupAuthorityRequired, class: DenialClassUnavailable},
 		{reason: DenyReasonAuthorizationDataUnavailable, class: DenialClassUnavailable},
 		{reason: DenyReasonUnknownAction, class: DenialClassInvalid},
 	}
