@@ -36,6 +36,18 @@
 | SQL/Ent 一致且生成代码最新 | Ent schema tests + `make -C backend generate` | 通过 |
 | CI/Testcontainers repository integration | `CI=1 go test -tags=integration ./internal/repository` | 待实现（本机无 Docker） |
 
+## Authorization Domain Contract 门禁
+
+| 门禁 | 证据 | 状态 |
+| --- | --- | --- |
+| User、Service Principal 互斥且 System Actor 不可由 HTTP/业务包构造 | `internal/authz` Actor 构造边界与 JSON 伪造测试 | 通过 |
+| 11 个 capability 与 migration 229 seed 完全一致 | `TestCapabilitiesMatchMigrationSeed` | 通过 |
+| 13 个动作与四级访问映射准确，未知值 fail closed | action/access level table tests | 通过 |
+| manager 不含 delete/transfer，public 仅 viewer/consumer | access level boundary tests | 通过 |
+| legacy admin、capability、Owner、public、用户/角色 Grant 来源可审计 | typed provenance tests | 通过 |
+| 404 隐匿、403、认证失败、依赖不可用与无效请求可区分 | denial reason/class tests | 通过 |
+| 无路由、DI、Repository 或运行时 consumer，legacy 行为不变 | 路由/依赖审查 + 完整 backend unit/build | 通过 |
+
 ## 标准命令
 
 ```bash

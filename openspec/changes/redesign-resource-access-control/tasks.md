@@ -15,7 +15,7 @@
 - [x] 1.2 新增资源 Owner/public/access version/mode、帐号/分组 Grant 和 durable authz event SQL。
 - [x] 1.3 同步 Ent Schema、生成代码，并验证 SQL 与 Ent 字段/约束一致。
 - [x] 1.4 新增 5 个默认关闭 Feature Flag 和 `role_authorization_mode=legacy`，验证缺失/错误时 fail closed。
-- [ ] 1.5 新增 Actor、能力、动作、访问级别与稳定拒绝原因领域类型。
+- [x] 1.5 新增 Actor、能力、动作、访问级别与稳定拒绝原因领域类型。
 - [ ] 1.6 实现 PolicyService 决策矩阵和 Repository SQL 可访问范围。
 - [ ] 1.7 实现 RoleService，在 shadow 阶段原子双写旧角色、新角色、版本和失效事件。
 - [ ] 1.8 管理员 JWT 接入 User Actor，Admin API Key 接入独立 Service Principal Actor。
