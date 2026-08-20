@@ -139,3 +139,31 @@ PGOPTIONS='-c default_transaction_read_only=on' \
 | `git diff --check` | 通过 |
 
 独立安全审查提出的 Actor 可伪造、legacy admin 来源缺失、拒绝传输类别混淆、System Actor durable audit 和 provenance 不足问题已在本切片内修正。复审确认原 6 项均关闭、无残余 blocker；Phase 1.6/1.10 仍须落实事务内版本重校验、`Unavailable -> 503` 和 System Actor durable mutation 拒绝。
+
+## 2026-08-20 - Fresh Setup Compatibility Bootstrap（1.5a）
+
+### 实现范围
+
+- `createAdminUser` 使用数据库事务和 `LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE` 串行化 Web、CLI、AutoSetup 及多进程初始化入口。
+- 同一事务内完成 legacy 管理员写入、按 `users.role` 选择 `admin/user` 兼容角色、以 `system_bootstrap` 归因、校验无人工 grantor/无过期时间，并在任一步失败时整体回滚。
+- 新增 migration 232 修复在 229 已执行后才由旧 setup 创建的用户；收敛 SQL 与 229 保持一致，只替换 `system_bootstrap` 拥有的错误 `admin/user` Grant。
+- PostgreSQL setup DSN 改为结构化 URL，修复空密码 keyword DSN 将后续 `dbname` 解析丢失的问题，同时正确编码密码特殊字符。
+- 不写 Feature Flag，不切换 `role_authorization_mode`，不改变 `users.role` 的 legacy 权威行为。
+
+### 自动化与动态验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| `cd backend && go test ./internal/setup ./migrations -count=1` | 通过 |
+| `cd backend && go test -race ./internal/setup ./migrations -count=1` | 通过 |
+| `cd backend && go vet ./internal/setup ./migrations` | 通过 |
+| `make -C backend test-unit` | 通过 |
+| `make -C backend build` | 通过 |
+| `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
+| setup sqlmock：事务成功、兼容角色无法验证时 rollback、repeat skip | 通过 |
+| migration 232/229 收敛 SQL 等价与不 seed settings contract | 通过 |
+| PostgreSQL 18.6 临时 fresh 库：migrate → create → repeat | 通过；users=1、admin bootstrap Grant=1、authz_version=1、mode=legacy |
+| PostgreSQL 18.6 临时 fresh 库：两个并发 admin bootstrap | 通过；恰好一个 created，最终 users/Grant 均为 1 |
+| 本地开发库应用 migration 232 后核对 `dev-admin@sub2api.local` | 通过；legacy role=admin、compatibility role=admin、grantor=system_bootstrap、无过期 |
+
+临时验证库 `sub2api_codex_setup_bootstrap_20260820_a7f4` 已在验证后删除。Docker/Testcontainers 门禁状态不变，仍需在 CI 补跑。

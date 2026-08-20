@@ -198,10 +198,10 @@ VALUES ($1, $2, $3)
 `, adminUserID, hosterRoleID, bootstrapPrincipalID)
 	require.NoError(t, err)
 
-	rbacContent, err := dbmigrations.FS.ReadFile("229_resource_authorization_rbac.sql")
+	compatibilityBackfillContent, err := dbmigrations.FS.ReadFile("232_resource_authorization_compatibility_backfill.sql")
 	require.NoError(t, err)
-	_, err = tx.ExecContext(ctx, string(rbacContent))
-	require.NoError(t, err, "reapply 229 pass 1")
+	_, err = tx.ExecContext(ctx, string(compatibilityBackfillContent))
+	require.NoError(t, err, "reapply 232 pass 1")
 
 	_, err = tx.ExecContext(ctx, `
 UPDATE users
@@ -213,8 +213,8 @@ END
 WHERE id IN ($1, $2)
 `, adminUserID, normalUserID)
 	require.NoError(t, err)
-	_, err = tx.ExecContext(ctx, string(rbacContent))
-	require.NoError(t, err, "reapply 229 pass 2 after legacy role changes")
+	_, err = tx.ExecContext(ctx, string(compatibilityBackfillContent))
+	require.NoError(t, err, "reapply 232 pass 2 after legacy role changes")
 
 	for _, tc := range []struct {
 		userID       int64
