@@ -3,6 +3,7 @@ package authz
 import (
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -280,4 +281,15 @@ func (a Actor) DurableSubject() (SubjectKind, int64, bool) {
 	default:
 		return "", 0, false
 	}
+}
+
+// SubjectKey returns the canonical persisted identity key used to partition
+// actor-owned state such as idempotency records. User and Service Principal
+// IDs intentionally live in separate namespaces.
+func (a Actor) SubjectKey() (string, bool) {
+	kind, id, ok := a.DurableSubject()
+	if !ok {
+		return "", false
+	}
+	return string(kind) + ":" + strconv.FormatInt(id, 10), true
 }
