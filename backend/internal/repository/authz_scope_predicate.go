@@ -62,6 +62,10 @@ type authzScopeResourceColumns struct {
 }
 
 func accountAccessiblePredicate(scope authz.AccessibleScope) (dbpredicate.Account, error) {
+	return accountAccessiblePredicateWithClaims(scope)
+}
+
+func accountAccessiblePredicateWithClaims(scope accessibleScopeClaims) (dbpredicate.Account, error) {
 	plan, err := newAuthzScopeSQLPlan(scope, authz.ResourceTypeAccount, authz.ActionAccountView)
 	if err != nil {
 		return dbpredicate.Account(func(selector *entsql.Selector) {
@@ -80,6 +84,10 @@ func accountAccessiblePredicate(scope authz.AccessibleScope) (dbpredicate.Accoun
 }
 
 func groupAccessiblePredicate(scope authz.AccessibleScope) (dbpredicate.Group, error) {
+	return groupAccessiblePredicateWithClaims(scope)
+}
+
+func groupAccessiblePredicateWithClaims(scope accessibleScopeClaims) (dbpredicate.Group, error) {
 	plan, err := newAuthzScopeSQLPlan(scope, authz.ResourceTypeGroup, authz.ActionGroupView)
 	if err != nil {
 		return dbpredicate.Group(func(selector *entsql.Selector) {

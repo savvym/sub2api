@@ -72,7 +72,7 @@
 | Scope 绑定精确资源/动作并重校验主体、角色、能力和开关 | Scope contract、SQL plan 与 stale-version 动态测试 | 通过 |
 | Account/Group Ent predicate 在 PostgreSQL 正确编号参数 | 外层 filter + Scope 动态执行测试 | 通过 |
 | Owner/public/direct/role Grant、严格到期边界、Count 与分页使用同一 predicate | PostgreSQL Account/Group Scope 动态测试 | 通过 |
-| 真实 scoped reader 的筛选、排序、total、聚合、hydration 和窄 DTO | 1.6b repository/service/handler 测试 | 待实现 |
+| 真实 scoped reader 的筛选、排序、total、分页、聚合/hydration 禁用和窄 DTO | 1.6b repository/service/DTO 单测 + PostgreSQL 18.6 动态测试 | 通过 |
 
 ## 标准命令
 
