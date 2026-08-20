@@ -81,6 +81,15 @@
 
 第一切片只增加默认关闭的设置、additive SQL migration、Ent 同步、系统角色/权限种子和幂等用户角色回填。不增加普通用户路由/UI，不开放 ACL，不修改全局分组名称唯一索引，不改变存量调度或管理员行为。
 
+### 9. Policy 判定与紧急关闭语义
+
+状态：Accepted（2026-08-20）。
+
+- 多个有效来源提供相同最高访问级别时，审计归因固定为 public、直接用户 Grant、角色 Grant；同类 Grant 选择最小 Grant ID，角色 Grant 再以最小 Role ID 决定，避免查询计划改变审计结果。
+- `group_sharing_enabled` 或 `account_sharing_enabled` 的有效值关闭时，对应资源已有 public 和直接用户 Grant 立即停止放行，但不删除数据；重新开启后只恢复仍未过期且主体有效的来源。角色 Grant 还必须同时满足 `role_based_resource_grants_enabled`。
+- 总开关或 self-service 有效值关闭时，Owner/ACL 自助放行 fail closed；存量 legacy 管理员治理仍按阶段权威源兼容，不能把这一兼容扩大为普通用户放行。
+- System Actor 默认不能通过通用 `CheckCapability`、`CanCreate` 或 `Authorize`。需要持久授权写入的 Worker 必须使用 Service Principal；未来只读 Worker 逐项评审并维护显式 allowlist，不提供全局系统旁路。
+
 ## Risks / Trade-offs
 
 - RBAC、ACL、旧分组资格并存期间容易形成多个允许源；任何阶段只能有一个权威允许判定源，shadow 只比较不放行。

@@ -702,9 +702,10 @@ ListAccounts(ctx, actor, filters, pagination)
 
 ```go
 type ResourcePolicy interface {
-    CanCreate(ctx context.Context, actor Actor, resourceType ResourceType) error
+    CheckCapability(ctx context.Context, actor Actor, capability Capability) (Decision, error)
+    CanCreate(ctx context.Context, actor Actor, resourceType ResourceType) (Decision, error)
     Authorize(ctx context.Context, actor Actor, action Action, ref ResourceRef) (Decision, error)
-    AccessibleScope(ctx context.Context, actor Actor, resourceType ResourceType, minimum Action) (Scope, error)
+    AccessibleScope(ctx context.Context, actor Actor, resourceType ResourceType, minimum Action) (AccessibleScope, error)
 }
 ```
 
@@ -714,6 +715,9 @@ type ResourcePolicy interface {
 - PolicyService 不负责余额、订阅等业务资格。
 - 判定结果包含匹配来源，供审计和关系授权来源记录使用。
 - 拒绝原因使用稳定内部代码，外部响应按资源可见性映射为 404 或 403。
+- 同一最高访问级别存在多个来源时，归因优先级固定为 public、直接用户 Grant、角色 Grant；同类 Grant 选择最小 Grant ID，角色 Grant 再以最小 Role ID 决定。
+- `AccessibleScope` 只能由 PolicyService 构造，零值或字段不完整时 Repository 必须 fail closed；Scope 保存精确资源类型和动作，调用方不能把 view Scope 复用于 edit/use。
+- System Actor 默认不具有通用资源或平台能力旁路。需要持久化授权写入的后台任务必须使用 Service Principal；只读 Worker 的 System Actor allowlist 在接入时逐项评审。
 
 ### 12.3 SQL 范围过滤
 
@@ -1104,6 +1108,12 @@ role_based_resource_grants_enabled
 `role_authorization_mode=legacy|shadow|rbac` 是第 7.4 节的权威源状态机，不是简单布尔开关，必须按实例升级和影子差异结果推进。
 
 开关默认关闭。必须确认所有实例已升级、迁移校验通过后才能逐级开启。关闭时保持存量管理员和普通用户行为；新增表和字段是惰性的，不影响平台资源调度。
+
+开关也是安全回退边界，而不只控制入口展示：
+
+- `group_sharing_enabled` 或 `account_sharing_enabled` 的有效值关闭时，对应资源已有 public 和直接用户 Grant 立即停止参与新请求的允许判定，但数据保留；重新开启后只恢复仍未过期且主体有效的来源。
+- 角色 Grant 除对应 sharing 开关外还要求 `role_based_resource_grants_enabled`；任一有效值关闭都立即停止角色 Grant 放行。
+- `resource_access_control_enabled` 或 `self_service_hosting_enabled` 的有效值关闭时，普通用户的 Owner 与 ACL 自助路径 fail closed。存量 legacy 管理员治理按当前权威源继续兼容，但不能因此给普通用户增加访问。
 
 ### 17.5 Backend Mode 兼容
 

@@ -62,6 +62,11 @@ Responses WebSocket 的每个新 turn、粘性会话 retry/fallback 和 queued �
 - **THEN** 系统 MUST 不增加普通用户帐号、分组或 Grant 路由
 - **THEN** 存量管理员、普通用户、API Key 和 Scheduler 行为 MUST 与升级前等价
 
+#### Scenario: 紧急关闭资源分享
+- **WHEN** 对应帐号或分组 sharing 开关的有效值从 true 变为 false
+- **THEN** 已有 public 和直接用户 Grant MUST 立即停止参与新请求的允许判定，但记录 MUST NOT 被隐式删除
+- **THEN** 角色 Grant MUST 同时要求对应 sharing 开关和 `role_based_resource_grants_enabled`，任一关闭即停止放行
+
 ### Requirement: 数据迁移必须可重复、可验证且按资源切换
 新增 Schema SHALL 通过 forward-only additive SQL migration 提供，Ent 仅同步模型。回填脚本 MUST 可重复执行并记录源、目标和差异；切换必须按明确资源或批次递增 access_version 并写失效事件。
 

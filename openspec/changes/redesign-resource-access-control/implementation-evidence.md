@@ -173,3 +173,35 @@ PGOPTIONS='-c default_transaction_read_only=on' \
 | 前端 auth guard、DashboardView 与 client 专项 | 通过，3 files / 55 tests |
 
 临时验证库 `sub2api_codex_setup_bootstrap_20260820_a7f4` 与 `sub2api_codex_install_lock_20260820_b3e9` 均已在验证后删除。Docker/Testcontainers 门禁状态不变，仍需在 CI 补跑。
+
+## 2026-08-20 - Policy 与 SQL Scope Foundation（1.6a）
+
+### 实现范围
+
+- 新增 `PolicyService` 的平台能力、资源创建、单资源授权和可信 `AccessibleScope`，覆盖 User、Service Principal、legacy/shadow/RBAC、Owner、public、直接用户 Grant 与角色 Grant。
+- PolicyStore 以单个 PostgreSQL snapshot 查询读取当前主体、有效角色、能力、Feature Flag、资源和有效 Grant；数据库 JSON 文档缺字段、空对象或非法枚举均 fail closed。
+- `group.use` 在资源为 legacy/shadow 时显式返回 legacy authority required，禁止将 ACL 与旧权威结果 OR 合并。
+- Account/Group SQL scope predicate 绑定精确 `account.view`/`group.view`，在查询时重新校验主体版本、角色版本、能力集合、角色模式和 Feature Flag。
+- public/Grant 到期采用数据库时间严格边界 `expires_at > CURRENT_TIMESTAMP`；相同最高等级 provenance 使用稳定排序。
+- 本切片不新增普通用户路由、Handler、DTO 或 DI consumer；管理员和存量运行时行为不变。
+
+### 自动化与动态验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| `make -C backend test-unit` | 通过；包含 authz、repository 与 service 全套 unit-tag 测试 |
+| `cd backend && go test -tags=unit -count=1 ./internal/authz ./internal/repository` | 通过 |
+| `cd backend && go test ./internal/repository -count=1` | 通过 |
+| 定向 repository race 测试 | 通过 |
+| `git diff --check` | 通过 |
+| `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
+| PostgreSQL 18.6 PolicyStore snapshot/expiry 动态测试 | 通过 |
+| PostgreSQL 18.6 Account/Group Ent Scope IDs、Count、分页与 stale-version 动态测试 | 通过 |
+
+动态测试首先捕获 Ent `ExprP` 会在 PostgreSQL 原样保留 `?` 的真实执行错误，随后改为 `entsql.P + Builder.Arg`，由外层 selector 正确生成 `$n` 参数。测试同时覆盖已有外层参数时的编号、参数数量不匹配 fail closed、Owner/public/direct/role Grant、严格过期边界和主体版本失效。临时数据库已删除，残留数量为 0。
+
+### 未完成门禁
+
+- 1.6b 尚未将 Scope 接入真实帐号/分组 reader；因此搜索、排序、分页、total、聚合和 hydration 的端到端同范围约束仍不得标为通过。
+- 普通用户资源 DTO 尚未定义；管理员 Account DTO 包含 credentials/extra/proxy/调度字段，管理员 Group DTO 的 `account_count` 等聚合也可能跨可见帐号泄漏，均不得复用。
+- Actor Resolver、Handler/DI 接线及 `Unavailable -> 503` 仍属于后续切片；当前没有新增授权放行路径。

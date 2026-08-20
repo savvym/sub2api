@@ -39,6 +39,11 @@
 - **THEN** Policy MUST 使用当前有效来源中的最高访问级别
 - **THEN** 过期或已失效来源 MUST 不参与结果
 
+#### Scenario: 多个来源提供相同最高级别
+- **WHEN** public、直接用户 Grant 或多个角色 Grant 提供相同的最高访问级别
+- **THEN** Policy MUST 按 public、直接用户 Grant、角色 Grant 的固定优先级记录 provenance
+- **THEN** 同类 Grant MUST 按最小 Grant ID 决定，角色 Grant 再以最小 Role ID 打破平局
+
 ### Requirement: 所有资源读取必须在 SQL 层限制范围
 Repository SHALL 在数据库查询中合并 Owner、有效用户 Grant、有效角色 Grant、公开级别和平台能力范围。搜索、排序、分页、total、聚合和自动完成 MUST 使用相同范围，不得先加载全表再在 Go 中过滤。
 

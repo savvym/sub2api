@@ -9,6 +9,7 @@ type MatchSource string
 const (
 	MatchSourceSystem             MatchSource = "system"
 	MatchSourceLegacyAdmin        MatchSource = "legacy_admin"
+	MatchSourceLegacyUser         MatchSource = "legacy_user"
 	MatchSourcePlatformCapability MatchSource = "platform_capability"
 	MatchSourceOwner              MatchSource = "owner"
 	MatchSourcePublicAccess       MatchSource = "public_access"
@@ -20,6 +21,7 @@ func (s MatchSource) Valid() bool {
 	switch s {
 	case MatchSourceSystem,
 		MatchSourceLegacyAdmin,
+		MatchSourceLegacyUser,
 		MatchSourcePlatformCapability,
 		MatchSourceOwner,
 		MatchSourcePublicAccess,
@@ -47,6 +49,10 @@ func systemMatch() MatchProvenance {
 
 func legacyAdminMatch() MatchProvenance {
 	return MatchProvenance{source: MatchSourceLegacyAdmin}
+}
+
+func legacyUserMatch() MatchProvenance {
+	return MatchProvenance{source: MatchSourceLegacyUser}
 }
 
 func platformCapabilityMatch(capability Capability) (MatchProvenance, error) {
@@ -88,7 +94,7 @@ func roleGrantMatch(grantID, roleID int64, accessLevel AccessLevel) (MatchProven
 
 func (p MatchProvenance) Valid() bool {
 	switch p.source {
-	case MatchSourceSystem, MatchSourceLegacyAdmin, MatchSourceOwner:
+	case MatchSourceSystem, MatchSourceLegacyAdmin, MatchSourceLegacyUser, MatchSourceOwner:
 		return p.accessLevel == "" && p.capability == "" && p.grantID == 0 && p.granteeRoleID == 0
 	case MatchSourcePlatformCapability:
 		return p.capability.Valid() && p.accessLevel == "" && p.grantID == 0 && p.granteeRoleID == 0
@@ -149,6 +155,8 @@ const (
 	DenyReasonActionResourceMismatch       DenyReason = "action_resource_mismatch"
 	DenyReasonUnknownCapability            DenyReason = "unknown_capability"
 	DenyReasonMissingCapability            DenyReason = "missing_capability"
+	DenyReasonFeatureDisabled              DenyReason = "feature_disabled"
+	DenyReasonLegacyGroupAuthorityRequired DenyReason = "legacy_group_authority_required"
 	DenyReasonNoMatchingAccess             DenyReason = "no_matching_access"
 	DenyReasonInsufficientAccess           DenyReason = "insufficient_access"
 	DenyReasonAuthorizationDataUnavailable DenyReason = "authorization_data_unavailable"
@@ -164,11 +172,11 @@ func (r DenyReason) Class() (DenialClass, bool) {
 	switch r {
 	case DenyReasonResourceNotFound, DenyReasonResourceDeleted, DenyReasonNoMatchingAccess:
 		return DenialClassNotFound, true
-	case DenyReasonMissingCapability, DenyReasonInsufficientAccess:
+	case DenyReasonMissingCapability, DenyReasonFeatureDisabled, DenyReasonInsufficientAccess:
 		return DenialClassForbidden, true
 	case DenyReasonInvalidActor, DenyReasonActorInactive, DenyReasonSessionInvalid:
 		return DenialClassUnauthenticated, true
-	case DenyReasonAuthorizationDataUnavailable:
+	case DenyReasonAuthorizationDataUnavailable, DenyReasonLegacyGroupAuthorityRequired:
 		return DenialClassUnavailable, true
 	case DenyReasonUnknownResourceType,
 		DenyReasonUnknownAction,
