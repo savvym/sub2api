@@ -23,6 +23,9 @@ type User struct {
 func (User) Annotations() []schema.Annotation {
 	return []schema.Annotation{
 		entsql.Annotation{Table: "users"},
+		entsql.Checks(map[string]string{
+			"users_authz_version_positive": "authz_version > 0",
+		}),
 	}
 }
 
@@ -46,6 +49,9 @@ func (User) Fields() []ent.Field {
 		field.String("role").
 			MaxLen(20).
 			Default(domain.RoleUser),
+		field.Int64("authz_version").
+			Default(1).
+			Comment("Monotonic version for invalidating cached role authorization"),
 		field.Float("balance").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
 			Default(0),
@@ -127,6 +133,8 @@ func (User) Edges() []ent.Edge {
 		edge.To("announcement_reads", AnnouncementRead.Type),
 		edge.To("allowed_groups", Group.Type).
 			Through("user_allowed_groups", UserAllowedGroup.Type),
+		edge.To("authorization_roles", Role.Type).
+			Through("user_roles", UserRole.Type),
 		edge.To("usage_logs", UsageLog.Type),
 		edge.To("attribute_values", UserAttributeValue.Type),
 		edge.To("promo_code_usages", PromoCodeUsage.Type),

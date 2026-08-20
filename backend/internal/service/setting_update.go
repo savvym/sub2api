@@ -142,6 +142,14 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		settings.WeChatConnectMobileEnabled,
 		settings.WeChatConnectMode,
 	)
+	roleAuthorizationMode, valid := parseRoleAuthorizationMode(settings.RoleAuthorizationMode)
+	if !valid && strings.TrimSpace(settings.RoleAuthorizationMode) != "" {
+		return nil, infraerrors.BadRequest(
+			"INVALID_ROLE_AUTHORIZATION_MODE",
+			"role_authorization_mode must be one of: legacy, shadow, rbac",
+		)
+	}
+	settings.RoleAuthorizationMode = roleAuthorizationMode
 	settings.WeChatConnectScopes = normalizeWeChatConnectScopeSetting(settings.WeChatConnectScopes, settings.WeChatConnectMode)
 	settings.WeChatConnectRedirectURL = strings.TrimSpace(settings.WeChatConnectRedirectURL)
 	settings.WeChatConnectFrontendRedirectURL = strings.TrimSpace(settings.WeChatConnectFrontendRedirectURL)
@@ -458,6 +466,15 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	// Backend Mode
 	updates[SettingKeyBackendModeEnabled] = strconv.FormatBool(settings.BackendModeEnabled)
+
+	// Resource access control dark launch. Stored switches stay independent so
+	// operators can stage configuration; the runtime getter applies dependencies.
+	updates[SettingKeyResourceAccessControlEnabled] = strconv.FormatBool(settings.ResourceAccessControlEnabled)
+	updates[SettingKeySelfServiceHostingEnabled] = strconv.FormatBool(settings.SelfServiceHostingEnabled)
+	updates[SettingKeyGroupSharingEnabled] = strconv.FormatBool(settings.GroupSharingEnabled)
+	updates[SettingKeyAccountSharingEnabled] = strconv.FormatBool(settings.AccountSharingEnabled)
+	updates[SettingKeyRoleBasedResourceGrantsEnabled] = strconv.FormatBool(settings.RoleBasedResourceGrantsEnabled)
+	updates[SettingKeyRoleAuthorizationMode] = settings.RoleAuthorizationMode
 
 	// Gateway forwarding behavior
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)

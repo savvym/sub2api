@@ -315,6 +315,31 @@ func MaxReasoningEffort(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldMaxReasoningEffort, v))
 }
 
+// OwnerUserID applies equality check predicate on the "owner_user_id" field. It's identical to OwnerUserIDEQ.
+func OwnerUserID(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldOwnerUserID, v))
+}
+
+// CreatedByUserID applies equality check predicate on the "created_by_user_id" field. It's identical to CreatedByUserIDEQ.
+func CreatedByUserID(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCreatedByUserID, v))
+}
+
+// PublicAccessLevel applies equality check predicate on the "public_access_level" field. It's identical to PublicAccessLevelEQ.
+func PublicAccessLevel(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldPublicAccessLevel, v))
+}
+
+// AccessVersion applies equality check predicate on the "access_version" field. It's identical to AccessVersionEQ.
+func AccessVersion(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAccessVersion, v))
+}
+
+// AuthorizationMode applies equality check predicate on the "authorization_mode" field. It's identical to AuthorizationModeEQ.
+func AuthorizationMode(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAuthorizationMode, v))
+}
+
 // ProfitControlEnabled applies equality check predicate on the "profit_control_enabled" field. It's identical to ProfitControlEnabledEQ.
 func ProfitControlEnabled(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldProfitControlEnabled, v))
@@ -2460,6 +2485,246 @@ func MaxReasoningEffortContainsFold(v string) predicate.Group {
 	return predicate.Group(sql.FieldContainsFold(FieldMaxReasoningEffort, v))
 }
 
+// OwnerUserIDEQ applies the EQ predicate on the "owner_user_id" field.
+func OwnerUserIDEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldOwnerUserID, v))
+}
+
+// OwnerUserIDNEQ applies the NEQ predicate on the "owner_user_id" field.
+func OwnerUserIDNEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldOwnerUserID, v))
+}
+
+// OwnerUserIDIn applies the In predicate on the "owner_user_id" field.
+func OwnerUserIDIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldOwnerUserID, vs...))
+}
+
+// OwnerUserIDNotIn applies the NotIn predicate on the "owner_user_id" field.
+func OwnerUserIDNotIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldOwnerUserID, vs...))
+}
+
+// OwnerUserIDIsNil applies the IsNil predicate on the "owner_user_id" field.
+func OwnerUserIDIsNil() predicate.Group {
+	return predicate.Group(sql.FieldIsNull(FieldOwnerUserID))
+}
+
+// OwnerUserIDNotNil applies the NotNil predicate on the "owner_user_id" field.
+func OwnerUserIDNotNil() predicate.Group {
+	return predicate.Group(sql.FieldNotNull(FieldOwnerUserID))
+}
+
+// CreatedByUserIDEQ applies the EQ predicate on the "created_by_user_id" field.
+func CreatedByUserIDEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCreatedByUserID, v))
+}
+
+// CreatedByUserIDNEQ applies the NEQ predicate on the "created_by_user_id" field.
+func CreatedByUserIDNEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldCreatedByUserID, v))
+}
+
+// CreatedByUserIDIn applies the In predicate on the "created_by_user_id" field.
+func CreatedByUserIDIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldCreatedByUserID, vs...))
+}
+
+// CreatedByUserIDNotIn applies the NotIn predicate on the "created_by_user_id" field.
+func CreatedByUserIDNotIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldCreatedByUserID, vs...))
+}
+
+// CreatedByUserIDIsNil applies the IsNil predicate on the "created_by_user_id" field.
+func CreatedByUserIDIsNil() predicate.Group {
+	return predicate.Group(sql.FieldIsNull(FieldCreatedByUserID))
+}
+
+// CreatedByUserIDNotNil applies the NotNil predicate on the "created_by_user_id" field.
+func CreatedByUserIDNotNil() predicate.Group {
+	return predicate.Group(sql.FieldNotNull(FieldCreatedByUserID))
+}
+
+// PublicAccessLevelEQ applies the EQ predicate on the "public_access_level" field.
+func PublicAccessLevelEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelNEQ applies the NEQ predicate on the "public_access_level" field.
+func PublicAccessLevelNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelIn applies the In predicate on the "public_access_level" field.
+func PublicAccessLevelIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldPublicAccessLevel, vs...))
+}
+
+// PublicAccessLevelNotIn applies the NotIn predicate on the "public_access_level" field.
+func PublicAccessLevelNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldPublicAccessLevel, vs...))
+}
+
+// PublicAccessLevelGT applies the GT predicate on the "public_access_level" field.
+func PublicAccessLevelGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelGTE applies the GTE predicate on the "public_access_level" field.
+func PublicAccessLevelGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelLT applies the LT predicate on the "public_access_level" field.
+func PublicAccessLevelLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelLTE applies the LTE predicate on the "public_access_level" field.
+func PublicAccessLevelLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelContains applies the Contains predicate on the "public_access_level" field.
+func PublicAccessLevelContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelHasPrefix applies the HasPrefix predicate on the "public_access_level" field.
+func PublicAccessLevelHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelHasSuffix applies the HasSuffix predicate on the "public_access_level" field.
+func PublicAccessLevelHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelIsNil applies the IsNil predicate on the "public_access_level" field.
+func PublicAccessLevelIsNil() predicate.Group {
+	return predicate.Group(sql.FieldIsNull(FieldPublicAccessLevel))
+}
+
+// PublicAccessLevelNotNil applies the NotNil predicate on the "public_access_level" field.
+func PublicAccessLevelNotNil() predicate.Group {
+	return predicate.Group(sql.FieldNotNull(FieldPublicAccessLevel))
+}
+
+// PublicAccessLevelEqualFold applies the EqualFold predicate on the "public_access_level" field.
+func PublicAccessLevelEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelContainsFold applies the ContainsFold predicate on the "public_access_level" field.
+func PublicAccessLevelContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldPublicAccessLevel, v))
+}
+
+// AccessVersionEQ applies the EQ predicate on the "access_version" field.
+func AccessVersionEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAccessVersion, v))
+}
+
+// AccessVersionNEQ applies the NEQ predicate on the "access_version" field.
+func AccessVersionNEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldAccessVersion, v))
+}
+
+// AccessVersionIn applies the In predicate on the "access_version" field.
+func AccessVersionIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldAccessVersion, vs...))
+}
+
+// AccessVersionNotIn applies the NotIn predicate on the "access_version" field.
+func AccessVersionNotIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldAccessVersion, vs...))
+}
+
+// AccessVersionGT applies the GT predicate on the "access_version" field.
+func AccessVersionGT(v int64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldAccessVersion, v))
+}
+
+// AccessVersionGTE applies the GTE predicate on the "access_version" field.
+func AccessVersionGTE(v int64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldAccessVersion, v))
+}
+
+// AccessVersionLT applies the LT predicate on the "access_version" field.
+func AccessVersionLT(v int64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldAccessVersion, v))
+}
+
+// AccessVersionLTE applies the LTE predicate on the "access_version" field.
+func AccessVersionLTE(v int64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldAccessVersion, v))
+}
+
+// AuthorizationModeEQ applies the EQ predicate on the "authorization_mode" field.
+func AuthorizationModeEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAuthorizationMode, v))
+}
+
+// AuthorizationModeNEQ applies the NEQ predicate on the "authorization_mode" field.
+func AuthorizationModeNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldAuthorizationMode, v))
+}
+
+// AuthorizationModeIn applies the In predicate on the "authorization_mode" field.
+func AuthorizationModeIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldAuthorizationMode, vs...))
+}
+
+// AuthorizationModeNotIn applies the NotIn predicate on the "authorization_mode" field.
+func AuthorizationModeNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldAuthorizationMode, vs...))
+}
+
+// AuthorizationModeGT applies the GT predicate on the "authorization_mode" field.
+func AuthorizationModeGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldAuthorizationMode, v))
+}
+
+// AuthorizationModeGTE applies the GTE predicate on the "authorization_mode" field.
+func AuthorizationModeGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldAuthorizationMode, v))
+}
+
+// AuthorizationModeLT applies the LT predicate on the "authorization_mode" field.
+func AuthorizationModeLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldAuthorizationMode, v))
+}
+
+// AuthorizationModeLTE applies the LTE predicate on the "authorization_mode" field.
+func AuthorizationModeLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldAuthorizationMode, v))
+}
+
+// AuthorizationModeContains applies the Contains predicate on the "authorization_mode" field.
+func AuthorizationModeContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldAuthorizationMode, v))
+}
+
+// AuthorizationModeHasPrefix applies the HasPrefix predicate on the "authorization_mode" field.
+func AuthorizationModeHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldAuthorizationMode, v))
+}
+
+// AuthorizationModeHasSuffix applies the HasSuffix predicate on the "authorization_mode" field.
+func AuthorizationModeHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldAuthorizationMode, v))
+}
+
+// AuthorizationModeEqualFold applies the EqualFold predicate on the "authorization_mode" field.
+func AuthorizationModeEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldAuthorizationMode, v))
+}
+
+// AuthorizationModeContainsFold applies the ContainsFold predicate on the "authorization_mode" field.
+func AuthorizationModeContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldAuthorizationMode, v))
+}
+
 // ProfitControlEnabledEQ applies the EQ predicate on the "profit_control_enabled" field.
 func ProfitControlEnabledEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldProfitControlEnabled, v))
@@ -2680,6 +2945,52 @@ func HasAllowedUsers() predicate.Group {
 func HasAllowedUsersWith(preds ...predicate.User) predicate.Group {
 	return predicate.Group(func(s *sql.Selector) {
 		step := newAllowedUsersStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasOwner applies the HasEdge predicate on the "owner" edge.
+func HasOwner() predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, OwnerTable, OwnerColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasOwnerWith applies the HasEdge predicate on the "owner" edge with a given conditions (other predicates).
+func HasOwnerWith(preds ...predicate.User) predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := newOwnerStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasCreatedBy applies the HasEdge predicate on the "created_by" edge.
+func HasCreatedBy() predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, CreatedByTable, CreatedByColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasCreatedByWith applies the HasEdge predicate on the "created_by" edge with a given conditions (other predicates).
+func HasCreatedByWith(preds ...predicate.User) predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := newCreatedByStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

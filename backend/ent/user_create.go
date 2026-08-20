@@ -19,10 +19,12 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
+	"github.com/Wei-Shaw/sub2api/ent/role"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
+	"github.com/Wei-Shaw/sub2api/ent/userrole"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 )
 
@@ -98,6 +100,20 @@ func (_c *UserCreate) SetRole(v string) *UserCreate {
 func (_c *UserCreate) SetNillableRole(v *string) *UserCreate {
 	if v != nil {
 		_c.SetRole(*v)
+	}
+	return _c
+}
+
+// SetAuthzVersion sets the "authz_version" field.
+func (_c *UserCreate) SetAuthzVersion(v int64) *UserCreate {
+	_c.mutation.SetAuthzVersion(v)
+	return _c
+}
+
+// SetNillableAuthzVersion sets the "authz_version" field if the given value is not nil.
+func (_c *UserCreate) SetNillableAuthzVersion(v *int64) *UserCreate {
+	if v != nil {
+		_c.SetAuthzVersion(*v)
 	}
 	return _c
 }
@@ -444,6 +460,21 @@ func (_c *UserCreate) AddAllowedGroups(v ...*Group) *UserCreate {
 	return _c.AddAllowedGroupIDs(ids...)
 }
 
+// AddAuthorizationRoleIDs adds the "authorization_roles" edge to the Role entity by IDs.
+func (_c *UserCreate) AddAuthorizationRoleIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddAuthorizationRoleIDs(ids...)
+	return _c
+}
+
+// AddAuthorizationRoles adds the "authorization_roles" edges to the Role entity.
+func (_c *UserCreate) AddAuthorizationRoles(v ...*Role) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddAuthorizationRoleIDs(ids...)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_c *UserCreate) AddUsageLogIDs(ids ...int64) *UserCreate {
 	_c.mutation.AddUsageLogIDs(ids...)
@@ -549,6 +580,21 @@ func (_c *UserCreate) AddPlatformQuotas(v ...*UserPlatformQuota) *UserCreate {
 	return _c.AddPlatformQuotaIDs(ids...)
 }
 
+// AddUserRoleIDs adds the "user_roles" edge to the UserRole entity by IDs.
+func (_c *UserCreate) AddUserRoleIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddUserRoleIDs(ids...)
+	return _c
+}
+
+// AddUserRoles adds the "user_roles" edges to the UserRole entity.
+func (_c *UserCreate) AddUserRoles(v ...*UserRole) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddUserRoleIDs(ids...)
+}
+
 // Mutation returns the UserMutation object of the builder.
 func (_c *UserCreate) Mutation() *UserMutation {
 	return _c.mutation
@@ -603,6 +649,10 @@ func (_c *UserCreate) defaults() error {
 	if _, ok := _c.mutation.Role(); !ok {
 		v := user.DefaultRole
 		_c.mutation.SetRole(v)
+	}
+	if _, ok := _c.mutation.AuthzVersion(); !ok {
+		v := user.DefaultAuthzVersion
+		_c.mutation.SetAuthzVersion(v)
 	}
 	if _, ok := _c.mutation.Balance(); !ok {
 		v := user.DefaultBalance
@@ -690,6 +740,9 @@ func (_c *UserCreate) check() error {
 		if err := user.RoleValidator(v); err != nil {
 			return &ValidationError{Name: "role", err: fmt.Errorf(`ent: validator failed for field "User.role": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.AuthzVersion(); !ok {
+		return &ValidationError{Name: "authz_version", err: errors.New(`ent: missing required field "User.authz_version"`)}
 	}
 	if _, ok := _c.mutation.Balance(); !ok {
 		return &ValidationError{Name: "balance", err: errors.New(`ent: missing required field "User.balance"`)}
@@ -795,6 +848,10 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Role(); ok {
 		_spec.SetField(user.FieldRole, field.TypeString, value)
 		_node.Role = value
+	}
+	if value, ok := _c.mutation.AuthzVersion(); ok {
+		_spec.SetField(user.FieldAuthzVersion, field.TypeInt64, value)
+		_node.AuthzVersion = value
 	}
 	if value, ok := _c.mutation.Balance(); ok {
 		_spec.SetField(user.FieldBalance, field.TypeFloat64, value)
@@ -968,6 +1025,26 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 		edge.Target.Fields = specE.Fields
 		_spec.Edges = append(_spec.Edges, edge)
 	}
+	if nodes := _c.mutation.AuthorizationRolesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   user.AuthorizationRolesTable,
+			Columns: user.AuthorizationRolesPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(role.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &UserRoleCreate{config: _c.config, mutation: newUserRoleMutation(_c.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.UsageLogsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -1073,6 +1150,22 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(userplatformquota.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.UserRolesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: true,
+			Table:   user.UserRolesTable,
+			Columns: []string{user.UserRolesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userrole.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -1195,6 +1288,24 @@ func (u *UserUpsert) SetRole(v string) *UserUpsert {
 // UpdateRole sets the "role" field to the value that was provided on create.
 func (u *UserUpsert) UpdateRole() *UserUpsert {
 	u.SetExcluded(user.FieldRole)
+	return u
+}
+
+// SetAuthzVersion sets the "authz_version" field.
+func (u *UserUpsert) SetAuthzVersion(v int64) *UserUpsert {
+	u.Set(user.FieldAuthzVersion, v)
+	return u
+}
+
+// UpdateAuthzVersion sets the "authz_version" field to the value that was provided on create.
+func (u *UserUpsert) UpdateAuthzVersion() *UserUpsert {
+	u.SetExcluded(user.FieldAuthzVersion)
+	return u
+}
+
+// AddAuthzVersion adds v to the "authz_version" field.
+func (u *UserUpsert) AddAuthzVersion(v int64) *UserUpsert {
+	u.Add(user.FieldAuthzVersion, v)
 	return u
 }
 
@@ -1599,6 +1710,27 @@ func (u *UserUpsertOne) SetRole(v string) *UserUpsertOne {
 func (u *UserUpsertOne) UpdateRole() *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateRole()
+	})
+}
+
+// SetAuthzVersion sets the "authz_version" field.
+func (u *UserUpsertOne) SetAuthzVersion(v int64) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetAuthzVersion(v)
+	})
+}
+
+// AddAuthzVersion adds v to the "authz_version" field.
+func (u *UserUpsertOne) AddAuthzVersion(v int64) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.AddAuthzVersion(v)
+	})
+}
+
+// UpdateAuthzVersion sets the "authz_version" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateAuthzVersion() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateAuthzVersion()
 	})
 }
 
@@ -2216,6 +2348,27 @@ func (u *UserUpsertBulk) SetRole(v string) *UserUpsertBulk {
 func (u *UserUpsertBulk) UpdateRole() *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateRole()
+	})
+}
+
+// SetAuthzVersion sets the "authz_version" field.
+func (u *UserUpsertBulk) SetAuthzVersion(v int64) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetAuthzVersion(v)
+	})
+}
+
+// AddAuthzVersion adds v to the "authz_version" field.
+func (u *UserUpsertBulk) AddAuthzVersion(v int64) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.AddAuthzVersion(v)
+	})
+}
+
+// UpdateAuthzVersion sets the "authz_version" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateAuthzVersion() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateAuthzVersion()
 	})
 }
 

@@ -200,6 +200,14 @@ type SystemSettings struct {
 	// Backend Mode
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
+	// Resource access control dark-launch settings
+	ResourceAccessControlEnabled   bool   `json:"resource_access_control_enabled"`
+	SelfServiceHostingEnabled      bool   `json:"self_service_hosting_enabled"`
+	GroupSharingEnabled            bool   `json:"group_sharing_enabled"`
+	AccountSharingEnabled          bool   `json:"account_sharing_enabled"`
+	RoleBasedResourceGrantsEnabled bool   `json:"role_based_resource_grants_enabled"`
+	RoleAuthorizationMode          string `json:"role_authorization_mode"`
+
 	// Gateway forwarding behavior
 	EnableFingerprintUnification           bool   `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              bool   `json:"enable_metadata_passthrough"`

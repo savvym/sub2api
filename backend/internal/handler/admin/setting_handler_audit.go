@@ -431,6 +431,24 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.BackendModeEnabled != after.BackendModeEnabled {
 		changed = append(changed, "backend_mode_enabled")
 	}
+	if before.ResourceAccessControlEnabled != after.ResourceAccessControlEnabled {
+		changed = append(changed, service.SettingKeyResourceAccessControlEnabled)
+	}
+	if before.SelfServiceHostingEnabled != after.SelfServiceHostingEnabled {
+		changed = append(changed, service.SettingKeySelfServiceHostingEnabled)
+	}
+	if before.GroupSharingEnabled != after.GroupSharingEnabled {
+		changed = append(changed, service.SettingKeyGroupSharingEnabled)
+	}
+	if before.AccountSharingEnabled != after.AccountSharingEnabled {
+		changed = append(changed, service.SettingKeyAccountSharingEnabled)
+	}
+	if before.RoleBasedResourceGrantsEnabled != after.RoleBasedResourceGrantsEnabled {
+		changed = append(changed, service.SettingKeyRoleBasedResourceGrantsEnabled)
+	}
+	if before.RoleAuthorizationMode != after.RoleAuthorizationMode {
+		changed = append(changed, service.SettingKeyRoleAuthorizationMode)
+	}
 	if before.PurchaseSubscriptionEnabled != after.PurchaseSubscriptionEnabled {
 		changed = append(changed, "purchase_subscription_enabled")
 	}
