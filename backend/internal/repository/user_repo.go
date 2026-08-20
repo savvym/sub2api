@@ -24,6 +24,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 
+	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 )
 
@@ -164,6 +165,9 @@ func (r *userRepository) create(ctx context.Context, userIn *service.User, guard
 	if err := ensureEmailAuthIdentityWithClient(txCtx, txClient, created.ID, created.Email, "user_repo_create"); err != nil {
 		return err
 	}
+	if err := ensureUserCompatibilityRoleWithClient(txCtx, txClient, created.ID, created.Role); err != nil {
+		return err
+	}
 
 	if ownedTx != nil {
 		if err := ownedTx.Commit(); err != nil {
@@ -246,24 +250,56 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 	}
 
 	// 使用 ent 事务包裹用户更新与 allowed_groups 同步，避免跨层事务不一致。
-	tx, err := r.client.Tx(ctx)
-	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
-		return err
-	}
-
+	// RoleService 会传入外层事务；必须在尝试开启新事务前优先复用它，
+	// 否则角色已经提交而相邻用户字段回滚时会产生部分成功。
 	var txClient *dbent.Client
 	txCtx := ctx
-	if err == nil {
-		defer func() { _ = tx.Rollback() }()
-		txClient = tx.Client()
-		txCtx = dbent.NewTxContext(ctx, tx)
+	var ownedTx *dbent.Tx
+	if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
+		txClient = existingTx.Client()
 	} else {
-		// 已处于外部事务中（ErrTxStarted），复用当前事务 client 并由调用方负责提交/回滚。
-		if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
-			txClient = existingTx.Client()
-		} else {
+		tx, err := r.client.Tx(ctx)
+		switch {
+		case errors.Is(err, dbent.ErrTxStarted):
 			txClient = r.client
+		case err != nil:
+			return err
+		default:
+			ownedTx = tx
+			defer func() { _ = ownedTx.Rollback() }()
+			txClient = tx.Client()
+			txCtx = dbent.NewTxContext(ctx, tx)
 		}
+	}
+
+	// Readiness transitions take a SHARE table lock before locking their actor
+	// row. Acquire the table lock that UPDATE will need before our row lock too;
+	// otherwise SELECT FOR UPDATE -> UPDATE can deadlock while upgrading its
+	// table lock against a concurrent readiness snapshot. The remaining order is
+	// user row -> email advisory lock, shared with mixed role/email updates.
+	var existing *dbent.User
+	var err error
+	if txClient.Driver().Dialect() == dialect.Postgres {
+		if _, err = txClient.ExecContext(txCtx, "LOCK TABLE users IN ROW EXCLUSIVE MODE"); err != nil {
+			return err
+		}
+		existing, err = clientFromContext(txCtx, txClient).User.Query().
+			Where(dbuser.IDEQ(userIn.ID)).
+			ForUpdate().
+			Only(txCtx)
+	} else {
+		existing, err = clientFromContext(txCtx, txClient).User.Get(txCtx, userIn.ID)
+	}
+	if err != nil {
+		return translatePersistenceError(err, service.ErrUserNotFound, nil)
+	}
+	oldEmail := existing.Email
+	// Status writers and RoleService serialize on this same user row. Validate
+	// against the locked database role rather than the caller's potentially stale
+	// snapshot, so an auto-ban/status update cannot race a role promotion into a
+	// disabled administrator.
+	if fields.Status && userIn.Status == service.StatusDisabled && existing.Role == service.RoleAdmin {
+		return service.ErrAdminCannotBeDisabled
 	}
 
 	// 邮箱唯一性锁与查重只在本次确实要改邮箱时才做：不改邮箱的更新既不需要
@@ -285,12 +321,6 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 		}
 	}
 
-	existing, err := clientFromContext(txCtx, txClient).User.Get(txCtx, userIn.ID)
-	if err != nil {
-		return translatePersistenceError(err, service.ErrUserNotFound, nil)
-	}
-	oldEmail := existing.Email
-
 	updateOp := txClient.User.UpdateOneID(userIn.ID)
 	if fields.Email {
 		updateOp = updateOp.SetEmail(userIn.Email)
@@ -303,9 +333,6 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 	}
 	if fields.PasswordHash {
 		updateOp = updateOp.SetPasswordHash(userIn.PasswordHash)
-	}
-	if fields.Role {
-		updateOp = updateOp.SetRole(userIn.Role)
 	}
 	if fields.Concurrency {
 		updateOp = updateOp.SetConcurrency(userIn.Concurrency)
@@ -353,8 +380,8 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 		return err
 	}
 
-	if tx != nil {
-		if err := tx.Commit(); err != nil {
+	if ownedTx != nil {
+		if err := ownedTx.Commit(); err != nil {
 			return err
 		}
 	}

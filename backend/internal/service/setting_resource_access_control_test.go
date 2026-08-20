@@ -225,8 +225,10 @@ func TestResourceAccessControlSettings_DefaultParsingAndPersistence(t *testing.T
 		require.Equal(t, RoleAuthorizationModeLegacy, repo.values[SettingKeyRoleAuthorizationMode])
 	})
 
-	t.Run("valid values persist", func(t *testing.T) {
-		repo := &resourceAccessControlSettingRepoStub{}
+	t.Run("generic updates preserve guarded role mode", func(t *testing.T) {
+		repo := &resourceAccessControlSettingRepoStub{values: map[string]string{
+			SettingKeyRoleAuthorizationMode: RoleAuthorizationModeLegacy,
+		}}
 		svc := NewSettingService(repo, &config.Config{})
 
 		err := svc.UpdateSettings(context.Background(), &SystemSettings{
@@ -243,26 +245,35 @@ func TestResourceAccessControlSettings_DefaultParsingAndPersistence(t *testing.T
 		require.Equal(t, "true", repo.updates[SettingKeyGroupSharingEnabled])
 		require.Equal(t, "true", repo.updates[SettingKeyAccountSharingEnabled])
 		require.Equal(t, "true", repo.updates[SettingKeyRoleBasedResourceGrantsEnabled])
-		require.Equal(t, RoleAuthorizationModeShadow, repo.updates[SettingKeyRoleAuthorizationMode])
+		_, wroteMode := repo.updates[SettingKeyRoleAuthorizationMode]
+		require.False(t, wroteMode)
+		require.Equal(t, RoleAuthorizationModeLegacy, repo.values[SettingKeyRoleAuthorizationMode])
 	})
 
-	t.Run("empty mode persists legacy", func(t *testing.T) {
-		repo := &resourceAccessControlSettingRepoStub{}
+	t.Run("empty mode is not persisted", func(t *testing.T) {
+		repo := &resourceAccessControlSettingRepoStub{values: map[string]string{
+			SettingKeyRoleAuthorizationMode: RoleAuthorizationModeShadow,
+		}}
 		svc := NewSettingService(repo, &config.Config{})
 
 		require.NoError(t, svc.UpdateSettings(context.Background(), &SystemSettings{}))
-		require.Equal(t, RoleAuthorizationModeLegacy, repo.updates[SettingKeyRoleAuthorizationMode])
+		_, wroteMode := repo.updates[SettingKeyRoleAuthorizationMode]
+		require.False(t, wroteMode)
+		require.Equal(t, RoleAuthorizationModeShadow, repo.values[SettingKeyRoleAuthorizationMode])
 	})
 
-	t.Run("invalid mode is rejected", func(t *testing.T) {
-		repo := &resourceAccessControlSettingRepoStub{}
+	t.Run("invalid mode cannot bypass guarded transition", func(t *testing.T) {
+		repo := &resourceAccessControlSettingRepoStub{values: map[string]string{
+			SettingKeyRoleAuthorizationMode: RoleAuthorizationModeLegacy,
+		}}
 		svc := NewSettingService(repo, &config.Config{})
 
 		err := svc.UpdateSettings(context.Background(), &SystemSettings{
 			RoleAuthorizationMode: "acl",
 		})
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "legacy, shadow, rbac")
-		require.Nil(t, repo.updates)
+		require.NoError(t, err)
+		_, wroteMode := repo.updates[SettingKeyRoleAuthorizationMode]
+		require.False(t, wroteMode)
+		require.Equal(t, RoleAuthorizationModeLegacy, repo.values[SettingKeyRoleAuthorizationMode])
 	})
 }

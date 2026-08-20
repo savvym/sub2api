@@ -142,14 +142,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		settings.WeChatConnectMobileEnabled,
 		settings.WeChatConnectMode,
 	)
-	roleAuthorizationMode, valid := parseRoleAuthorizationMode(settings.RoleAuthorizationMode)
-	if !valid && strings.TrimSpace(settings.RoleAuthorizationMode) != "" {
-		return nil, infraerrors.BadRequest(
-			"INVALID_ROLE_AUTHORIZATION_MODE",
-			"role_authorization_mode must be one of: legacy, shadow, rbac",
-		)
-	}
-	settings.RoleAuthorizationMode = roleAuthorizationMode
 	settings.WeChatConnectScopes = normalizeWeChatConnectScopeSetting(settings.WeChatConnectScopes, settings.WeChatConnectMode)
 	settings.WeChatConnectRedirectURL = strings.TrimSpace(settings.WeChatConnectRedirectURL)
 	settings.WeChatConnectFrontendRedirectURL = strings.TrimSpace(settings.WeChatConnectFrontendRedirectURL)
@@ -474,7 +466,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyGroupSharingEnabled] = strconv.FormatBool(settings.GroupSharingEnabled)
 	updates[SettingKeyAccountSharingEnabled] = strconv.FormatBool(settings.AccountSharingEnabled)
 	updates[SettingKeyRoleBasedResourceGrantsEnabled] = strconv.FormatBool(settings.RoleBasedResourceGrantsEnabled)
-	updates[SettingKeyRoleAuthorizationMode] = settings.RoleAuthorizationMode
+	// role_authorization_mode is a guarded state machine. Generic settings
+	// updates must never write it; RoleService owns the only transition path.
 
 	// Gateway forwarding behavior
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
