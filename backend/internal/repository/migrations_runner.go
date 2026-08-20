@@ -62,6 +62,15 @@ const usageLogsUpstreamModelMismatchIndex = "idx_usage_logs_upstream_model_misma
 const usageLogsEffectiveModelIndexesMigration = "226_add_usage_log_effective_model_indexes_notx.sql"
 const usageLogsEffectiveRequestedModelIndex = "idx_usage_logs_effective_requested_model_created"
 const usageLogsEffectiveUpstreamModelIndex = "idx_usage_logs_effective_upstream_model_created"
+const resourceAccessControlFoundationIndexesMigration = "231_resource_access_control_foundation_indexes_notx.sql"
+
+var resourceAccessControlFoundationIndexes = [...]string{
+	"idx_accounts_owner_user_id",
+	"idx_accounts_created_by_user_id",
+	"idx_groups_owner_user_id",
+	"idx_groups_created_by_user_id",
+	"idx_groups_authorization_mode",
+}
 
 type migrationChecksumCompatibilityRule struct {
 	fileChecksum       string
@@ -300,6 +309,13 @@ func prepareNonTransactionalMigration(ctx context.Context, db migrationConnectio
 		return dropInvalidIndexIfPresent(ctx, db, usageLogsUpstreamModelMismatchIndex)
 	case usageLogsEffectiveModelIndexesMigration:
 		for _, indexName := range []string{usageLogsEffectiveRequestedModelIndex, usageLogsEffectiveUpstreamModelIndex} {
+			if err := dropInvalidIndexIfPresent(ctx, db, indexName); err != nil {
+				return err
+			}
+		}
+		return nil
+	case resourceAccessControlFoundationIndexesMigration:
+		for _, indexName := range resourceAccessControlFoundationIndexes {
 			if err := dropInvalidIndexIfPresent(ctx, db, indexName); err != nil {
 				return err
 			}

@@ -232,6 +232,53 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usage_logs_effective_upstream_model_
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestApplyMigrationsFS_ResourceAccessControlFoundationIndexesDropInvalidIndexesBeforeRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(resourceAccessControlFoundationIndexesMigration).
+		WillReturnError(sql.ErrNoRows)
+	for _, indexName := range resourceAccessControlFoundationIndexes {
+		mock.ExpectQuery("SELECT EXISTS \\(").
+			WithArgs(indexName).
+			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+		mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS " + indexName).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	for _, indexName := range resourceAccessControlFoundationIndexes {
+		mock.ExpectExec("CREATE INDEX CONCURRENTLY IF NOT EXISTS " + indexName).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(resourceAccessControlFoundationIndexesMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		resourceAccessControlFoundationIndexesMigration: &fstest.MapFile{Data: []byte(`
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_accounts_owner_user_id
+    ON accounts (owner_user_id) WHERE owner_user_id IS NOT NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_accounts_created_by_user_id
+    ON accounts (created_by_user_id) WHERE created_by_user_id IS NOT NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_groups_owner_user_id
+    ON groups (owner_user_id) WHERE owner_user_id IS NOT NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_groups_created_by_user_id
+    ON groups (created_by_user_id) WHERE created_by_user_id IS NOT NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_groups_authorization_mode
+    ON groups (authorization_mode, id);
+`)},
+	}
+
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestApplyMigrationsFS_PaymentOrdersOutTradeNoUniqueMigration_FailsFastOnDuplicatePrecheck(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

@@ -226,6 +226,16 @@ type SystemSettings struct {
 	// Backend 模式：禁用用户注册和自助服务，仅管理员可登录
 	BackendModeEnabled bool
 
+	// Resource access control dark-launch settings. These fields represent the
+	// stored operator configuration; runtime consumers must use
+	// GetResourceAccessControlRuntimeSettings for effective values.
+	ResourceAccessControlEnabled   bool
+	SelfServiceHostingEnabled      bool
+	GroupSharingEnabled            bool
+	AccountSharingEnabled          bool
+	RoleBasedResourceGrantsEnabled bool
+	RoleAuthorizationMode          string
+
 	// Gateway forwarding behavior
 	EnableFingerprintUnification           bool   // 是否统一 OAuth 账号的指纹头（默认 true）
 	EnableMetadataPassthrough              bool   // 是否透传客户端原始 metadata（默认 false）

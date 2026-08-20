@@ -3,6 +3,8 @@
 package admin
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http"
 	"testing"
 
@@ -18,12 +20,23 @@ import (
 // login page silently changed name.
 
 func TestUpdateSettingsPartialPayloadKeepsUnsentKeys(t *testing.T) {
+	var auditLog bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&auditLog, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
 	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
-		service.SettingKeySiteName:         "Example Gateway",
-		service.SettingKeySiteSubtitle:     "Example Gateway Platform",
-		service.SettingKeySMTPHost:         "smtp.example.com",
-		service.SettingKeySMTPFrom:         "noreply@example.com",
-		service.SettingKeyTurnstileEnabled: "true",
+		service.SettingKeySiteName:                       "Example Gateway",
+		service.SettingKeySiteSubtitle:                   "Example Gateway Platform",
+		service.SettingKeySMTPHost:                       "smtp.example.com",
+		service.SettingKeySMTPFrom:                       "noreply@example.com",
+		service.SettingKeyTurnstileEnabled:               "true",
+		service.SettingKeyResourceAccessControlEnabled:   "true",
+		service.SettingKeySelfServiceHostingEnabled:      "true",
+		service.SettingKeyGroupSharingEnabled:            "true",
+		service.SettingKeyAccountSharingEnabled:          "true",
+		service.SettingKeyRoleBasedResourceGrantsEnabled: "true",
+		service.SettingKeyRoleAuthorizationMode:          service.RoleAuthorizationModeShadow,
 	})
 
 	rec := doUpdateSettings(t, h, map[string]any{"risk_control_enabled": true}, nil)
@@ -37,6 +50,23 @@ func TestUpdateSettingsPartialPayloadKeepsUnsentKeys(t *testing.T) {
 	require.Equal(t, "smtp.example.com", repo.values[service.SettingKeySMTPHost])
 	require.Equal(t, "noreply@example.com", repo.values[service.SettingKeySMTPFrom])
 	require.Equal(t, "true", repo.values[service.SettingKeyTurnstileEnabled])
+	require.Equal(t, "true", repo.values[service.SettingKeyResourceAccessControlEnabled])
+	require.Equal(t, "true", repo.values[service.SettingKeySelfServiceHostingEnabled])
+	require.Equal(t, "true", repo.values[service.SettingKeyGroupSharingEnabled])
+	require.Equal(t, "true", repo.values[service.SettingKeyAccountSharingEnabled])
+	require.Equal(t, "true", repo.values[service.SettingKeyRoleBasedResourceGrantsEnabled])
+	require.Equal(t, service.RoleAuthorizationModeShadow, repo.values[service.SettingKeyRoleAuthorizationMode])
+	require.Contains(t, auditLog.String(), service.SettingKeyRiskControlEnabled)
+	for _, omittedKey := range []string{
+		service.SettingKeyResourceAccessControlEnabled,
+		service.SettingKeySelfServiceHostingEnabled,
+		service.SettingKeyGroupSharingEnabled,
+		service.SettingKeyAccountSharingEnabled,
+		service.SettingKeyRoleBasedResourceGrantsEnabled,
+		service.SettingKeyRoleAuthorizationMode,
+	} {
+		require.NotContains(t, auditLog.String(), omittedKey)
+	}
 }
 
 // A full payload keeps whole-document semantics: fields explicitly set to their

@@ -242,6 +242,14 @@ type UpdateSettingsRequest struct {
 	// Backend Mode
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
+	// Resource access control dark-launch settings
+	ResourceAccessControlEnabled   bool   `json:"resource_access_control_enabled"`
+	SelfServiceHostingEnabled      bool   `json:"self_service_hosting_enabled"`
+	GroupSharingEnabled            bool   `json:"group_sharing_enabled"`
+	AccountSharingEnabled          bool   `json:"account_sharing_enabled"`
+	RoleBasedResourceGrantsEnabled bool   `json:"role_based_resource_grants_enabled"`
+	RoleAuthorizationMode          string `json:"role_authorization_mode"`
+
 	// Gateway forwarding behavior
 	EnableFingerprintUnification           *bool   `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              *bool   `json:"enable_metadata_passthrough"`
@@ -1644,6 +1652,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                   req.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:            req.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                     req.BackendModeEnabled,
+		ResourceAccessControlEnabled:           req.ResourceAccessControlEnabled,
+		SelfServiceHostingEnabled:              req.SelfServiceHostingEnabled,
+		GroupSharingEnabled:                    req.GroupSharingEnabled,
+		AccountSharingEnabled:                  req.AccountSharingEnabled,
+		RoleBasedResourceGrantsEnabled:         req.RoleBasedResourceGrantsEnabled,
+		RoleAuthorizationMode:                  req.RoleAuthorizationMode,
 		AllowUserViewErrorRequests: func() bool {
 			if req.AllowUserViewErrorRequests != nil {
 				return *req.AllowUserViewErrorRequests
@@ -2079,8 +2093,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
-	h.auditSettingsUpdate(c, previousSettings, settings, previousAuthSourceDefaults, authSourceDefaults, auditReq)
-
 	// 重新获取设置返回
 	updatedSettings, err := h.settingService.GetAllSettings(c.Request.Context())
 	if err != nil {
@@ -2093,6 +2105,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	// Partial payloads are merged while persisting. Audit the complete values
+	// read back from storage so omitted fields are not reported as changes.
+	h.auditSettingsUpdate(c, previousSettings, updatedSettings, previousAuthSourceDefaults, updatedAuthSourceDefaults, auditReq)
 	updatedDefaultSubscriptions := make([]dto.DefaultSubscriptionSetting, 0, len(updatedSettings.DefaultSubscriptions))
 	for _, sub := range updatedSettings.DefaultSubscriptions {
 		updatedDefaultSubscriptions = append(updatedDefaultSubscriptions, dto.DefaultSubscriptionSetting{
@@ -2264,6 +2279,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                                   updatedSettings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:                            updatedSettings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,
+		ResourceAccessControlEnabled:                           updatedSettings.ResourceAccessControlEnabled,
+		SelfServiceHostingEnabled:                              updatedSettings.SelfServiceHostingEnabled,
+		GroupSharingEnabled:                                    updatedSettings.GroupSharingEnabled,
+		AccountSharingEnabled:                                  updatedSettings.AccountSharingEnabled,
+		RoleBasedResourceGrantsEnabled:                         updatedSettings.RoleBasedResourceGrantsEnabled,
+		RoleAuthorizationMode:                                  updatedSettings.RoleAuthorizationMode,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       updatedSettings.EnableCCHSigning,

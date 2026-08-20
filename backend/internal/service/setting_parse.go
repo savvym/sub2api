@@ -230,6 +230,12 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 		// 分组隔离（默认不允许未分组 Key 调度）
 		SettingKeyAllowUngroupedKeyScheduling:                        "false",
+		SettingKeyResourceAccessControlEnabled:                       "false",
+		SettingKeySelfServiceHostingEnabled:                          "false",
+		SettingKeyGroupSharingEnabled:                                "false",
+		SettingKeyAccountSharingEnabled:                              "false",
+		SettingKeyRoleBasedResourceGrantsEnabled:                     "false",
+		SettingKeyRoleAuthorizationMode:                              RoleAuthorizationModeLegacy,
 		SettingKeyOpenAILowUpstreamRatePriorityEnabled:               "false",
 		SettingKeyOpenAIOAuthSchedulingRateMultiplier:                "1",
 		SettingKeyEnableAnthropicCacheTTL1hInjection:                 "false",
@@ -363,6 +369,12 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		CustomMenuItems:                        settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                        settings[SettingKeyCustomEndpoints],
 		BackendModeEnabled:                     settings[SettingKeyBackendModeEnabled] == "true",
+		ResourceAccessControlEnabled:           settings[SettingKeyResourceAccessControlEnabled] == "true",
+		SelfServiceHostingEnabled:              settings[SettingKeySelfServiceHostingEnabled] == "true",
+		GroupSharingEnabled:                    settings[SettingKeyGroupSharingEnabled] == "true",
+		AccountSharingEnabled:                  settings[SettingKeyAccountSharingEnabled] == "true",
+		RoleBasedResourceGrantsEnabled:         settings[SettingKeyRoleBasedResourceGrantsEnabled] == "true",
+		RoleAuthorizationMode:                  normalizeRoleAuthorizationMode(settings[SettingKeyRoleAuthorizationMode]),
 	}
 	result.TableDefaultPageSize, result.TablePageSizeOptions = parseTablePreferences(
 		settings[SettingKeyTableDefaultPageSize],

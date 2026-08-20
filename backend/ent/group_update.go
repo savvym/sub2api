@@ -1106,6 +1106,101 @@ func (_u *GroupUpdate) AppendReasoningEffortMappings(v []domain.ReasoningEffortM
 	return _u
 }
 
+// SetOwnerUserID sets the "owner_user_id" field.
+func (_u *GroupUpdate) SetOwnerUserID(v int64) *GroupUpdate {
+	_u.mutation.SetOwnerUserID(v)
+	return _u
+}
+
+// SetNillableOwnerUserID sets the "owner_user_id" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableOwnerUserID(v *int64) *GroupUpdate {
+	if v != nil {
+		_u.SetOwnerUserID(*v)
+	}
+	return _u
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (_u *GroupUpdate) ClearOwnerUserID() *GroupUpdate {
+	_u.mutation.ClearOwnerUserID()
+	return _u
+}
+
+// SetCreatedByUserID sets the "created_by_user_id" field.
+func (_u *GroupUpdate) SetCreatedByUserID(v int64) *GroupUpdate {
+	_u.mutation.SetCreatedByUserID(v)
+	return _u
+}
+
+// SetNillableCreatedByUserID sets the "created_by_user_id" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableCreatedByUserID(v *int64) *GroupUpdate {
+	if v != nil {
+		_u.SetCreatedByUserID(*v)
+	}
+	return _u
+}
+
+// ClearCreatedByUserID clears the value of the "created_by_user_id" field.
+func (_u *GroupUpdate) ClearCreatedByUserID() *GroupUpdate {
+	_u.mutation.ClearCreatedByUserID()
+	return _u
+}
+
+// SetPublicAccessLevel sets the "public_access_level" field.
+func (_u *GroupUpdate) SetPublicAccessLevel(v string) *GroupUpdate {
+	_u.mutation.SetPublicAccessLevel(v)
+	return _u
+}
+
+// SetNillablePublicAccessLevel sets the "public_access_level" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillablePublicAccessLevel(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetPublicAccessLevel(*v)
+	}
+	return _u
+}
+
+// ClearPublicAccessLevel clears the value of the "public_access_level" field.
+func (_u *GroupUpdate) ClearPublicAccessLevel() *GroupUpdate {
+	_u.mutation.ClearPublicAccessLevel()
+	return _u
+}
+
+// SetAccessVersion sets the "access_version" field.
+func (_u *GroupUpdate) SetAccessVersion(v int64) *GroupUpdate {
+	_u.mutation.ResetAccessVersion()
+	_u.mutation.SetAccessVersion(v)
+	return _u
+}
+
+// SetNillableAccessVersion sets the "access_version" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableAccessVersion(v *int64) *GroupUpdate {
+	if v != nil {
+		_u.SetAccessVersion(*v)
+	}
+	return _u
+}
+
+// AddAccessVersion adds value to the "access_version" field.
+func (_u *GroupUpdate) AddAccessVersion(v int64) *GroupUpdate {
+	_u.mutation.AddAccessVersion(v)
+	return _u
+}
+
+// SetAuthorizationMode sets the "authorization_mode" field.
+func (_u *GroupUpdate) SetAuthorizationMode(v string) *GroupUpdate {
+	_u.mutation.SetAuthorizationMode(v)
+	return _u
+}
+
+// SetNillableAuthorizationMode sets the "authorization_mode" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableAuthorizationMode(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetAuthorizationMode(*v)
+	}
+	return _u
+}
+
 // SetProfitControlEnabled sets the "profit_control_enabled" field.
 func (_u *GroupUpdate) SetProfitControlEnabled(v bool) *GroupUpdate {
 	_u.mutation.SetProfitControlEnabled(v)
@@ -1252,6 +1347,44 @@ func (_u *GroupUpdate) AddAllowedUsers(v ...*User) *GroupUpdate {
 	return _u.AddAllowedUserIDs(ids...)
 }
 
+// SetOwnerID sets the "owner" edge to the User entity by ID.
+func (_u *GroupUpdate) SetOwnerID(id int64) *GroupUpdate {
+	_u.mutation.SetOwnerID(id)
+	return _u
+}
+
+// SetNillableOwnerID sets the "owner" edge to the User entity by ID if the given value is not nil.
+func (_u *GroupUpdate) SetNillableOwnerID(id *int64) *GroupUpdate {
+	if id != nil {
+		_u = _u.SetOwnerID(*id)
+	}
+	return _u
+}
+
+// SetOwner sets the "owner" edge to the User entity.
+func (_u *GroupUpdate) SetOwner(v *User) *GroupUpdate {
+	return _u.SetOwnerID(v.ID)
+}
+
+// SetCreatedByID sets the "created_by" edge to the User entity by ID.
+func (_u *GroupUpdate) SetCreatedByID(id int64) *GroupUpdate {
+	_u.mutation.SetCreatedByID(id)
+	return _u
+}
+
+// SetNillableCreatedByID sets the "created_by" edge to the User entity by ID if the given value is not nil.
+func (_u *GroupUpdate) SetNillableCreatedByID(id *int64) *GroupUpdate {
+	if id != nil {
+		_u = _u.SetCreatedByID(*id)
+	}
+	return _u
+}
+
+// SetCreatedBy sets the "created_by" edge to the User entity.
+func (_u *GroupUpdate) SetCreatedBy(v *User) *GroupUpdate {
+	return _u.SetCreatedByID(v.ID)
+}
+
 // Mutation returns the GroupMutation object of the builder.
 func (_u *GroupUpdate) Mutation() *GroupMutation {
 	return _u.mutation
@@ -1383,6 +1516,18 @@ func (_u *GroupUpdate) RemoveAllowedUsers(v ...*User) *GroupUpdate {
 	return _u.RemoveAllowedUserIDs(ids...)
 }
 
+// ClearOwner clears the "owner" edge to the User entity.
+func (_u *GroupUpdate) ClearOwner() *GroupUpdate {
+	_u.mutation.ClearOwner()
+	return _u
+}
+
+// ClearCreatedBy clears the "created_by" edge to the User entity.
+func (_u *GroupUpdate) ClearCreatedBy() *GroupUpdate {
+	_u.mutation.ClearCreatedBy()
+	return _u
+}
+
 // Save executes the query and returns the number of nodes affected by the update operation.
 func (_u *GroupUpdate) Save(ctx context.Context) (int, error) {
 	if err := _u.defaults(); err != nil {
@@ -1485,6 +1630,16 @@ func (_u *GroupUpdate) check() error {
 	if v, ok := _u.mutation.MaxReasoningEffort(); ok {
 		if err := group.MaxReasoningEffortValidator(v); err != nil {
 			return &ValidationError{Name: "max_reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "Group.max_reasoning_effort": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.PublicAccessLevel(); ok {
+		if err := group.PublicAccessLevelValidator(v); err != nil {
+			return &ValidationError{Name: "public_access_level", err: fmt.Errorf(`ent: validator failed for field "Group.public_access_level": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.AuthorizationMode(); ok {
+		if err := group.AuthorizationModeValidator(v); err != nil {
+			return &ValidationError{Name: "authorization_mode", err: fmt.Errorf(`ent: validator failed for field "Group.authorization_mode": %w`, err)}
 		}
 	}
 	return nil
@@ -1829,6 +1984,21 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			sqljson.Append(u, group.FieldReasoningEffortMappings, value)
 		})
 	}
+	if value, ok := _u.mutation.PublicAccessLevel(); ok {
+		_spec.SetField(group.FieldPublicAccessLevel, field.TypeString, value)
+	}
+	if _u.mutation.PublicAccessLevelCleared() {
+		_spec.ClearField(group.FieldPublicAccessLevel, field.TypeString)
+	}
+	if value, ok := _u.mutation.AccessVersion(); ok {
+		_spec.SetField(group.FieldAccessVersion, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAccessVersion(); ok {
+		_spec.AddField(group.FieldAccessVersion, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AuthorizationMode(); ok {
+		_spec.SetField(group.FieldAuthorizationMode, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.ProfitControlEnabled(); ok {
 		_spec.SetField(group.FieldProfitControlEnabled, field.TypeBool, value)
 	}
@@ -2136,6 +2306,64 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OwnerCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.OwnerTable,
+			Columns: []string{group.OwnerColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OwnerIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.OwnerTable,
+			Columns: []string{group.OwnerColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.CreatedByCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.CreatedByTable,
+			Columns: []string{group.CreatedByColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.CreatedByIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.CreatedByTable,
+			Columns: []string{group.CreatedByColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
@@ -3227,6 +3455,101 @@ func (_u *GroupUpdateOne) AppendReasoningEffortMappings(v []domain.ReasoningEffo
 	return _u
 }
 
+// SetOwnerUserID sets the "owner_user_id" field.
+func (_u *GroupUpdateOne) SetOwnerUserID(v int64) *GroupUpdateOne {
+	_u.mutation.SetOwnerUserID(v)
+	return _u
+}
+
+// SetNillableOwnerUserID sets the "owner_user_id" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableOwnerUserID(v *int64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetOwnerUserID(*v)
+	}
+	return _u
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (_u *GroupUpdateOne) ClearOwnerUserID() *GroupUpdateOne {
+	_u.mutation.ClearOwnerUserID()
+	return _u
+}
+
+// SetCreatedByUserID sets the "created_by_user_id" field.
+func (_u *GroupUpdateOne) SetCreatedByUserID(v int64) *GroupUpdateOne {
+	_u.mutation.SetCreatedByUserID(v)
+	return _u
+}
+
+// SetNillableCreatedByUserID sets the "created_by_user_id" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableCreatedByUserID(v *int64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetCreatedByUserID(*v)
+	}
+	return _u
+}
+
+// ClearCreatedByUserID clears the value of the "created_by_user_id" field.
+func (_u *GroupUpdateOne) ClearCreatedByUserID() *GroupUpdateOne {
+	_u.mutation.ClearCreatedByUserID()
+	return _u
+}
+
+// SetPublicAccessLevel sets the "public_access_level" field.
+func (_u *GroupUpdateOne) SetPublicAccessLevel(v string) *GroupUpdateOne {
+	_u.mutation.SetPublicAccessLevel(v)
+	return _u
+}
+
+// SetNillablePublicAccessLevel sets the "public_access_level" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillablePublicAccessLevel(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetPublicAccessLevel(*v)
+	}
+	return _u
+}
+
+// ClearPublicAccessLevel clears the value of the "public_access_level" field.
+func (_u *GroupUpdateOne) ClearPublicAccessLevel() *GroupUpdateOne {
+	_u.mutation.ClearPublicAccessLevel()
+	return _u
+}
+
+// SetAccessVersion sets the "access_version" field.
+func (_u *GroupUpdateOne) SetAccessVersion(v int64) *GroupUpdateOne {
+	_u.mutation.ResetAccessVersion()
+	_u.mutation.SetAccessVersion(v)
+	return _u
+}
+
+// SetNillableAccessVersion sets the "access_version" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableAccessVersion(v *int64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetAccessVersion(*v)
+	}
+	return _u
+}
+
+// AddAccessVersion adds value to the "access_version" field.
+func (_u *GroupUpdateOne) AddAccessVersion(v int64) *GroupUpdateOne {
+	_u.mutation.AddAccessVersion(v)
+	return _u
+}
+
+// SetAuthorizationMode sets the "authorization_mode" field.
+func (_u *GroupUpdateOne) SetAuthorizationMode(v string) *GroupUpdateOne {
+	_u.mutation.SetAuthorizationMode(v)
+	return _u
+}
+
+// SetNillableAuthorizationMode sets the "authorization_mode" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableAuthorizationMode(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetAuthorizationMode(*v)
+	}
+	return _u
+}
+
 // SetProfitControlEnabled sets the "profit_control_enabled" field.
 func (_u *GroupUpdateOne) SetProfitControlEnabled(v bool) *GroupUpdateOne {
 	_u.mutation.SetProfitControlEnabled(v)
@@ -3373,6 +3696,44 @@ func (_u *GroupUpdateOne) AddAllowedUsers(v ...*User) *GroupUpdateOne {
 	return _u.AddAllowedUserIDs(ids...)
 }
 
+// SetOwnerID sets the "owner" edge to the User entity by ID.
+func (_u *GroupUpdateOne) SetOwnerID(id int64) *GroupUpdateOne {
+	_u.mutation.SetOwnerID(id)
+	return _u
+}
+
+// SetNillableOwnerID sets the "owner" edge to the User entity by ID if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableOwnerID(id *int64) *GroupUpdateOne {
+	if id != nil {
+		_u = _u.SetOwnerID(*id)
+	}
+	return _u
+}
+
+// SetOwner sets the "owner" edge to the User entity.
+func (_u *GroupUpdateOne) SetOwner(v *User) *GroupUpdateOne {
+	return _u.SetOwnerID(v.ID)
+}
+
+// SetCreatedByID sets the "created_by" edge to the User entity by ID.
+func (_u *GroupUpdateOne) SetCreatedByID(id int64) *GroupUpdateOne {
+	_u.mutation.SetCreatedByID(id)
+	return _u
+}
+
+// SetNillableCreatedByID sets the "created_by" edge to the User entity by ID if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableCreatedByID(id *int64) *GroupUpdateOne {
+	if id != nil {
+		_u = _u.SetCreatedByID(*id)
+	}
+	return _u
+}
+
+// SetCreatedBy sets the "created_by" edge to the User entity.
+func (_u *GroupUpdateOne) SetCreatedBy(v *User) *GroupUpdateOne {
+	return _u.SetCreatedByID(v.ID)
+}
+
 // Mutation returns the GroupMutation object of the builder.
 func (_u *GroupUpdateOne) Mutation() *GroupMutation {
 	return _u.mutation
@@ -3504,6 +3865,18 @@ func (_u *GroupUpdateOne) RemoveAllowedUsers(v ...*User) *GroupUpdateOne {
 	return _u.RemoveAllowedUserIDs(ids...)
 }
 
+// ClearOwner clears the "owner" edge to the User entity.
+func (_u *GroupUpdateOne) ClearOwner() *GroupUpdateOne {
+	_u.mutation.ClearOwner()
+	return _u
+}
+
+// ClearCreatedBy clears the "created_by" edge to the User entity.
+func (_u *GroupUpdateOne) ClearCreatedBy() *GroupUpdateOne {
+	_u.mutation.ClearCreatedBy()
+	return _u
+}
+
 // Where appends a list predicates to the GroupUpdate builder.
 func (_u *GroupUpdateOne) Where(ps ...predicate.Group) *GroupUpdateOne {
 	_u.mutation.Where(ps...)
@@ -3619,6 +3992,16 @@ func (_u *GroupUpdateOne) check() error {
 	if v, ok := _u.mutation.MaxReasoningEffort(); ok {
 		if err := group.MaxReasoningEffortValidator(v); err != nil {
 			return &ValidationError{Name: "max_reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "Group.max_reasoning_effort": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.PublicAccessLevel(); ok {
+		if err := group.PublicAccessLevelValidator(v); err != nil {
+			return &ValidationError{Name: "public_access_level", err: fmt.Errorf(`ent: validator failed for field "Group.public_access_level": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.AuthorizationMode(); ok {
+		if err := group.AuthorizationModeValidator(v); err != nil {
+			return &ValidationError{Name: "authorization_mode", err: fmt.Errorf(`ent: validator failed for field "Group.authorization_mode": %w`, err)}
 		}
 	}
 	return nil
@@ -3980,6 +4363,21 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 			sqljson.Append(u, group.FieldReasoningEffortMappings, value)
 		})
 	}
+	if value, ok := _u.mutation.PublicAccessLevel(); ok {
+		_spec.SetField(group.FieldPublicAccessLevel, field.TypeString, value)
+	}
+	if _u.mutation.PublicAccessLevelCleared() {
+		_spec.ClearField(group.FieldPublicAccessLevel, field.TypeString)
+	}
+	if value, ok := _u.mutation.AccessVersion(); ok {
+		_spec.SetField(group.FieldAccessVersion, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedAccessVersion(); ok {
+		_spec.AddField(group.FieldAccessVersion, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AuthorizationMode(); ok {
+		_spec.SetField(group.FieldAuthorizationMode, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.ProfitControlEnabled(); ok {
 		_spec.SetField(group.FieldProfitControlEnabled, field.TypeBool, value)
 	}
@@ -4287,6 +4685,64 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OwnerCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.OwnerTable,
+			Columns: []string{group.OwnerColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OwnerIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.OwnerTable,
+			Columns: []string{group.OwnerColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.CreatedByCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.CreatedByTable,
+			Columns: []string{group.CreatedByColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.CreatedByIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.CreatedByTable,
+			Columns: []string{group.CreatedByColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	_node = &Group{config: _u.config}

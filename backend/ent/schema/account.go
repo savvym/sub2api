@@ -34,6 +34,10 @@ type Account struct {
 func (Account) Annotations() []schema.Annotation {
 	return []schema.Annotation{
 		entsql.Annotation{Table: "accounts"},
+		entsql.Checks(map[string]string{
+			"accounts_public_access_level_check": "public_access_level IS NULL OR public_access_level IN ('viewer', 'consumer')",
+			"accounts_access_version_positive":   "access_version > 0",
+		}),
 	}
 }
 
@@ -201,6 +205,21 @@ func (Account) Fields() []ent.Field {
 			Comment("Parent account id for a linked spark shadow (NULL = normal)."),
 		field.Enum("quota_dimension").Values("global", "spark").Default("global").
 			Comment("'global' (default) or 'spark' (shadow reads codex_bengalfox)."),
+
+		// Resource authorization foundation. NULL owner means a platform resource,
+		// never an implicitly public resource.
+		field.Int64("owner_user_id").
+			Optional().
+			Nillable(),
+		field.Int64("created_by_user_id").
+			Optional().
+			Nillable(),
+		field.String("public_access_level").
+			MaxLen(20).
+			Optional().
+			Nillable(),
+		field.Int64("access_version").
+			Default(1),
 	}
 }
 
@@ -225,6 +244,16 @@ func (Account) Edges() []ent.Edge {
 			From("parent").
 			Field("parent_account_id").
 			Unique(),
+		edge.To("owner", User.Type).
+			Field("owner_user_id").
+			Unique().
+			StorageKey(edge.Column("owner_user_id"), edge.Symbol("accounts_owner_user_id_fkey")).
+			Annotations(entsql.OnDelete(entsql.Restrict)),
+		edge.To("created_by", User.Type).
+			Field("created_by_user_id").
+			Unique().
+			StorageKey(edge.Column("created_by_user_id"), edge.Symbol("accounts_created_by_user_id_fkey")).
+			Annotations(entsql.OnDelete(entsql.Restrict)),
 		// usage_logs: 该账户的使用日志
 		edge.To("usage_logs", UsageLog.Type),
 	}
@@ -249,5 +278,11 @@ func (Account) Indexes() []ent.Index {
 		index.Fields("priority", "status"),
 		index.Fields("deleted_at"), // 软删除查询优化
 		index.Fields("parent_account_id"),
+		index.Fields("owner_user_id").
+			StorageKey("idx_accounts_owner_user_id").
+			Annotations(entsql.IndexWhere("owner_user_id IS NOT NULL")),
+		index.Fields("created_by_user_id").
+			StorageKey("idx_accounts_created_by_user_id").
+			Annotations(entsql.IndexWhere("created_by_user_id IS NOT NULL")),
 	}
 }
