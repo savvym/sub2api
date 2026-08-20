@@ -7,8 +7,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
-	"net"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -32,6 +30,7 @@ const (
 	defaultUserConcurrency     = 5
 	simpleModeAdminConcurrency = 30
 	defaultMigrationTimeout    = 60 * time.Second
+	installationAdvisoryLockID = int64(694208311321144029)
 )
 
 func setupDefaultAdminConcurrency() int {
@@ -181,16 +180,14 @@ func NeedsSetup() bool {
 }
 
 func buildPostgresDSN(cfg *DatabaseConfig, dbName string) string {
-	dsn := &url.URL{
-		Scheme: "postgres",
-		User:   url.UserPassword(cfg.User, cfg.Password),
-		Host:   net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
-		Path:   "/" + dbName,
-	}
-	query := dsn.Query()
-	query.Set("sslmode", cfg.SSLMode)
-	dsn.RawQuery = query.Encode()
-	return dsn.String()
+	return (&config.DatabaseConfig{
+		Host:     cfg.Host,
+		Port:     cfg.Port,
+		User:     cfg.User,
+		Password: cfg.Password,
+		DBName:   dbName,
+		SSLMode:  cfg.SSLMode,
+	}).DSN()
 }
 
 func buildDatabaseConnectionDSNs(cfg *DatabaseConfig) (bootstrapDSN, targetDSN string) {
@@ -310,6 +307,56 @@ func Install(cfg *SetupConfig) error {
 	if !NeedsSetup() {
 		return fmt.Errorf("system is already installed, re-installation is not allowed")
 	}
+
+	lockDB, err := sql.Open("postgres", buildPostgresDSN(&cfg.Database, "postgres"))
+	if err != nil {
+		return fmt.Errorf("open installation lock database: %w", err)
+	}
+	defer func() {
+		if err := lockDB.Close(); err != nil {
+			logger.LegacyPrintf("setup", "failed to close installation lock database: %v", err)
+		}
+	}()
+
+	lockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return withInstallationLock(lockCtx, lockDB, func() error {
+		// Another process may have completed setup between the first check and
+		// acquiring the database lock.
+		if !NeedsSetup() {
+			return fmt.Errorf("system is already installed, re-installation is not allowed")
+		}
+		return installWhileLocked(cfg)
+	})
+}
+
+func withInstallationLock(ctx context.Context, db *sql.DB, install func() error) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire installation lock connection: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	var acquired bool
+	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", installationAdvisoryLockID).Scan(&acquired); err != nil {
+		return fmt.Errorf("acquire installation advisory lock: %w", err)
+	}
+	if !acquired {
+		return fmt.Errorf("another installation is already in progress")
+	}
+	defer func() {
+		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var unlocked bool
+		if err := conn.QueryRowContext(unlockCtx, "SELECT pg_advisory_unlock($1)", installationAdvisoryLockID).Scan(&unlocked); err != nil || !unlocked {
+			logger.LegacyPrintf("setup", "failed to release installation advisory lock: unlocked=%v err=%v", unlocked, err)
+		}
+	}()
+
+	return install()
+}
+
+func installWhileLocked(cfg *SetupConfig) error {
 
 	// Generate JWT secret if not provided
 	if cfg.JWT.Secret == "" {
@@ -701,68 +748,9 @@ func AutoSetupFromEnv() error {
 		MigrationTimeoutSeconds: getEnvIntOrDefault("SETUP_MIGRATION_TIMEOUT_SECONDS", 0),
 	}
 
-	// Generate JWT secret if not provided
-	if cfg.JWT.Secret == "" {
-		secret, err := generateSecret(32)
-		if err != nil {
-			return fmt.Errorf("failed to generate jwt secret: %w", err)
-		}
-		cfg.JWT.Secret = secret
-		logger.LegacyPrintf("setup", "%s", "Warning: JWT secret auto-generated. Consider setting a fixed secret for production.")
+	if err := Install(cfg); err != nil {
+		return err
 	}
-
-	// Test database connection
-	logger.LegacyPrintf("setup", "%s", "Testing database connection...")
-	if err := TestDatabaseConnection(&cfg.Database); err != nil {
-		return fmt.Errorf("database connection failed: %w", err)
-	}
-	logger.LegacyPrintf("setup", "%s", "Database connection successful")
-
-	// Test Redis connection
-	logger.LegacyPrintf("setup", "%s", "Testing Redis connection...")
-	if err := TestRedisConnection(&cfg.Redis); err != nil {
-		return fmt.Errorf("redis connection failed: %w", err)
-	}
-	logger.LegacyPrintf("setup", "%s", "Redis connection successful")
-
-	// Initialize database
-	logger.LegacyPrintf("setup", "%s", "Initializing database...")
-	if err := initializeDatabase(cfg); err != nil {
-		return fmt.Errorf("database initialization failed: %w", err)
-	}
-	logger.LegacyPrintf("setup", "%s", "Database initialized successfully")
-
-	// Create admin user
-	logger.LegacyPrintf("setup", "%s", "Creating admin user...")
-	created, reason, err := createAdminUser(cfg)
-	if err != nil {
-		return fmt.Errorf("admin user creation failed: %w", err)
-	}
-	if created {
-		logger.LegacyPrintf("setup", "Admin user created: %s", cfg.Admin.Email)
-	} else {
-		switch reason {
-		case adminBootstrapReasonAdminExists:
-			logger.LegacyPrintf("setup", "%s", "Admin user already exists, skipping admin bootstrap")
-		case adminBootstrapReasonUsersExistWithoutAdmin:
-			logger.LegacyPrintf("setup", "%s", "Database already has user data; skipping auto admin bootstrap to avoid password overwrite")
-		default:
-			logger.LegacyPrintf("setup", "%s", "Admin bootstrap skipped")
-		}
-	}
-
-	// Write config file
-	logger.LegacyPrintf("setup", "%s", "Writing configuration file...")
-	if err := writeConfigFile(cfg); err != nil {
-		return fmt.Errorf("config file creation failed: %w", err)
-	}
-	logger.LegacyPrintf("setup", "%s", "Configuration file created")
-
-	// Create installation lock file
-	if err := createInstallLock(); err != nil {
-		return fmt.Errorf("failed to create install lock: %w", err)
-	}
-	logger.LegacyPrintf("setup", "%s", "Installation lock created")
 
 	logger.LegacyPrintf("setup", "%s", "Auto setup completed successfully!")
 	return nil

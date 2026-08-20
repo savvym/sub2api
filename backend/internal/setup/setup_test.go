@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -286,7 +287,11 @@ func TestBuildPostgresDSNPreservesEmptyAndEscapedCredentials(t *testing.T) {
 				t.Fatalf("username = %q, want %q", parsed.User.Username(), tc.user)
 			}
 			password, passwordSet := parsed.User.Password()
-			if !passwordSet || password != tc.password {
+			if tc.password == "" {
+				if passwordSet {
+					t.Fatalf("empty password should be omitted, got %q", password)
+				}
+			} else if !passwordSet || password != tc.password {
 				t.Fatalf("password = %q (set %v), want %q", password, passwordSet, tc.password)
 			}
 			if parsed.Path != "/target_database" || parsed.Query().Get("sslmode") != "disable" {
@@ -323,6 +328,91 @@ func TestCreateAdminUserWithDBCreatesCompatibilityRoleAtomically(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet SQL expectations: %v", err)
 	}
+}
+
+func TestWithInstallationLockRunsOnlyForLockHolder(t *testing.T) {
+	t.Run("acquired lock runs callback and unlocks", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock.New() error = %v", err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_try_advisory_lock($1)")).
+			WithArgs(installationAdvisoryLockID).
+			WillReturnRows(sqlmock.NewRows([]string{"acquired"}).AddRow(true))
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_advisory_unlock($1)")).
+			WithArgs(installationAdvisoryLockID).
+			WillReturnRows(sqlmock.NewRows([]string{"unlocked"}).AddRow(true))
+
+		called := false
+		err = withInstallationLock(context.Background(), db, func() error {
+			called = true
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("withInstallationLock() error = %v", err)
+		}
+		if !called {
+			t.Fatal("withInstallationLock() did not run callback")
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("unmet SQL expectations: %v", err)
+		}
+	})
+
+	t.Run("contended lock rejects callback", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock.New() error = %v", err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_try_advisory_lock($1)")).
+			WithArgs(installationAdvisoryLockID).
+			WillReturnRows(sqlmock.NewRows([]string{"acquired"}).AddRow(false))
+
+		called := false
+		err = withInstallationLock(context.Background(), db, func() error {
+			called = true
+			return nil
+		})
+		if err == nil || !strings.Contains(err.Error(), "already in progress") {
+			t.Fatalf("withInstallationLock() error = %v, want contention error", err)
+		}
+		if called {
+			t.Fatal("withInstallationLock() ran callback without the lock")
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("unmet SQL expectations: %v", err)
+		}
+	})
+
+	t.Run("callback failure still unlocks", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock.New() error = %v", err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_try_advisory_lock($1)")).
+			WithArgs(installationAdvisoryLockID).
+			WillReturnRows(sqlmock.NewRows([]string{"acquired"}).AddRow(true))
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT pg_advisory_unlock($1)")).
+			WithArgs(installationAdvisoryLockID).
+			WillReturnRows(sqlmock.NewRows([]string{"unlocked"}).AddRow(true))
+
+		callbackErr := errors.New("installation failed")
+		err = withInstallationLock(context.Background(), db, func() error {
+			return callbackErr
+		})
+		if !errors.Is(err, callbackErr) {
+			t.Fatalf("withInstallationLock() error = %v, want %v", err, callbackErr)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("unmet SQL expectations: %v", err)
+		}
+	})
 }
 
 func TestCreateAdminUserWithDBRollsBackWhenCompatibilityRoleFails(t *testing.T) {

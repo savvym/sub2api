@@ -145,9 +145,11 @@ PGOPTIONS='-c default_transaction_read_only=on' \
 ### 实现范围
 
 - `createAdminUser` 使用数据库事务和 `LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE` 串行化 Web、CLI、AutoSetup 及多进程初始化入口。
+- 完整 `Install` 使用 PostgreSQL session advisory lock 覆盖数据库创建、迁移、管理员事务、配置和安装标记；拿锁后再次检查安装状态，竞争者不会继续写配置。
+- Web、CLI 和 AutoSetup 共用 `Install`；AutoSetup 不再复制 JWT、连接测试、迁移、管理员和文件写入流程。
 - 同一事务内完成 legacy 管理员写入、按 `users.role` 选择 `admin/user` 兼容角色、以 `system_bootstrap` 归因、校验无人工 grantor/无过期时间，并在任一步失败时整体回滚。
 - 新增 migration 232 修复在 229 已执行后才由旧 setup 创建的用户；收敛 SQL 与 229 保持一致，只替换 `system_bootstrap` 拥有的错误 `admin/user` Grant。
-- PostgreSQL setup DSN 改为结构化 URL，修复空密码 keyword DSN 将后续 `dbname` 解析丢失的问题，同时正确编码密码特殊字符。
+- setup 与正常运行时 PostgreSQL DSN 统一为结构化 URL，修复空密码 keyword DSN 将后续 `dbname` 解析丢失的问题，同时正确编码密码特殊字符和时区。
 - 不写 Feature Flag，不切换 `role_authorization_mode`，不改变 `users.role` 的 legacy 权威行为。
 
 ### 自动化与动态验证
@@ -164,6 +166,10 @@ PGOPTIONS='-c default_transaction_read_only=on' \
 | migration 232/229 收敛 SQL 等价与不 seed settings contract | 通过 |
 | PostgreSQL 18.6 临时 fresh 库：migrate → create → repeat | 通过；users=1、admin bootstrap Grant=1、authz_version=1、mode=legacy |
 | PostgreSQL 18.6 临时 fresh 库：两个并发 admin bootstrap | 通过；恰好一个 created，最终 users/Grant 均为 1 |
+| PostgreSQL 18.6 + Redis 完整双 `Install` 并发 | 通过；恰好一个成功，config JWT、admin email/password 与同一 winner 一致 |
 | 本地开发库应用 migration 232 后核对 `dev-admin@sub2api.local` | 通过；legacy role=admin、compatibility role=admin、grantor=system_bootstrap、无过期 |
+| 最新 backend 以统一 runtime DSN 重启 | 通过；DB pool、migration、Server started 正常，`/health=200`，无 ERROR/FATAL/PANIC/5xx |
+| 本地管理员登录与现有页面 API | 通过；`auth/me`、dashboard stats、groups、accounts 均为 200，未登录 dashboard 正确跳转登录页 |
+| 前端 auth guard、DashboardView 与 client 专项 | 通过，3 files / 55 tests |
 
-临时验证库 `sub2api_codex_setup_bootstrap_20260820_a7f4` 已在验证后删除。Docker/Testcontainers 门禁状态不变，仍需在 CI 补跑。
+临时验证库 `sub2api_codex_setup_bootstrap_20260820_a7f4` 与 `sub2api_codex_install_lock_20260820_b3e9` 均已在验证后删除。Docker/Testcontainers 门禁状态不变，仍需在 CI 补跑。

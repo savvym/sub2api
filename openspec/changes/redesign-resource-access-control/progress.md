@@ -9,6 +9,7 @@
 - 基线提交：`58de21e70`（总体设计文档）。
 - Foundation 提交：`215536582`，已推送 `origin/codex/resource-access-control-foundation`。
 - Authorization Domain Contract 提交：`0d66334c9`，已推送同一远程分支。
+- Fresh Setup Compatibility Bootstrap 提交：`4505b0301`，已推送同一远程分支。
 - 当前切片：0.4/0.5 静态审计已到 Review Ready，1.5 与 fresh setup 兼容角色引导已实现并完成本机验证；Phase 0 尚未批准退出。
 - 当前权威行为：旧 `users.role` 与旧分组资格；不得启用任何新 ACL 放行。
 
@@ -29,6 +30,8 @@
 - fresh setup 现在于单一数据库事务内串行完成管理员创建、`system_bootstrap` 兼容角色写入与校验；失败整体回滚，重复或并发执行不会创建第二个管理员。
 - 新增 migration 232，为已经在 229 之后由旧 setup 创建的用户补齐/收敛兼容角色；只修改 `system_bootstrap` 拥有的 `admin/user` Grant，保留人工和其他 Service Principal Grant。
 - setup 的 PostgreSQL 连接统一改为结构化 URL，修复空密码会吞掉后续 `dbname`、从而迁移到默认数据库的问题。
+- Web、CLI 与 AutoSetup 已统一经过完整安装 advisory lock；同数据库的并发安装只有锁持有者可以创建管理员和写入配置，AutoSetup 不再维护重复流程。
+- setup 与正常启动共用结构化 PostgreSQL DSN，实现空密码、特殊字符密码和时区参数的一致解析。
 - 没有新增普通用户资源路由/UI，也没有将任何运行时授权切换到 ACL/RBAC。
 - OpenSpec 严格校验、后端完整单测/构建、前端完整测试/构建和 PostgreSQL 18 动态迁移验证通过。
 
