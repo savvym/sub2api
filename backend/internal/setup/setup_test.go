@@ -1,11 +1,16 @@
 package setup
 
 import (
+	"context"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
 )
 
 func TestDecideAdminBootstrap(t *testing.T) {
@@ -238,13 +243,217 @@ func TestBuildDatabaseConnectionDSNsUsesPostgresForBootstrap(t *testing.T) {
 
 	bootstrapDSN, targetDSN := buildDatabaseConnectionDSNs(cfg)
 
-	if !strings.Contains(bootstrapDSN, "dbname=postgres") {
-		t.Fatalf("bootstrap DSN = %q, want default postgres database", bootstrapDSN)
+	bootstrapURL, err := url.Parse(bootstrapDSN)
+	if err != nil {
+		t.Fatalf("url.Parse(bootstrap DSN) error = %v", err)
 	}
-	if strings.Contains(bootstrapDSN, "dbname=sub2api") {
-		t.Fatalf("bootstrap DSN = %q, should not connect to target database before checking/creating it", bootstrapDSN)
+	targetURL, err := url.Parse(targetDSN)
+	if err != nil {
+		t.Fatalf("url.Parse(target DSN) error = %v", err)
 	}
-	if !strings.Contains(targetDSN, "dbname=sub2api") {
-		t.Fatalf("target DSN = %q, want configured database", targetDSN)
+	if bootstrapURL.Path != "/postgres" {
+		t.Fatalf("bootstrap DSN path = %q, want /postgres", bootstrapURL.Path)
 	}
+	if targetURL.Path != "/sub2api" {
+		t.Fatalf("target DSN path = %q, want /sub2api", targetURL.Path)
+	}
+}
+
+func TestBuildPostgresDSNPreservesEmptyAndEscapedCredentials(t *testing.T) {
+	tests := []struct {
+		name     string
+		user     string
+		password string
+	}{
+		{name: "empty password", user: "sub2api"},
+		{name: "reserved characters", user: "app@tenant", password: "p@ss word:/?#[]"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dsn := buildPostgresDSN(&DatabaseConfig{
+				Host:     "127.0.0.1",
+				Port:     5432,
+				User:     tc.user,
+				Password: tc.password,
+				SSLMode:  "disable",
+			}, "target_database")
+			parsed, err := url.Parse(dsn)
+			if err != nil {
+				t.Fatalf("url.Parse() error = %v", err)
+			}
+			if parsed.User.Username() != tc.user {
+				t.Fatalf("username = %q, want %q", parsed.User.Username(), tc.user)
+			}
+			password, passwordSet := parsed.User.Password()
+			if !passwordSet || password != tc.password {
+				t.Fatalf("password = %q (set %v), want %q", password, passwordSet, tc.password)
+			}
+			if parsed.Path != "/target_database" || parsed.Query().Get("sslmode") != "disable" {
+				t.Fatalf("parsed DSN path/query = %q/%q", parsed.Path, parsed.RawQuery)
+			}
+		})
+	}
+}
+
+func TestCreateAdminUserWithDBCreatesCompatibilityRoleAtomically(t *testing.T) {
+	t.Setenv("RUN_MODE", "standard")
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	cfg := &SetupConfig{Admin: AdminConfig{
+		Email:    "admin@example.test",
+		Password: "correct-horse-battery-staple",
+	}}
+	expectFreshAdminBootstrap(mock, cfg.Admin.Email, int64(42))
+
+	created, reason, err := createAdminUserWithDB(context.Background(), db, cfg)
+	if err != nil {
+		t.Fatalf("createAdminUserWithDB() error = %v", err)
+	}
+	if !created {
+		t.Fatal("createAdminUserWithDB() created = false, want true")
+	}
+	if reason != adminBootstrapReasonEmptyDatabase {
+		t.Fatalf("createAdminUserWithDB() reason = %q, want %q", reason, adminBootstrapReasonEmptyDatabase)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet SQL expectations: %v", err)
+	}
+}
+
+func TestCreateAdminUserWithDBRollsBackWhenCompatibilityRoleFails(t *testing.T) {
+	t.Setenv("RUN_MODE", "standard")
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	cfg := &SetupConfig{Admin: AdminConfig{
+		Email:    "rollback-admin@example.test",
+		Password: "correct-horse-battery-staple",
+	}}
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(lockUsersForAdminBootstrapSQL)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(1) FROM users")).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(1) FROM users WHERE role = $1")).
+		WithArgs("admin").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(`INSERT INTO users .* RETURNING id`).
+		WithArgs(
+			cfg.Admin.Email,
+			sqlmock.AnyArg(),
+			"admin",
+			float64(0),
+			defaultUserConcurrency,
+			"active",
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(73))
+	mock.ExpectExec(regexp.QuoteMeta(deleteStaleBootstrapRoleSQL)).
+		WithArgs(int64(73)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(insertBootstrapRoleSQL)).
+		WithArgs(int64(73)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(verifyBootstrapRoleSQL)).
+		WithArgs(int64(73)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectRollback()
+
+	created, _, err := createAdminUserWithDB(context.Background(), db, cfg)
+	if err == nil {
+		t.Fatal("createAdminUserWithDB() error = nil, want compatibility role failure")
+	}
+	if created {
+		t.Fatal("createAdminUserWithDB() created = true after rollback")
+	}
+	if !strings.Contains(err.Error(), "assign admin compatibility role") {
+		t.Fatalf("createAdminUserWithDB() error = %q, want compatibility role context", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet SQL expectations: %v", err)
+	}
+}
+
+func TestCreateAdminUserWithDBRepeatDoesNotDuplicateAdminOrRole(t *testing.T) {
+	t.Setenv("RUN_MODE", "standard")
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	cfg := &SetupConfig{Admin: AdminConfig{
+		Email:    "repeat-admin@example.test",
+		Password: "correct-horse-battery-staple",
+	}}
+	expectFreshAdminBootstrap(mock, cfg.Admin.Email, int64(91))
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(lockUsersForAdminBootstrapSQL)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(1) FROM users")).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(1) FROM users WHERE role = $1")).
+		WithArgs("admin").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectCommit()
+
+	created, _, err := createAdminUserWithDB(context.Background(), db, cfg)
+	if err != nil || !created {
+		t.Fatalf("first createAdminUserWithDB() = (created %v, error %v), want (true, nil)", created, err)
+	}
+	created, reason, err := createAdminUserWithDB(context.Background(), db, cfg)
+	if err != nil {
+		t.Fatalf("second createAdminUserWithDB() error = %v", err)
+	}
+	if created {
+		t.Fatal("second createAdminUserWithDB() created = true, want false")
+	}
+	if reason != adminBootstrapReasonAdminExists {
+		t.Fatalf("second createAdminUserWithDB() reason = %q, want %q", reason, adminBootstrapReasonAdminExists)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet SQL expectations: %v", err)
+	}
+}
+
+func expectFreshAdminBootstrap(mock sqlmock.Sqlmock, email string, userID int64) {
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(lockUsersForAdminBootstrapSQL)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(1) FROM users")).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(1) FROM users WHERE role = $1")).
+		WithArgs("admin").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(`INSERT INTO users .* RETURNING id`).
+		WithArgs(
+			email,
+			sqlmock.AnyArg(),
+			"admin",
+			float64(0),
+			defaultUserConcurrency,
+			"active",
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(userID))
+	mock.ExpectExec(regexp.QuoteMeta(deleteStaleBootstrapRoleSQL)).
+		WithArgs(userID).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(insertBootstrapRoleSQL)).
+		WithArgs(userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(verifyBootstrapRoleSQL)).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectCommit()
 }

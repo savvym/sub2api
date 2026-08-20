@@ -48,6 +48,18 @@
 | 404 隐匿、403、认证失败、依赖不可用与无效请求可区分 | denial reason/class tests | 通过 |
 | 无路由、DI、Repository 或运行时 consumer，legacy 行为不变 | 路由/依赖审查 + 完整 backend unit/build | 通过 |
 
+## Fresh Setup Compatibility Bootstrap 门禁
+
+| 门禁 | 证据 | 状态 |
+| --- | --- | --- |
+| 管理员与 `system_bootstrap/admin` 兼容角色同事务提交 | setup sqlmock 成功/静默缺种子回滚测试 + PostgreSQL 18.6 fresh 动态验证 | 通过 |
+| Web、CLI、AutoSetup 和多进程入口不会并发创建多个管理员 | `users` 数据库锁 + PostgreSQL 双并发初始化验证 | 通过 |
+| 重复 setup 不重复管理员或兼容 Grant | setup repeat 单测 + PostgreSQL repeat 动态验证 | 通过 |
+| 已应用 229 后才创建的用户可由 232 修复 | 232 与 229 收敛 SQL 等价 contract + 本地开发库动态验证 | 通过 |
+| 人工、其他 Service Principal 和其他角色 Grant 均保留 | 229/232 收敛边界 contract + migration integration 场景 | 通过 |
+| `users.role` 仍为权威且 mode 保持 `legacy` | PostgreSQL fresh 查询 + 未写 settings contract | 通过 |
+| 空密码/特殊字符不会改变目标数据库 | 结构化 PostgreSQL URL 单测 + 独立临时数据库 fresh 验证 | 通过 |
+
 ## 标准命令
 
 ```bash

@@ -148,6 +148,35 @@ func TestResourceAccessControlFoundationIndexesMigrationContract(t *testing.T) {
 	require.Contains(t, compact, "ON groups (authorization_mode, id)")
 }
 
+func TestResourceAuthorizationCompatibilityBackfillMigrationContract(t *testing.T) {
+	rbacContent, err := FS.ReadFile("229_resource_authorization_rbac.sql")
+	require.NoError(t, err)
+	backfillContent, err := FS.ReadFile("232_resource_authorization_compatibility_backfill.sql")
+	require.NoError(t, err)
+
+	// Migration 232 must retain migration 229's exact convergence boundary:
+	// only stale user/admin grants attributed to system_bootstrap are removed,
+	// while manual grants, other service-principal grants, and other roles stay.
+	require.Equal(
+		t,
+		compatibilityRoleConvergenceSQL(t, string(rbacContent)),
+		compatibilityRoleConvergenceSQL(t, string(backfillContent)),
+	)
+
+	compact := strings.Join(strings.Fields(string(backfillContent)), " ")
+	require.NotContains(t, compact, "INSERT INTO roles")
+	require.NotContains(t, compact, "INSERT INTO permissions")
+	require.NotContains(t, compact, "INSERT INTO service_principals")
+}
+
+func compatibilityRoleConvergenceSQL(t *testing.T, sql string) string {
+	t.Helper()
+	compact := strings.Join(strings.Fields(sql), " ")
+	start := strings.Index(compact, "DELETE FROM user_roles")
+	require.NotEqual(t, -1, start)
+	return compact[start:]
+}
+
 func TestResourceAuthorizationMigrationsDoNotSeedFeatureFlags(t *testing.T) {
 	rbacContent, err := FS.ReadFile("229_resource_authorization_rbac.sql")
 	require.NoError(t, err)
@@ -155,8 +184,10 @@ func TestResourceAuthorizationMigrationsDoNotSeedFeatureFlags(t *testing.T) {
 	require.NoError(t, err)
 	indexContent, err := FS.ReadFile("231_resource_access_control_foundation_indexes_notx.sql")
 	require.NoError(t, err)
+	backfillContent, err := FS.ReadFile("232_resource_authorization_compatibility_backfill.sql")
+	require.NoError(t, err)
 
-	sql := string(rbacContent) + string(aclContent) + string(indexContent)
+	sql := string(rbacContent) + string(aclContent) + string(indexContent) + string(backfillContent)
 	for _, setting := range []string{
 		"resource_access_control_enabled",
 		"self_service_hosting_enabled",
