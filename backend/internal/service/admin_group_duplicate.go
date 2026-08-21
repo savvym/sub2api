@@ -202,7 +202,7 @@ func (s *adminServiceImpl) recoverDuplicateGroup(ctx context.Context, id int64, 
 // DuplicateGroup creates an inactive copy of a group's configuration and exact
 // account priorities. The repository commits the group, bindings, and outbox
 // event atomically so a failed binding never leaves an orphan group.
-func (s *adminServiceImpl) DuplicateGroup(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Group, error) {
+func (s *adminServiceImpl) duplicateGroupInResourceTx(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Group, error) {
 	actorScope, err := adminResourceActorSubjectKey(actor)
 	if err != nil {
 		return nil, err
@@ -223,10 +223,21 @@ func (s *adminServiceImpl) DuplicateGroup(ctx context.Context, actor authz.Actor
 		return nil, errors.New("group duplicate repository is not configured")
 	}
 
-	duplicate := cloneGroupForDuplicate(source, duplicateGroupOperationID(id, actorScope, operationKey))
+	operationID := duplicateGroupOperationID(id, actorScope, operationKey)
+	duplicate := cloneGroupForDuplicate(source, operationID)
+	duplicate.AccessVersion = 1
+	duplicate.AuthorizationMode = "legacy"
+	setPlatformResourceCreator(&duplicate.CreatedByUserID, actor)
 	sanitizeGroupReasoningEffortPolicy(duplicate)
 	for copyNumber := 1; ; copyNumber++ {
 		duplicate.Name = duplicateGroupName(source.Name, copyNumber)
+		nameExists, existsErr := s.groupRepo.ExistsByName(ctx, duplicate.Name)
+		if existsErr != nil {
+			return nil, fmt.Errorf("check duplicate group name: %w", existsErr)
+		}
+		if nameExists {
+			continue
+		}
 		duplicate.ID = 0
 		duplicate.CreatedAt = time.Time{}
 		duplicate.UpdatedAt = time.Time{}
@@ -241,13 +252,17 @@ func (s *adminServiceImpl) DuplicateGroup(ctx context.Context, actor authz.Actor
 		}
 
 		// A unique conflict can be either the generated name or the operation ID.
-		// Recover first; if no operation row exists, advance to the next name.
+		// Recover first. A SERIALIZABLE snapshot may not see the winning operation,
+		// so retry the entire command instead of looping on the same operation ID.
 		recovered, recoverErr := s.recoverDuplicateGroup(ctx, id, actorScope, operationKey)
 		if recoverErr != nil {
 			return nil, recoverErr
 		}
 		if recovered != nil {
 			return recovered, nil
+		}
+		if operationID != "" {
+			return nil, ErrResourceMutationConflict
 		}
 	}
 }

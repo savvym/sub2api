@@ -18,8 +18,9 @@ import (
 
 type duplicateAccountRepoStub struct {
 	*sparkShadowRepoStub
-	atomicCreateErr error
-	accountGroupsOf map[int64][]AccountGroup
+	atomicCreateErr               error
+	hideDuplicateOperationLookups int
+	accountGroupsOf               map[int64][]AccountGroup
 }
 
 func newDuplicateAccountRepoStub() *duplicateAccountRepoStub {
@@ -58,6 +59,10 @@ func (s *duplicateAccountRepoStub) CreateWithAccountGroups(ctx context.Context, 
 }
 
 func (s *duplicateAccountRepoStub) FindByExtraField(_ context.Context, key string, value any) ([]Account, error) {
+	if s.hideDuplicateOperationLookups > 0 {
+		s.hideDuplicateOperationLookups--
+		return nil, nil
+	}
 	wanted, ok := value.(string)
 	if !ok {
 		return nil, nil
@@ -326,4 +331,66 @@ func TestDuplicateAccountReturnsExistingCopyForSameOperationKey(t *testing.T) {
 	require.NotEqual(t, first.ID, otherAdminCopy.ID)
 	require.Len(t, repo.accounts, 3)
 	require.NotEmpty(t, first.Extra[duplicateAccountOperationIDExtraKey])
+}
+
+func TestDuplicateAccountConcurrentRecoveryIsResourceMutationNoop(t *testing.T) {
+	ctx := WithResourceMutationAuditTrace(context.Background(), ResourceMutationAuditTrace{RequestID: "account-replay"})
+	repo := newDuplicateAccountRepoStub()
+	actor := adminResourceUserTestActor(t)
+	source := &Account{
+		Name:          "source",
+		Platform:      PlatformAnthropic,
+		Type:          AccountTypeAPIKey,
+		Credentials:   map[string]any{"api_key": "secret"},
+		AccessVersion: 3,
+	}
+	require.NoError(t, repo.Create(ctx, source))
+	actorScope, err := adminResourceActorSubjectKey(actor)
+	require.NoError(t, err)
+	operationKey := "stable-operation-key"
+	existing := &Account{
+		Name:          "source (Copy)",
+		Platform:      PlatformAnthropic,
+		Type:          AccountTypeAPIKey,
+		Credentials:   map[string]any{"api_key": "secret"},
+		Extra:         map[string]any{duplicateAccountOperationIDExtraKey: duplicateAccountOperationID(source.ID, actorScope, operationKey)},
+		AccessVersion: 1,
+	}
+	require.NoError(t, repo.Create(ctx, existing))
+	repo.hideDuplicateOperationLookups = 1
+
+	_, subjectSnapshot, _ := resourceMutationPolicyFixtures(t, actor, true)
+	sourceRef, err := authz.NewResourceRef(authz.ResourceTypeAccount, source.ID)
+	require.NoError(t, err)
+	sourceSnapshot, err := authz.NewResourceAccessSnapshot(authz.ResourceAccessSnapshotInput{
+		Subject:       subjectSnapshot,
+		Resource:      sourceRef,
+		Exists:        true,
+		AccessVersion: source.AccessVersion,
+	})
+	require.NoError(t, err)
+	sourceKey := ResourceMutationKeyFromRef(sourceRef)
+	mutationRepo := &resourceMutationRepositoryStub{states: map[ResourceMutationKey]ResourceMutationState{
+		sourceKey: {Key: sourceKey, AccessVersion: source.AccessVersion},
+	}}
+	svc := &adminServiceImpl{
+		accountRepo:          repo,
+		accountDuplicateRepo: repo,
+		resourceMutations: NewResourceMutationCoordinator(
+			mutationRepo,
+			resourceMutationResolverStub{actor: actor},
+			authz.NewPolicyService(resourceMutationPolicyStoreStub{subject: subjectSnapshot, resource: sourceSnapshot}),
+		),
+	}
+
+	duplicate, err := svc.DuplicateAccount(ctx, actor, source.ID, operationKey)
+
+	require.NoError(t, err)
+	require.Equal(t, existing.ID, duplicate.ID)
+	require.True(t, mutationRepo.rolledBack)
+	require.Empty(t, mutationRepo.incremented)
+	require.Empty(t, mutationRepo.events)
+	require.EqualValues(t, 3, mutationRepo.states[sourceKey].AccessVersion)
+	require.False(t, ResourceMutationAuditCommitted(ctx))
+	require.Len(t, repo.accounts, 2)
 }

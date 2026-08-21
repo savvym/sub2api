@@ -1444,6 +1444,77 @@ func (s contractActorResolverStore) LoadServicePrincipalSubjectSnapshotByCode(co
 	return authz.SubjectSnapshot{}, errors.New("unexpected service principal lookup")
 }
 
+func (s contractActorResolverStore) LoadResourceAccessSnapshot(
+	_ context.Context,
+	_ authz.SubjectRef,
+	resource authz.ResourceRef,
+) (authz.ResourceAccessSnapshot, error) {
+	var groupMode authz.GroupAuthorizationMode
+	if resource.Type() == authz.ResourceTypeGroup {
+		groupMode = authz.GroupAuthorizationModeLegacy
+	}
+	return authz.NewResourceAccessSnapshot(authz.ResourceAccessSnapshotInput{
+		Subject:                s.snapshot,
+		Resource:               resource,
+		GroupAuthorizationMode: groupMode,
+		Exists:                 true,
+		AccessVersion:          1,
+	})
+}
+
+type contractResourceMutationRepository struct {
+	states map[service.ResourceMutationKey]service.ResourceMutationState
+}
+
+func (r *contractResourceMutationRepository) WithSerializableTx(
+	ctx context.Context,
+	fn func(context.Context) error,
+) error {
+	return fn(ctx)
+}
+
+func (r *contractResourceMutationRepository) LockActorAuthorization(
+	context.Context,
+	authz.SubjectKind,
+	int64,
+) error {
+	return nil
+}
+
+func (r *contractResourceMutationRepository) LockResources(
+	_ context.Context,
+	keys []service.ResourceMutationKey,
+) (map[service.ResourceMutationKey]service.ResourceMutationState, error) {
+	states := make(map[service.ResourceMutationKey]service.ResourceMutationState, len(keys))
+	for _, key := range keys {
+		if state, ok := r.states[key]; ok {
+			states[key] = state
+		}
+	}
+	return states, nil
+}
+
+func (r *contractResourceMutationRepository) IncrementAccessVersions(
+	_ context.Context,
+	keys []service.ResourceMutationKey,
+) (map[service.ResourceMutationKey]service.ResourceMutationState, error) {
+	states := make(map[service.ResourceMutationKey]service.ResourceMutationState, len(keys))
+	for _, key := range keys {
+		state := r.states[key]
+		state.AccessVersion++
+		r.states[key] = state
+		states[key] = state
+	}
+	return states, nil
+}
+
+func (*contractResourceMutationRepository) AppendAuthorizationEvents(
+	context.Context,
+	[]service.ResourceAuthorizationEventRecord,
+) error {
+	return nil
+}
+
 func newContractDeps(t *testing.T) *contractDeps {
 	t.Helper()
 
@@ -1497,12 +1568,10 @@ func newContractDeps(t *testing.T) *contractDeps {
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(userRepo, nil, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)
 	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil, nil, nil)
-	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	subject, err := authz.NewSubjectRef(authz.SubjectKindUser, 1)
 	require.NoError(t, err)
@@ -1511,19 +1580,66 @@ func newContractDeps(t *testing.T) *contractDeps {
 	})
 	require.NoError(t, err)
 	snapshot, err := authz.NewSubjectSnapshot(authz.SubjectSnapshotInput{
-		Subject:       subject,
-		Exists:        true,
-		Active:        true,
-		AuthzVersion:  1,
-		Configuration: policyConfiguration,
+		Subject:            subject,
+		Exists:             true,
+		Active:             true,
+		AuthzVersion:       1,
+		CurrentLegacyAdmin: true,
+		Configuration:      policyConfiguration,
 	})
 	require.NoError(t, err)
-	userActor, err := authz.NewActorResolver(contractActorResolverStore{snapshot: snapshot}).ResolveUser(
+	actorStore := contractActorResolverStore{snapshot: snapshot}
+	actorResolver := authz.NewActorResolver(actorStore)
+	userActor, err := actorResolver.ResolveUser(
 		context.Background(),
 		1,
 		authz.AuthMethodJWT,
 	)
 	require.NoError(t, err)
+	mutationRepository := &contractResourceMutationRepository{
+		states: map[service.ResourceMutationKey]service.ResourceMutationState{
+			{ResourceType: authz.ResourceTypeAccount, ResourceID: 101}: {
+				Key:           service.ResourceMutationKey{ResourceType: authz.ResourceTypeAccount, ResourceID: 101},
+				AccessVersion: 1,
+			},
+			{ResourceType: authz.ResourceTypeAccount, ResourceID: 102}: {
+				Key:           service.ResourceMutationKey{ResourceType: authz.ResourceTypeAccount, ResourceID: 102},
+				AccessVersion: 1,
+			},
+		},
+	}
+	resourceMutations := service.NewResourceMutationCoordinator(
+		mutationRepository,
+		actorResolver,
+		authz.NewPolicyService(actorStore),
+	)
+	adminService := service.NewAdminService(
+		userRepo,
+		nil,
+		groupRepo,
+		&accountRepo,
+		proxyRepo,
+		apiKeyRepo,
+		redeemRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		resourceMutations,
+	)
+	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	jwtAuth := func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{
@@ -1905,7 +2021,11 @@ func (s *stubAccountRepo) GetByID(ctx context.Context, id int64) (*service.Accou
 }
 
 func (s *stubAccountRepo) GetByIDs(ctx context.Context, ids []int64) ([]*service.Account, error) {
-	return nil, errors.New("not implemented")
+	accounts := make([]*service.Account, 0, len(ids))
+	for _, id := range ids {
+		accounts = append(accounts, &service.Account{ID: id, AccessVersion: 1})
+	}
+	return accounts, nil
 }
 
 func (s *stubAccountRepo) ExistsByID(ctx context.Context, id int64) (bool, error) {

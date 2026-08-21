@@ -42,6 +42,10 @@ func (r *apiKeyRepository) activeQuery() *dbent.APIKeyQuery {
 	return r.client.APIKey.Query().Where(apikey.DeletedAtIsNil())
 }
 
+func (r *apiKeyRepository) activeQueryFromContext(ctx context.Context) *dbent.APIKeyQuery {
+	return clientFromContext(ctx, r.client).APIKey.Query().Where(apikey.DeletedAtIsNil())
+}
+
 func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) error {
 	builder := r.client.APIKey.Create().
 		SetUserID(key.UserID).
@@ -75,7 +79,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 }
 
 func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIKey, error) {
-	m, err := r.activeQuery().
+	m, err := r.activeQueryFromContext(ctx).
 		Where(apikey.IDEQ(id)).
 		WithUser().
 		WithGroup().
@@ -704,7 +708,7 @@ func (r *apiKeyRepository) SearchAPIKeys(ctx context.Context, userID int64, keyw
 
 // ClearGroupIDByGroupID 将指定分组的所有 API Key 的 group_id 设为 nil
 func (r *apiKeyRepository) ClearGroupIDByGroupID(ctx context.Context, groupID int64) (int64, error) {
-	n, err := r.client.APIKey.Update().
+	n, err := clientFromContext(ctx, r.client).APIKey.Update().
 		Where(apikey.GroupIDEQ(groupID), apikey.DeletedAtIsNil()).
 		ClearGroupID().
 		Save(ctx)
@@ -723,12 +727,12 @@ func (r *apiKeyRepository) UpdateGroupIDByUserAndGroup(ctx context.Context, user
 
 // CountByGroupID 获取分组的 API Key 数量
 func (r *apiKeyRepository) CountByGroupID(ctx context.Context, groupID int64) (int64, error) {
-	count, err := r.activeQuery().Where(apikey.GroupIDEQ(groupID)).Count(ctx)
+	count, err := r.activeQueryFromContext(ctx).Where(apikey.GroupIDEQ(groupID)).Count(ctx)
 	return int64(count), err
 }
 
 func (r *apiKeyRepository) ListKeysByUserID(ctx context.Context, userID int64) ([]string, error) {
-	keys, err := r.activeQuery().
+	keys, err := r.activeQueryFromContext(ctx).
 		Where(apikey.UserIDEQ(userID)).
 		Select(apikey.FieldKey).
 		Strings(ctx)
@@ -739,7 +743,7 @@ func (r *apiKeyRepository) ListKeysByUserID(ctx context.Context, userID int64) (
 }
 
 func (r *apiKeyRepository) ListKeysByGroupID(ctx context.Context, groupID int64) ([]string, error) {
-	keys, err := r.activeQuery().
+	keys, err := r.activeQueryFromContext(ctx).
 		Where(apikey.GroupIDEQ(groupID)).
 		Select(apikey.FieldKey).
 		Strings(ctx)
@@ -968,6 +972,11 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		Status:                          g.Status,
 		Hydrated:                        true,
 		DuplicateOperationID:            derefString(g.DuplicateOperationID),
+		OwnerUserID:                     g.OwnerUserID,
+		CreatedByUserID:                 g.CreatedByUserID,
+		PublicAccessLevel:               g.PublicAccessLevel,
+		AccessVersion:                   g.AccessVersion,
+		AuthorizationMode:               g.AuthorizationMode,
 		SubscriptionType:                g.SubscriptionType,
 		DailyLimitUSD:                   g.DailyLimitUsd,
 		WeeklyLimitUSD:                  g.WeeklyLimitUsd,

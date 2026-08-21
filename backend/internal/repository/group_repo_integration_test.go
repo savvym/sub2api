@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -151,6 +152,7 @@ func (s *GroupRepoSuite) TestCreateFromSourcePreservesPriorityAndFiltersIneligib
 		&outboxCount,
 	))
 	s.Require().Equal(1, outboxCount)
+	s.assertLatestAccountBulkOutbox([]int64{oauthID})
 }
 
 func (s *GroupRepoSuite) TestGetByID_NotFound() {
@@ -925,6 +927,7 @@ func (s *GroupRepoSuite) TestDeleteAccountGroupsByGroupID() {
 	count, _, err := s.repo.GetAccountCount(s.ctx, g.ID)
 	s.Require().NoError(err, "GetAccountCount")
 	s.Require().Equal(int64(0), count, "expected 0 account groups")
+	s.assertLatestAccountBulkOutbox([]int64{accountID})
 }
 
 func (s *GroupRepoSuite) TestDeleteAccountGroupsByGroupID_MultipleAccounts() {
@@ -965,6 +968,79 @@ func (s *GroupRepoSuite) TestDeleteAccountGroupsByGroupID_MultipleAccounts() {
 
 	count, _, _ := s.repo.GetAccountCount(s.ctx, g.ID)
 	s.Require().Zero(count)
+	s.assertLatestAccountBulkOutbox([]int64{a1, a2, a3})
+}
+
+func (s *GroupRepoSuite) TestBindAccountsToGroupEnqueuesAccountCacheRefresh() {
+	g := &service.Group{
+		Name:             "g-bind-account-outbox",
+		Platform:         service.PlatformAnthropic,
+		RateMultiplier:   1,
+		Status:           service.StatusActive,
+		SubscriptionType: service.SubscriptionTypeStandard,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, g))
+
+	accountIDs := make([]int64, 0, 2)
+	for _, name := range []string{"bind-outbox-a", "bind-outbox-b"} {
+		var accountID int64
+		s.Require().NoError(scanSingleRow(
+			s.ctx,
+			s.tx,
+			"INSERT INTO accounts (name, platform, type) VALUES ($1, $2, $3) RETURNING id",
+			[]any{name, service.PlatformAnthropic, service.AccountTypeOAuth},
+			&accountID,
+		))
+		accountIDs = append(accountIDs, accountID)
+	}
+
+	s.Require().NoError(s.repo.BindAccountsToGroup(s.ctx, g.ID, []int64{accountIDs[1], accountIDs[0], accountIDs[1]}))
+	s.assertLatestAccountBulkOutbox(accountIDs)
+}
+
+func (s *GroupRepoSuite) TestDeleteCascadeEnqueuesAffectedAccountCacheRefresh() {
+	g := &service.Group{
+		Name:             "g-delete-cascade-account-outbox",
+		Platform:         service.PlatformAnthropic,
+		RateMultiplier:   1,
+		Status:           service.StatusActive,
+		SubscriptionType: service.SubscriptionTypeStandard,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, g))
+
+	var accountID int64
+	s.Require().NoError(scanSingleRow(
+		s.ctx,
+		s.tx,
+		"INSERT INTO accounts (name, platform, type) VALUES ($1, $2, $3) RETURNING id",
+		[]any{"delete-cascade-outbox-account", service.PlatformAnthropic, service.AccountTypeOAuth},
+		&accountID,
+	))
+	s.Require().NoError(s.repo.BindAccountsToGroup(s.ctx, g.ID, []int64{accountID}))
+
+	_, err := s.repo.DeleteCascade(s.ctx, g.ID)
+	s.Require().NoError(err)
+	s.assertLatestAccountBulkOutbox([]int64{accountID})
+}
+
+func (s *GroupRepoSuite) assertLatestAccountBulkOutbox(want []int64) {
+	s.T().Helper()
+	var payloadJSON []byte
+	s.Require().NoError(scanSingleRow(
+		s.ctx,
+		s.tx,
+		`SELECT payload FROM scheduler_outbox
+		 WHERE event_type = $1
+		 ORDER BY id DESC
+		 LIMIT 1`,
+		[]any{service.SchedulerOutboxEventAccountBulkChanged},
+		&payloadJSON,
+	))
+	var payload struct {
+		AccountIDs []int64 `json:"account_ids"`
+	}
+	s.Require().NoError(json.Unmarshal(payloadJSON, &payload))
+	s.Require().ElementsMatch(want, payload.AccountIDs)
 }
 
 // --- 软删除过滤测试 ---

@@ -568,6 +568,11 @@ func (s *stubAdminService) DeleteAccount(ctx context.Context, actor authz.Actor,
 	return nil
 }
 
+func (s *stubAdminService) BatchDeleteAccounts(ctx context.Context, actor authz.Actor, ids []int64) error {
+	s.captureResourceActor(actor)
+	return nil
+}
+
 func (s *stubAdminService) RefreshAccountCredentials(ctx context.Context, actor authz.Actor, id int64) (*service.Account, error) {
 	s.captureResourceActor(actor)
 	account := service.Account{ID: id, Name: "account", Status: service.StatusActive}

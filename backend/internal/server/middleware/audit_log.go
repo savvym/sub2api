@@ -207,6 +207,20 @@ func NewAuditLogMiddleware(auditService *service.AuditLogService) AuditLogMiddle
 		}
 
 		start := time.Now()
+		trace := service.ResourceMutationAuditTrace{
+			Method:      c.Request.Method,
+			Path:        c.FullPath(),
+			ClientIP:    SecurityClientIP(c),
+			UserAgent:   c.Request.UserAgent(),
+			RequestBody: bodyRedacted,
+		}
+		if trace.Path == "" {
+			trace.Path = c.Request.URL.Path
+		}
+		if requestID, ok := c.Request.Context().Value(ctxkey.RequestID).(string); ok {
+			trace.RequestID = requestID
+		}
+		c.Request = c.Request.WithContext(service.WithResourceMutationAuditTrace(c.Request.Context(), trace))
 		c.Next()
 
 		if c.GetBool(auditCtxKeySkip) {

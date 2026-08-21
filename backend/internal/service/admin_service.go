@@ -91,6 +91,7 @@ type AdminService interface {
 	// 用于刷新流程持久化 account_uuid / org_uuid 等少量键，避免被全量快照覆盖。
 	UpdateAccountExtra(ctx context.Context, actor authz.Actor, id int64, updates map[string]any) error
 	DeleteAccount(ctx context.Context, actor authz.Actor, id int64) error
+	BatchDeleteAccounts(ctx context.Context, actor authz.Actor, ids []int64) error
 	RefreshAccountCredentials(ctx context.Context, actor authz.Actor, id int64) (*Account, error)
 	ClearAccountError(ctx context.Context, actor authz.Actor, id int64) (*Account, error)
 	SetAccountError(ctx context.Context, actor authz.Actor, id int64, errorMsg string) error
@@ -674,6 +675,7 @@ type adminServiceImpl struct {
 	affiliateService     adminRechargeAffiliateAccruer
 	compositeRouteRepo   CompositeModelRouteRepository
 	compositeResolver    *CompositeRouteResolver
+	resourceMutations    *ResourceMutationCoordinator
 	// 分组平台变更后用来失效渠道缓存；可为 nil（缓存会在 TTL 到期后自然重建）
 	channelCacheInvalidator ChannelCacheInvalidator
 }
@@ -717,7 +719,13 @@ func NewAdminService(
 	compositeRouteRepo CompositeModelRouteRepository,
 	compositeResolver *CompositeRouteResolver,
 	channelCacheInvalidator ChannelCacheInvalidator,
+	resourceMutations *ResourceMutationCoordinator,
 ) AdminService {
+	if resourceMutations == nil {
+		// Publicly constructed services must never fall back to the legacy direct
+		// write path when authorization infrastructure is misconfigured.
+		resourceMutations = &ResourceMutationCoordinator{}
+	}
 	return &adminServiceImpl{
 		userRepo:             userRepo,
 		roleService:          roleService,
@@ -744,6 +752,7 @@ func NewAdminService(
 		affiliateService:     affiliateService,
 		compositeRouteRepo:   compositeRouteRepo,
 		compositeResolver:    compositeResolver,
+		resourceMutations:    resourceMutations,
 
 		channelCacheInvalidator: channelCacheInvalidator,
 	}

@@ -85,6 +85,11 @@ func (r *duplicateGroupRepoStub) FindByDuplicateOperationID(_ context.Context, o
 	return cloneGroupForDuplicateTest(r.groups[id]), nil
 }
 
+func (r *duplicateGroupRepoStub) ExistsByName(_ context.Context, name string) (bool, error) {
+	_, exists := r.names[name]
+	return exists, nil
+}
+
 func (r *duplicateGroupRepoStub) CreateFromSource(_ context.Context, group *Group, sourceGroupID int64) error {
 	if r.atomicCreateErr != nil {
 		return r.atomicCreateErr
@@ -290,6 +295,20 @@ func TestDuplicateGroupAtomicCreateFailureReturnsNoCopy(t *testing.T) {
 	duplicate, err := svc.DuplicateGroup(context.Background(), adminResourceUserTestActor(t), source.ID, "key")
 
 	require.ErrorContains(t, err, "binding insert failed")
+	require.Nil(t, duplicate)
+	require.Len(t, repo.groups, 1)
+	require.Empty(t, repo.byOperation)
+}
+
+func TestDuplicateGroupInvisibleOperationConflictRequestsTransactionRetry(t *testing.T) {
+	source := &Group{ID: 16, Name: "team", Platform: PlatformAnthropic, Status: StatusActive}
+	repo := newDuplicateGroupRepoStub(source)
+	repo.atomicCreateErr = ErrGroupExists
+	svc := &adminServiceImpl{groupRepo: repo, groupDuplicateRepo: repo}
+
+	duplicate, err := svc.DuplicateGroup(context.Background(), adminResourceUserTestActor(t), source.ID, "key")
+
+	require.ErrorIs(t, err, ErrResourceMutationConflict)
 	require.Nil(t, duplicate)
 	require.Len(t, repo.groups, 1)
 	require.Empty(t, repo.byOperation)

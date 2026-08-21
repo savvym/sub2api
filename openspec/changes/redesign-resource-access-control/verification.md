@@ -18,7 +18,7 @@
 | resource-sharing | 帐号-分组受众闭包 | audience closure/TOCTOU/Scheduler 测试 | 待实现 |
 | resource-sharing | 撤权与到期 | Grant 边界、协调器、多来源重算测试 | 待实现 |
 | runtime-authorization-consistency | 运行时再次授权 | API Key、WS、异步任务、fallback 测试 | 待实现 |
-| runtime-authorization-consistency | 两条 Outbox 与传播 SLA | 故障注入、lag 指标、多实例恢复测试 | 待实现 |
+| runtime-authorization-consistency | 两条 Outbox 与传播 SLA | 原子 enqueue/rollback 已覆盖；Worker 幂等消费、lag 指标、SLA 与多实例恢复待实现 | 待实现 |
 | runtime-authorization-consistency | 渐进迁移与回滚 | fresh/upgrade/reapply、shadow diff、模式测试 | 待实现 |
 
 ## Dark Schema Foundation 门禁
@@ -93,6 +93,23 @@
 | 当前 1.7b 工作区完整后端 unit 与 OpenSpec strict validate | `make -C backend test-unit` + `openspec validate ... --strict` | 通过 |
 | 本地 HTTP 验证 GET、JWT TOTP step-up、Admin API Key 拒绝、CAS、成功审计与清理恢复 | 本地开发环境 API/数据库烟测 | 通过；结束时为 legacy fallback，临时状态已清理 |
 | CI/Testcontainers RoleRepository integration | `CI=1 go test -tags=integration ./internal/repository` | 待实现（本机 PostgreSQL 18.6 动态验证通过；本机无 Docker） |
+
+## Resource Mutation Transaction 门禁（1.10）
+
+| 门禁 | 证据 | 状态 |
+| --- | --- | --- |
+| `SERIALIZABLE`、已有未知隔离事务 fail closed、Actor/角色/资源固定锁序 | coordinator/repository unit + 聚焦 race | 通过 |
+| 事务内重解析 Actor，并对主体/角色快照、Policy 与 expected `access_version` 重校验 | coordinator table tests | 通过 |
+| 批量混入不可见、无权或版本变化目标时全拒绝且零副作用 | invisible batch、bulk rollback 与 snapshot tests | 通过 |
+| 业务写、版本、durable resource event 与 Scheduler Outbox 同事务；audit/outbox 失败整体回滚 | repository contract、Scheduler/Auth Outbox 故障注入 integration 场景 | contract 与标签编译通过；Testcontainers 动态待 CI |
+| Group 授权字段变化产生 hashed Auth Outbox 并随事务回滚 | migration 237 contract + PostgreSQL 18.6 隔离库动态测试 | 通过；27 个子场景全部通过，临时库残留为 0 |
+| no-op/replay 不写版本、event、durable marker 或 callback | coordinator + Account/Group duplicate tests | 通过 |
+| 外部缓存/网络 callback 仅在 commit 后执行，panic 被逐个隔离 | coordinator tests | 通过 |
+| JWT creator 与 Admin API Key Service Principal 归因互斥，不写凭据值 | service/repository event contract tests | 通过 |
+| 生产 Wire 注入真实 Resolver、Policy 与 ResourceMutationRepository | 默认/integration 标签全仓编译 + backend build | 通过 |
+| 公开 AdminService 构造缺少 coordinator 时 fail closed，不回退 legacy 直写 | constructor regression + API contract coordinator fixture | 通过 |
+| 完整 backend unit、相关 vet 与聚焦 service/repository race | `make -C backend test-unit` + `go vet` + `go test -race` | 通过 |
+| CI/Testcontainers ResourceMutationRepository integration | `CI=1 go test -tags=integration ./internal/repository` | 待 CI 执行（本机无 Docker；Scheduler/Auth Outbox 故障注入场景标签编译通过） |
 
 ## 标准命令
 

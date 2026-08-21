@@ -131,6 +131,9 @@ func (s *PolicyService) Authorize(ctx context.Context, actor Actor, action Actio
 	if snapshot.Deleted() {
 		return deny(DenyReasonResourceDeleted), nil
 	}
+	if legacyBypass {
+		return allow(legacyAdminMatch()), nil
+	}
 	if action == ActionGroupUse {
 		mode, ok := snapshot.GroupAuthorizationMode()
 		if !ok {
@@ -144,9 +147,6 @@ func (s *PolicyService) Authorize(ctx context.Context, actor Actor, action Actio
 				mode,
 			)
 		}
-	}
-	if legacyBypass {
-		return allow(legacyAdminMatch()), nil
 	}
 	if platformBypass {
 		match, matchErr := platformCapabilityMatch(platformCapability)
@@ -282,8 +282,20 @@ func capabilityDecision(actor Actor, snapshot SubjectSnapshot, capability Capabi
 
 func hasLegacyAdminAuthority(actor Actor, snapshot SubjectSnapshot) bool {
 	mode := snapshot.Configuration().RoleMode()
-	return (mode == RoleAuthorizationModeLegacy || mode == RoleAuthorizationModeShadow) &&
-		actor.hasLegacyAdminBypass() && snapshot.CurrentLegacyAdmin()
+	if mode != RoleAuthorizationModeLegacy && mode != RoleAuthorizationModeShadow {
+		return false
+	}
+	if actor.hasLegacyAdminBypass() && snapshot.CurrentLegacyAdmin() {
+		return true
+	}
+	// The compatibility Admin API Key is represented by one fixed, zero-role
+	// Service Principal. ActorResolver only permits AuthMethodAdminAPIKey for
+	// that principal code and rejects any attached role/capability, so this is
+	// the machine-principal equivalent of the legacy HTTP admin gate rather
+	// than a general Service Principal bypass.
+	_, adminAPIKey := actor.ServicePrincipalID()
+	return adminAPIKey && actor.AuthMethod() == AuthMethodAdminAPIKey &&
+		len(snapshot.RoleVersions()) == 0 && len(snapshot.Capabilities()) == 0
 }
 
 func currentPlatformCapability(snapshot SubjectSnapshot, action Action) (Capability, bool) {

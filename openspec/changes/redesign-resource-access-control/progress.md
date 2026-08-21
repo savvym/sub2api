@@ -14,8 +14,9 @@
 - Scoped Resource Reader 提交：`af49971aa`，已推送同一远程分支。
 - RoleService Core 提交：`4a1617e8d`，Guarded Role Mode API 提交：`0201ae488`，均已推送同一远程分支。
 - Trusted ActorResolver 提交：`34e43155c`，已推送同一远程分支。
-- 任务进度：18/49。当前切片 1.9 已完成帐号/分组管理员入口及其直接资源引用的可信 Actor 显式传递；下一开发切片为 1.10 事务内收口安全关键写、durable audit 与双 Outbox。Policy/ACL/RBAC 未接入这些管理员 facade，Phase 0 尚未批准退出。
-- 当前权威行为：旧 `users.role` 与旧分组资格；不得启用任何新 ACL 放行。
+- Trusted Runtime Actor Integration 提交：`631761288`，Admin Resource Actor Propagation 提交：`b55155000`，均已推送同一远程分支。
+- 任务进度：19/49。当前切片 1.10 已完成核心 Account/Group 管理写命令的事务协调：在 PostgreSQL `SERIALIZABLE` 事务内重解析 Actor、重校验角色与资源版本、执行 Policy，并原子提交业务写、`access_version`、`resource_authorization_events` 和适用 Auth/Scheduler Outbox。下一开发切片为 1.11 到期协调器、同步到期拒绝与传播指标。普通用户路由、ACL/RBAC 权威切换和传播 SLA 仍未开放，Phase 0 尚未批准退出。
+- 当前权威行为仍为旧 `users.role` 与旧分组资格；核心管理员写虽已调用 Policy，但 legacy/shadow 下只保持现有 JWT Admin 与固定 Admin API Key Service Principal 行为，不得解释为 ACL/RBAC 已启用。
 
 ## 已完成
 
@@ -65,13 +66,22 @@
 - 为避免经关联入口绕过，User/API Key 的 Group 关系、Channel CRUD、Payment Plan、Redeem、Settings 默认订阅、Content Moderation 配置/API Key 测试、Channel Monitor CRUD/模板与 Ops alert rule/silence 也已接线。缺失或 JWT subject 不一致稳定返回 `503 AUTHORIZATION_UNAVAILABLE`，仓储与外部副作用为零。
 - service facade 首语句只验证当前管理员 Actor 是 JWT User 或 Admin API Key Service Principal，随后委托既有业务方法；旧管理员成功响应和全局资源行为保持不变，没有启用 Policy/ACL/RBAC，也没有新增普通用户路由。
 - 1.9 已通过完整 `make -C backend test-unit`、定向 race、相关包 vet、默认标签全仓编译、backend build、OpenSpec strict validate 与 diff check；注册路由 AST 门禁和 malformed-input 运行时测试共同锁定入口 fail closed 与 Actor 向后传递。
+- 已新增生产 `ResourceMutationCoordinator`：使用 `SERIALIZABLE` 事务，按固定顺序锁定 Actor、角色与 Account/Group；事务内重新解析 JWT User 或固定 `admin_api_key` Service Principal，并比较主体版本、角色版本、能力快照和认证方式。已有 Ent 事务无法证明隔离级别时 fail closed。
+- 公开 `NewAdminService` 缺少 coordinator 时使用不可用哨兵，核心写 facade 不会回退 legacy 直写；API contract 已显式注入可工作的 Resolver、Policy 与事务 repository。
+- Account/Group 核心创建、复制、更新、批量、删除、关系和运行态命令，以及 Composite Route，已接入事务内 `CanCreate`/`Authorize` 与 expected `access_version` 校验。Batch delete 与 batch credentials 现在各使用单一原子 service 命令；批量目标任一不可见或版本变化时整体拒绝。重复复制 replay 与空操作不递增版本、不写事件、不设置 durable marker，也不执行提交后回调。
+- 业务写、每个实际变更资源的 `access_version`、append-only `resource_authorization_events` 和适用 Scheduler Outbox 共用外层事务；Group/API Key 相关 Auth Cache Outbox 由数据库 trigger 在同一事务产生。audit/outbox 任一失败会整体回滚。
+- durable resource event 仅记录资源、Owner 快照、User/Service Principal Actor、auth method、event type、版本、request ID、字段类别和固定 `result=success`，不记录凭据值或 request body。通用 `audit_logs` 仍由 middleware 异步记录，不能用 resource event 取代。
+- migration 237 扩展 Group 授权缓存失效字段覆盖，Outbox 只持久化 API Key SHA-256，不保存明文；静态 contract 与本机 PostgreSQL 18.6 隔离库动态测试均已通过，覆盖 25 类授权快照字段、cosmetic silent 和事务 rollback，临时数据库残留为 0。
+- 本地 Redis/缓存/网络动作延迟到数据库提交后；单个 callback panic 被隔离，不会把已提交写伪装成 HTTP 失败，也不会阻止后续 callback。
+- 平台资源由 JWT 管理员创建时记录 `created_by_user_id`；Admin API Key 创建时 creator 保持为空，通过 Service Principal durable event 归因，不伪造自然人。
+- 1.10 已通过完整 `make -C backend test-unit`、聚焦 authz/service/repository/handler race、相关 vet、默认标签全仓编译、integration 标签全仓编译、backend build 和 migration 237 PostgreSQL 18.6 动态测试；repository `CI=1` Testcontainers 动态套件因本机无 Docker 仍未运行。
 
 ## 下一步
 
 1. 由平台/认证/安全负责人复核并批准 0.4 credentials/extra 清单和 0.5 自助平台/出站 allowlist。
 2. 对真实服务器只读数据运行 `data-preflight.sql`，记录异常角色、名称冲突、孤立关系和回填规模。
 3. 在 Docker/CI 环境执行 `CI=1 go test -tags=integration ./internal/repository` 严格门禁。
-4. 下一开发切片进入 1.10：把安全关键资源写、durable audit、Auth Outbox 与 Scheduler Outbox 纳入同一事务，并在事务内重校验授权版本。
+4. 下一开发切片进入 1.11：实现授权/角色到期协调器、同步到期拒绝、5 秒/30 秒指标与降级门。
 
 ## 阻塞与风险
 
@@ -83,11 +93,13 @@
 - 1.6 scoped reader 与 ActorResolver 已完成真实贯通测试，但尚无普通用户 Handler/路由；当前仍是 dark foundation，不能作为已开放的普通用户资源读取入口。
 - `role_authorization_mode` 当前仍没有授权 consumer；专用入口和 1.7b 动态门禁已完成，但部署环境仍必须先运行 readiness，且在 consumer 迁移前保持 `legacy`。本地烟测已恢复为缺失 setting 的 legacy fallback。
 - 1.7b 没有解除 RBAC 硬拒绝；必须等待 1.8 ActorResolver 和全部授权 consumer 迁移后才能另行开放，不能把 legacy↔shadow 管理入口记录成 RBAC 已交付。
-- 通用管理员 settings PUT 跨多个服务不是单一数据库事务；`role_authorization_mode` 已从该路径移除，其余新开关当前没有 consumer，因此不阻塞 dark launch，但需在 1.10 收口。
+- 通用管理员 settings PUT 仍跨多个服务，不是单一数据库事务；`role_authorization_mode` 已从该路径移除，其余新开关当前没有 consumer，因此不阻塞 dark launch，但启用任何授权 consumer 前仍需独立原子配置命令。
 - 幂等升级 fence 允许新实例对新业务记录使用 Actor-qualified scope，并使仍写 raw scope 的旧实例 fail closed；混合版本期间旧请求可能收到冲突，因此发布仍应优先同版本切换或维护窗，不能宣称无感滚动升级。
 - 1.8 新增并发用例已通过定向 race；扩大到相关包的 race 命令仍会命中 `grok_import_probe_test.go` 和 `channel_monitor_checker_body_test.go` 两处不在本次 diff 的既有测试辅助代码竞态，不能宣称全量 race 已通过。
-- 1.9 只建立可信 Actor 的显式传递和 service 边界 fail closed，不执行资源 Policy 判定、SQL scope、事务内重授权或双 Outbox；现有 admin 中间件仍是成功请求的授权权威，不能把本切片解释为 ACL/RBAC 已交付。
-- Usage/Ops/Dashboard 等派生 scope、Channel Monitor Run/History/worker、Ops alert event/evaluator 与 Payment retry/refund 事务履约仍待后续切片；当前结构门禁覆盖既有 1.9 路径族，新增全新资源前缀时必须同步扩展分类器。
+- 1.10 只完成核心 Account/Group 管理写命令的事务内 Policy、版本、durable event 与适用 Outbox；读取、普通用户入口、ACL/RBAC 权威切换和旧分组资格 consumer 均未改变，不能把本切片解释为资源分享已开放。
+- OAuth/privacy/probe 等外部网络动作无法与 PostgreSQL 形成分布式原子事务；Privacy 的本地持久化已作为独立 ResourceMutation 重新授权并写版本/事件，但不能宣称上游副作用可因本地提交失败而回滚。
+- 1.10 证明的是适用 Auth/Scheduler Outbox 的原子 enqueue 与 rollback，不包含 Worker 幂等消费、lag 指标、多实例恢复、5 秒/30 秒传播 SLA 或到期协调器。
+- Usage/Ops/Dashboard 等派生 scope、RateLimit/CRS/probe 等专用后台写、Channel Monitor Run/History/worker、Ops alert event/evaluator 与 Payment retry/refund 事务履约仍待后续切片；新增全新资源前缀时仍必须同步扩展入口分类和事务覆盖清单。
 
 ## 续作检查
 

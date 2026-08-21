@@ -63,6 +63,148 @@ func (r *auditCaptureRepository) DeleteBefore(context.Context, time.Time, int) (
 	return 0, nil
 }
 
+type auditMarkerResourceMutationRepository struct {
+	states   map[service.ResourceMutationKey]service.ResourceMutationState
+	appended int
+}
+
+func (r *auditMarkerResourceMutationRepository) WithSerializableTx(
+	ctx context.Context,
+	fn func(context.Context) error,
+) error {
+	return fn(ctx)
+}
+
+func (r *auditMarkerResourceMutationRepository) LockActorAuthorization(
+	context.Context,
+	authz.SubjectKind,
+	int64,
+) error {
+	return nil
+}
+
+func (r *auditMarkerResourceMutationRepository) LockResources(
+	_ context.Context,
+	keys []service.ResourceMutationKey,
+) (map[service.ResourceMutationKey]service.ResourceMutationState, error) {
+	result := make(map[service.ResourceMutationKey]service.ResourceMutationState, len(keys))
+	for _, key := range keys {
+		if state, ok := r.states[key]; ok {
+			result[key] = state
+		}
+	}
+	return result, nil
+}
+
+func (r *auditMarkerResourceMutationRepository) IncrementAccessVersions(
+	_ context.Context,
+	keys []service.ResourceMutationKey,
+) (map[service.ResourceMutationKey]service.ResourceMutationState, error) {
+	result := make(map[service.ResourceMutationKey]service.ResourceMutationState, len(keys))
+	for _, key := range keys {
+		state := r.states[key]
+		state.AccessVersion++
+		result[key] = state
+	}
+	return result, nil
+}
+
+func (r *auditMarkerResourceMutationRepository) AppendAuthorizationEvents(
+	_ context.Context,
+	events []service.ResourceAuthorizationEventRecord,
+) error {
+	r.appended += len(events)
+	return nil
+}
+
+func TestResourceMutationDurableMarkerDoesNotReplaceGenericAudit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repository := &auditCaptureRepository{}
+	auditService := service.NewAuditLogService(repository, nil)
+	auditService.Start()
+
+	configuration, err := authz.NewPolicyConfiguration(authz.PolicyConfigurationInput{
+		RoleAuthorizationMode: authz.RoleAuthorizationModeLegacy,
+	})
+	require.NoError(t, err)
+	subject, err := authz.NewSubjectRef(authz.SubjectKindUser, 77)
+	require.NoError(t, err)
+	subjectSnapshot, err := authz.NewSubjectSnapshot(authz.SubjectSnapshotInput{
+		Subject:            subject,
+		Exists:             true,
+		Active:             true,
+		AuthzVersion:       1,
+		CurrentLegacyAdmin: true,
+		Configuration:      configuration,
+	})
+	require.NoError(t, err)
+	ref, err := authz.NewResourceRef(authz.ResourceTypeAccount, 91)
+	require.NoError(t, err)
+	resourceSnapshot, err := authz.NewResourceAccessSnapshot(authz.ResourceAccessSnapshotInput{
+		Subject:       subjectSnapshot,
+		Resource:      ref,
+		Exists:        true,
+		AccessVersion: 1,
+	})
+	require.NoError(t, err)
+	store := &auditActorResolverStore{snapshot: subjectSnapshot, resource: resourceSnapshot}
+	resolver := authz.NewActorResolver(store)
+	actor, err := resolver.ResolveLegacyAdminUser(context.Background(), 77)
+	require.NoError(t, err)
+	key := service.ResourceMutationKeyFromRef(ref)
+	mutationRepository := &auditMarkerResourceMutationRepository{
+		states: map[service.ResourceMutationKey]service.ResourceMutationState{
+			key: {Key: key, AccessVersion: 1},
+		},
+	}
+	coordinator := service.NewResourceMutationCoordinator(
+		mutationRepository,
+		resolver,
+		authz.NewPolicyService(store),
+	)
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+	handler := func(skip bool) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			err := coordinator.Execute(
+				c.Request.Context(),
+				actor,
+				service.ResourceMutationCommand{Targets: []service.ResourceMutationTarget{{
+					Ref:                   ref,
+					Action:                authz.ActionAccountEdit,
+					ExpectedAccessVersion: 1,
+					Mutates:               true,
+					EventType:             "account.updated",
+					ChangedFields:         []string{"configuration"},
+				}}},
+				func(context.Context) ([]service.CreatedResourceMutation, error) { return nil, nil },
+			)
+			require.NoError(t, err)
+			require.True(t, service.ResourceMutationAuditCommitted(c.Request.Context()))
+			if skip {
+				SkipAudit(c)
+			}
+			c.Status(http.StatusNoContent)
+		}
+	}
+	router.POST("/resource-mutation-audited", handler(false))
+	router.POST("/resource-mutation-explicitly-skipped", handler(true))
+
+	for _, path := range []string{"/resource-mutation-audited", "/resource-mutation-explicitly-skipped"} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, nil))
+		require.Equal(t, http.StatusNoContent, recorder.Code)
+	}
+	auditService.Stop()
+
+	repository.mu.Lock()
+	logs := append([]*service.AuditLog(nil), repository.logs...)
+	repository.mu.Unlock()
+	require.Len(t, logs, 1)
+	require.Equal(t, "/resource-mutation-audited", logs[0].Path)
+	require.Equal(t, 2, mutationRepository.appended)
+}
+
 func TestPromptAuditAdminOperationsUseOmittedBodiesAndAllowlistedDetails(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repository := &auditCaptureRepository{}
@@ -160,6 +302,7 @@ func TestRoleAuthorizationModeTransitionUsesStableAuditAction(t *testing.T) {
 
 type auditActorResolverStore struct {
 	snapshot authz.SubjectSnapshot
+	resource authz.ResourceAccessSnapshot
 }
 
 func (s *auditActorResolverStore) LoadSubjectSnapshot(context.Context, authz.SubjectRef) (authz.SubjectSnapshot, error) {
@@ -168,6 +311,14 @@ func (s *auditActorResolverStore) LoadSubjectSnapshot(context.Context, authz.Sub
 
 func (s *auditActorResolverStore) LoadServicePrincipalSubjectSnapshotByCode(context.Context, string) (authz.SubjectSnapshot, error) {
 	return s.snapshot, nil
+}
+
+func (s *auditActorResolverStore) LoadResourceAccessSnapshot(
+	context.Context,
+	authz.SubjectRef,
+	authz.ResourceRef,
+) (authz.ResourceAccessSnapshot, error) {
+	return s.resource, nil
 }
 
 func mustAuditActor(t *testing.T, kind authz.SubjectKind, id int64, method authz.AuthMethod) authz.Actor {

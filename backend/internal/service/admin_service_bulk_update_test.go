@@ -198,8 +198,9 @@ func TestAdminService_BulkUpdateAccounts_RejectsRateChangeForSyncedAccounts(t *t
 	require.Empty(t, repo.bulkUpdateIDs, "rate conflict must be rejected before any write")
 }
 
-// TestAdminService_BulkUpdateAccounts_PartialFailureIDs 验证部分失败时 success_ids/failed_ids 正确。
-func TestAdminService_BulkUpdateAccounts_PartialFailureIDs(t *testing.T) {
+// TestAdminService_BulkUpdateAccounts_BindingFailureAbortsCommand verifies that
+// one authorization decision cannot return a misleading partial-success result.
+func TestAdminService_BulkUpdateAccounts_BindingFailureAbortsCommand(t *testing.T) {
 	repo := &accountRepoStubForBulkUpdate{
 		bindGroupErrByID: map[int64]error{
 			2: errors.New("bind failed"),
@@ -220,12 +221,8 @@ func TestAdminService_BulkUpdateAccounts_PartialFailureIDs(t *testing.T) {
 	}
 
 	result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), input)
-	require.NoError(t, err)
-	require.Equal(t, 2, result.Success)
-	require.Equal(t, 1, result.Failed)
-	require.ElementsMatch(t, []int64{1, 3}, result.SuccessIDs)
-	require.ElementsMatch(t, []int64{2}, result.FailedIDs)
-	require.Len(t, result.Results, 3)
+	require.Nil(t, result)
+	require.EqualError(t, err, "bind failed")
 }
 
 func TestAdminService_BulkUpdateAccounts_NilGroupRepoReturnsError(t *testing.T) {
