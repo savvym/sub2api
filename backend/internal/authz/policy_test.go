@@ -234,6 +234,94 @@ func TestCanCreateEnforcesCapabilityModeAndFeatureGates(t *testing.T) {
 	}
 }
 
+func TestAdminAPIKeyLegacyCompatibilityIsStrict(t *testing.T) {
+	t.Parallel()
+
+	actor := mustAdminAPIKeyActor(t, 91, 7, nil, nil)
+	ref := mustResourceRef(t, ResourceTypeAccount, 44)
+	for _, mode := range []RoleAuthorizationMode{RoleAuthorizationModeLegacy, RoleAuthorizationModeShadow} {
+		mode := mode
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			subject := mustSubjectSnapshotForActor(t, actor, fullyEnabledConfiguration(t, mode), false)
+			createDecision, err := NewPolicyService(&stubPolicyStore{subjectSnapshot: subject}).CanCreate(
+				context.Background(), actor, ResourceTypeAccount,
+			)
+			if err != nil || !createDecision.Allowed() || createDecision.MatchSource() != MatchSourceLegacyAdmin {
+				t.Fatalf("admin API key create denied: source=%q reason=%q err=%v", createDecision.MatchSource(), createDecision.DenyReason(), err)
+			}
+
+			resource := mustResourceSnapshot(t, ResourceAccessSnapshotInput{
+				Subject:       subject,
+				Resource:      ref,
+				Exists:        true,
+				AccessVersion: 1,
+			})
+			authorizeDecision, err := NewPolicyService(&stubPolicyStore{resourceSnapshot: resource}).Authorize(
+				context.Background(), actor, ActionAccountEdit, ref,
+			)
+			if err != nil || !authorizeDecision.Allowed() || authorizeDecision.MatchSource() != MatchSourceLegacyAdmin {
+				t.Fatalf("admin API key resource edit denied: source=%q reason=%q err=%v", authorizeDecision.MatchSource(), authorizeDecision.DenyReason(), err)
+			}
+		})
+	}
+
+	legacySnapshot := mustSubjectSnapshotForActor(t, actor, fullyEnabledConfiguration(t, RoleAuthorizationModeLegacy), false)
+	secretDecision, err := NewPolicyService(&stubPolicyStore{subjectSnapshot: legacySnapshot}).CheckCapability(
+		context.Background(), actor, CapabilityPlatformSecretExport,
+	)
+	if err != nil || secretDecision.Allowed() || secretDecision.DenyReason() != DenyReasonMissingCapability {
+		t.Fatalf("admin API key secret export bypassed policy: reason=%q err=%v", secretDecision.DenyReason(), err)
+	}
+
+	rbacSnapshot := mustSubjectSnapshotForActor(t, actor, fullyEnabledConfiguration(t, RoleAuthorizationModeRBAC), false)
+	rbacDecision, err := NewPolicyService(&stubPolicyStore{subjectSnapshot: rbacSnapshot}).CanCreate(
+		context.Background(), actor, ResourceTypeAccount,
+	)
+	if err != nil || rbacDecision.Allowed() || rbacDecision.DenyReason() != DenyReasonMissingCapability {
+		t.Fatalf("admin API key bypass survived RBAC mode: reason=%q err=%v", rbacDecision.DenyReason(), err)
+	}
+
+	subject, _ := subjectRefFromActor(actor)
+	staleSnapshot, err := NewSubjectSnapshot(SubjectSnapshotInput{
+		Subject:       subject,
+		Exists:        true,
+		Active:        true,
+		AuthzVersion:  actor.subjectVersion() + 1,
+		Configuration: fullyEnabledConfiguration(t, RoleAuthorizationModeLegacy),
+	})
+	if err != nil {
+		t.Fatalf("create stale admin API key snapshot: %v", err)
+	}
+	staleDecision, err := NewPolicyService(&stubPolicyStore{subjectSnapshot: staleSnapshot}).CanCreate(
+		context.Background(), actor, ResourceTypeAccount,
+	)
+	if err != nil || staleDecision.Allowed() || staleDecision.DenyReason() != DenyReasonSessionInvalid {
+		t.Fatalf("stale admin API key snapshot accepted: reason=%q err=%v", staleDecision.DenyReason(), err)
+	}
+	staleResource := mustResourceSnapshot(t, ResourceAccessSnapshotInput{
+		Subject:       staleSnapshot,
+		Resource:      ref,
+		Exists:        true,
+		AccessVersion: 1,
+	})
+	staleDecision, err = NewPolicyService(&stubPolicyStore{resourceSnapshot: staleResource}).Authorize(
+		context.Background(), actor, ActionAccountEdit, ref,
+	)
+	if err != nil || staleDecision.Allowed() || staleDecision.DenyReason() != DenyReasonSessionInvalid {
+		t.Fatalf("stale admin API key resource snapshot accepted: reason=%q err=%v", staleDecision.DenyReason(), err)
+	}
+
+	roleActor := mustAdminAPIKeyActor(t, 92, 3, map[int64]int64{8: 1}, nil)
+	roleSnapshot := mustSubjectSnapshotForActor(t, roleActor, fullyEnabledConfiguration(t, RoleAuthorizationModeLegacy), false)
+	roleDecision, err := NewPolicyService(&stubPolicyStore{subjectSnapshot: roleSnapshot}).CanCreate(
+		context.Background(), roleActor, ResourceTypeAccount,
+	)
+	if err != nil || roleDecision.Allowed() || roleDecision.DenyReason() != DenyReasonMissingCapability {
+		t.Fatalf("role-bearing admin API key gained legacy bypass: reason=%q err=%v", roleDecision.DenyReason(), err)
+	}
+}
+
 func TestPolicyRevalidatesCurrentSubjectState(t *testing.T) {
 	t.Parallel()
 
@@ -440,6 +528,47 @@ func TestAuthorizeGroupUseRequiresPerResourceAuthorityResolver(t *testing.T) {
 	)
 	if err != nil || !decision.Allowed() || decision.MatchSource() != MatchSourcePublicAccess {
 		t.Fatalf("ACL group.use denied: source=%q reason=%q err=%v", decision.MatchSource(), decision.DenyReason(), err)
+	}
+}
+
+func TestAuthorizeGroupUseKeepsLegacyAdminAuthority(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name  string
+		actor Actor
+	}{
+		{name: "JWT admin", actor: mustUserActor(t, 21, 1, nil, nil, true)},
+		{name: "admin API key", actor: mustAdminAPIKeyActor(t, 22, 1, nil, nil)},
+	} {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			for _, roleMode := range []RoleAuthorizationMode{RoleAuthorizationModeLegacy, RoleAuthorizationModeShadow} {
+				roleMode := roleMode
+				t.Run(string(roleMode), func(t *testing.T) {
+					t.Parallel()
+					subject := mustSubjectSnapshotForActor(t, testCase.actor, fullyEnabledConfiguration(t, roleMode), testCase.actor.Kind() == SubjectKindUser)
+					ref := mustResourceRef(t, ResourceTypeGroup, 19)
+					for _, groupMode := range []GroupAuthorizationMode{GroupAuthorizationModeLegacy, GroupAuthorizationModeShadow} {
+						resource := mustResourceSnapshot(t, ResourceAccessSnapshotInput{
+							Subject:                subject,
+							Resource:               ref,
+							GroupAuthorizationMode: groupMode,
+							Exists:                 true,
+							AccessVersion:          1,
+						})
+						decision, err := NewPolicyService(&stubPolicyStore{resourceSnapshot: resource}).Authorize(
+							context.Background(), testCase.actor, ActionGroupUse, ref,
+						)
+						if err != nil || !decision.Allowed() || decision.MatchSource() != MatchSourceLegacyAdmin {
+							t.Fatalf("legacy admin group.use denied: role_mode=%s group_mode=%s source=%q reason=%q err=%v",
+								roleMode, groupMode, decision.MatchSource(), decision.DenyReason(), err)
+						}
+					}
+				})
+			}
+		})
 	}
 }
 

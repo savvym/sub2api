@@ -7,6 +7,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -24,6 +25,10 @@ func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthCli
 		svc = svc.WithSessionStore(xai.NewRedisSessionStore(redisClient))
 	}
 	return svc
+}
+
+func ProvideResourcePolicy(store authz.PolicyStore) authz.ResourcePolicy {
+	return authz.NewPolicyService(store)
 }
 
 // BuildInfo contains build information
@@ -790,6 +795,8 @@ func ProvideAPIKeyService(
 var ProviderSet = wire.NewSet(
 	// Core services
 	ProvideAuthService,
+	ProvideResourcePolicy,
+	NewResourceMutationCoordinator,
 	NewRoleService,
 	NewPasskeyService,
 	NewUserService,

@@ -283,6 +283,28 @@ func (a Actor) DurableSubject() (SubjectKind, int64, bool) {
 	}
 }
 
+// SameAuthorizationState reports whether two trusted actors represent the
+// same durable subject and the same authorization snapshot. Sensitive write
+// coordinators use it after resolving the subject again inside the database
+// transaction; callers cannot inspect or manufacture the opaque snapshot.
+func (a Actor) SameAuthorizationState(other Actor) bool {
+	if !a.Valid() || !other.Valid() || a.kind != other.kind || a.authMethod != other.authMethod ||
+		a.userID != other.userID || a.servicePrincipalID != other.servicePrincipalID ||
+		a.systemCode != other.systemCode || a.subjectAuthzVersion != other.subjectAuthzVersion ||
+		a.legacyAdmin != other.legacyAdmin || !equalRoleVersions(a.roleVersions, other.roleVersions) {
+		return false
+	}
+	if len(a.capabilities) != len(other.capabilities) {
+		return false
+	}
+	for capability := range a.capabilities {
+		if _, ok := other.capabilities[capability]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // SubjectKey returns the canonical persisted identity key used to partition
 // actor-owned state such as idempotency records. User and Service Principal
 // IDs intentionally live in separate namespaces.

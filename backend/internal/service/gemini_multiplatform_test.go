@@ -19,6 +19,9 @@ type mockAccountRepoForGemini struct {
 	accountsByID       map[int64]*Account
 	listByGroupFunc    func(ctx context.Context, groupID int64, platforms []string) ([]Account, error)
 	listByPlatformFunc func(ctx context.Context, platforms []string) ([]Account, error)
+	updateExtraCalls   int
+	updateExtraID      int64
+	updateExtraUpdates map[string]any
 }
 
 func (m *mockAccountRepoForGemini) GetByID(ctx context.Context, id int64) (*Account, error) {
@@ -179,6 +182,9 @@ func (m *mockAccountRepoForGemini) UpdateSessionWindowEnd(ctx context.Context, i
 	return nil
 }
 func (m *mockAccountRepoForGemini) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
+	m.updateExtraCalls++
+	m.updateExtraID = id
+	m.updateExtraUpdates = updates
 	return nil
 }
 func (m *mockAccountRepoForGemini) BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error) {

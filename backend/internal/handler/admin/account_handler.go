@@ -1634,7 +1634,7 @@ func (h *AccountHandler) RevertProxyFallback(c *gin.Context) {
 	response.Success(c, gin.H{"message": "reverted"})
 }
 
-// BatchDelete handles deleting multiple accounts with bounded concurrency.
+// BatchDelete handles atomically deleting multiple accounts.
 // POST /api/v1/admin/accounts/batch-delete
 func (h *AccountHandler) BatchDelete(c *gin.Context) {
 	actor, ok := adminResourceActor(c)
@@ -1655,121 +1655,22 @@ func (h *AccountHandler) BatchDelete(c *gin.Context) {
 		response.BadRequest(c, "account_ids is required")
 		return
 	}
-	accounts, err := h.adminService.GetAccountsByIDs(c.Request.Context(), actor, accountIDs)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
 	type deleteError struct {
 		AccountID int64  `json:"account_id"`
 		Error     string `json:"error"`
 	}
-
-	requestedIDs := make(map[int64]struct{}, len(accountIDs))
-	for _, accountID := range accountIDs {
-		requestedIDs[accountID] = struct{}{}
-	}
-	accountsByID := make(map[int64]*service.Account, len(accounts))
-	for _, account := range accounts {
-		if account != nil {
-			accountsByID[account.ID] = account
-		}
-	}
-
-	rootIDs := make([]int64, 0, len(accountIDs))
-	dependentIDs := make(map[int64][]int64)
-	failedIDs := make([]int64, 0)
-	errorsByAccount := make([]deleteError, 0)
-	for _, accountID := range accountIDs {
-		account := accountsByID[accountID]
-		if account == nil {
-			failedIDs = append(failedIDs, accountID)
-			errorsByAccount = append(errorsByAccount, deleteError{
-				AccountID: accountID,
-				Error:     "account not found",
-			})
-			continue
-		}
-
-		rootID := accountID
-		visited := map[int64]struct{}{accountID: {}}
-		for {
-			current := accountsByID[rootID]
-			if current == nil || current.ParentAccountID == nil {
-				break
-			}
-			parentID := *current.ParentAccountID
-			if _, selected := requestedIDs[parentID]; !selected {
-				break
-			}
-			if _, exists := accountsByID[parentID]; !exists {
-				break
-			}
-			if _, cyclic := visited[parentID]; cyclic {
-				rootID = accountID
-				break
-			}
-			visited[parentID] = struct{}{}
-			rootID = parentID
-		}
-
-		if rootID != accountID {
-			dependentIDs[rootID] = append(dependentIDs[rootID], accountID)
-			continue
-		}
-		rootIDs = append(rootIDs, accountID)
-	}
-
-	const maxConcurrency = 5
-	g, gctx := errgroup.WithContext(c.Request.Context())
-	g.SetLimit(maxConcurrency)
-
-	var mu sync.Mutex
-	successIDs := make([]int64, 0, len(accountIDs))
-
-	// Every worker returns nil so one account failure does not cancel the remaining deletions.
-	for _, id := range rootIDs {
-		accountID := id
-		g.Go(func() error {
-			err := h.adminService.DeleteAccount(gctx, actor, accountID)
-
-			mu.Lock()
-			defer mu.Unlock()
-			affectedIDs := append([]int64{accountID}, dependentIDs[accountID]...)
-			if err != nil {
-				for _, affectedID := range affectedIDs {
-					failedIDs = append(failedIDs, affectedID)
-					errorsByAccount = append(errorsByAccount, deleteError{
-						AccountID: affectedID,
-						Error:     err.Error(),
-					})
-				}
-				return nil
-			}
-			successIDs = append(successIDs, affectedIDs...)
-			return nil
-		})
-	}
-
-	if err := g.Wait(); err != nil {
+	if err := h.adminService.BatchDeleteAccounts(c.Request.Context(), actor, accountIDs); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	sort.Slice(successIDs, func(i, j int) bool { return successIDs[i] < successIDs[j] })
-	sort.Slice(failedIDs, func(i, j int) bool { return failedIDs[i] < failedIDs[j] })
-	sort.Slice(errorsByAccount, func(i, j int) bool {
-		return errorsByAccount[i].AccountID < errorsByAccount[j].AccountID
-	})
-
 	response.Success(c, gin.H{
 		"total":       len(accountIDs),
-		"success":     len(successIDs),
-		"failed":      len(failedIDs),
-		"success_ids": successIDs,
-		"failed_ids":  failedIDs,
-		"errors":      errorsByAccount,
+		"success":     len(accountIDs),
+		"failed":      0,
+		"success_ids": accountIDs,
+		"failed_ids":  make([]int64, 0),
+		"errors":      make([]deleteError, 0),
 	})
 }
 
@@ -2109,60 +2010,20 @@ func (h *AccountHandler) BatchUpdateCredentials(c *gin.Context) {
 			}
 		}
 	}
-	ctx := c.Request.Context()
-
-	// 阶段一：预验证所有账号存在，收集 credentials
-	type accountUpdate struct {
-		ID          int64
-		Credentials map[string]any
+	accountIDs := normalizeInt64IDList(req.AccountIDs)
+	if len(accountIDs) == 0 {
+		response.BadRequest(c, "account_ids is required")
+		return
 	}
-	updates := make([]accountUpdate, 0, len(req.AccountIDs))
-	for _, accountID := range req.AccountIDs {
-		account, err := h.adminService.GetAccount(ctx, actor, accountID)
-		if err != nil {
-			response.Error(c, 404, fmt.Sprintf("Account %d not found", accountID))
-			return
-		}
-		if account.Credentials == nil {
-			account.Credentials = make(map[string]any)
-		}
-		account.Credentials[req.Field] = req.Value
-		updates = append(updates, accountUpdate{ID: accountID, Credentials: account.Credentials})
-	}
-
-	// 阶段二：依次更新，返回每个账号的成功/失败明细，便于调用方重试
-	success := 0
-	failed := 0
-	successIDs := make([]int64, 0, len(updates))
-	failedIDs := make([]int64, 0, len(updates))
-	results := make([]gin.H, 0, len(updates))
-	for _, u := range updates {
-		updateInput := &service.UpdateAccountInput{Credentials: u.Credentials}
-		if _, err := h.adminService.UpdateAccount(ctx, actor, u.ID, updateInput); err != nil {
-			failed++
-			failedIDs = append(failedIDs, u.ID)
-			results = append(results, gin.H{
-				"account_id": u.ID,
-				"success":    false,
-				"error":      err.Error(),
-			})
-			continue
-		}
-		success++
-		successIDs = append(successIDs, u.ID)
-		results = append(results, gin.H{
-			"account_id": u.ID,
-			"success":    true,
-		})
-	}
-
-	response.Success(c, gin.H{
-		"success":     success,
-		"failed":      failed,
-		"success_ids": successIDs,
-		"failed_ids":  failedIDs,
-		"results":     results,
+	result, err := h.adminService.BulkUpdateAccounts(c.Request.Context(), actor, &service.BulkUpdateAccountsInput{
+		AccountIDs:  accountIDs,
+		Credentials: map[string]any{req.Field: req.Value},
 	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
 }
 
 // BulkUpdate handles bulk updating accounts with selected fields/credentials.

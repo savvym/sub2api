@@ -79,6 +79,20 @@ func mustServicePrincipalActor(t testing.TB, id, version int64, roles map[int64]
 	return actor
 }
 
+func mustAdminAPIKeyActor(t testing.TB, id, version int64, roles map[int64]int64, capabilities []Capability) Actor {
+	t.Helper()
+	actor, err := newServicePrincipalActor(id, servicePrincipalActorOptions{
+		subjectAuthzVersion: version,
+		roleVersions:        roles,
+		capabilities:        capabilities,
+		authMethod:          AuthMethodAdminAPIKey,
+	})
+	if err != nil {
+		t.Fatalf("create admin API key actor: %v", err)
+	}
+	return actor
+}
+
 func mustSubjectSnapshotForActor(t testing.TB, actor Actor, configuration PolicyConfiguration, currentLegacyAdmin bool) SubjectSnapshot {
 	t.Helper()
 	subject, ok := subjectRefFromActor(actor)

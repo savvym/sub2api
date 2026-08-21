@@ -43,6 +43,10 @@ type Account struct {
 	AutoPauseOnExpired bool
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	OwnerUserID        *int64
+	CreatedByUserID    *int64
+	PublicAccessLevel  *string
+	AccessVersion      int64
 
 	Schedulable bool
 

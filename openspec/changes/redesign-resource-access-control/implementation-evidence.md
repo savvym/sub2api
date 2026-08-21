@@ -375,6 +375,44 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 
 ### 后续边界
 
-- 1.10 仍需把安全关键写、durable audit、Auth Outbox 与 Scheduler Outbox 纳入同一事务，并在事务内重校验主体/角色/资源版本；1.9 的 Actor 参数不是授权决定，不能替代 Policy。
+- 1.9 结束时尚缺安全关键写、durable audit、Auth Outbox、Scheduler Outbox 与事务内版本重校验；该缺口已由下一节 1.10 的核心 Account/Group 写协调器收口。Actor 参数本身仍不是授权决定，必须由 Policy 判定。
 - Usage/Ops/Dashboard 等派生 scope、Channel Monitor Run/History/worker、Ops alert event/evaluator 和 Payment retry/refund 履约未在本切片宣称完成。
 - 中央门禁会自动覆盖当前已分类路径族内的新路由；未来新增全新资源前缀时，必须同步扩展 `isAdminResourceRoute` 分类和显式边界断言。
+
+## 2026-08-21 - Transactional Resource Mutation Coordination（1.10）
+
+### 实现范围
+
+- 新增生产 `ResourceMutationCoordinator` 与 PostgreSQL repository。每个命令使用 `SERIALIZABLE` 事务，按固定顺序锁定 durable Actor、有效角色和排序后的 Account/Group；调用方已处于 Ent 事务但无法证明隔离级别时 fail closed。
+- `NewAdminService` 在缺少 coordinator 时注入不可用哨兵，公开构造出的 Account/Group 写 facade 稳定返回 503，不能回退到 legacy 直写；API contract fixture 显式接入完整的 Resolver、Policy 和事务 repository。
+- 协调器在事务内重新解析 JWT User 或固定 `admin_api_key` Service Principal，比较主体授权版本、角色版本、能力快照、legacy admin 状态和认证方式，再执行 `CanCreate`/`Authorize`。预检查后的 Actor、角色、Owner 或 `access_version` 变化不会沿用旧决定。
+- Account 的 create/duplicate/update/extra/bulk/delete/batch delete、batch credentials、error/schedulable/proxy/quota、Shadow 和 Group 关系命令，以及 Group 的 create/duplicate/update/delete/sort、Composite Route、rate multiplier、RPM override、API Key Group 变更和用户 Group 替换，均复用协调器事务。关联引用先全部解析，任一不可见、无权或版本不符时不执行业务写。
+- repository 的 Account、Group、Composite Route、API Key 与 user-group rate 写路径复用 `TxFromContext`；业务写、实际变更资源的 `access_version`、append-only `resource_authorization_events` 和适用 Scheduler Outbox 共用外层事务。Group/API Key/旧 Group 关系的 Auth Cache Outbox 由数据库 trigger 在同一事务产生，任一 audit/outbox 写失败会回滚业务状态。
+- 新建资源从 `access_version=1` 开始；实际变更目标每个命令只递增一次，只用于锁定和授权的引用不递增。duplicate replay 与空命令统一 rollback 为 no-op，不写版本、event、durable marker 或提交后 callback。
+- durable resource event 固定记录 Account/Group、Owner 快照、User 或 Service Principal Actor、auth method、event type、提交版本、request ID、规范化字段类别和 `result=success`；不写 credentials/extra 值、HTTP body 或其他 secret。通用 `audit_logs` 仍由 AuditLog middleware 异步记录，只有显式 `SkipAudit` 才跳过，不能用 resource event 取代控制台审计。
+- 平台资源由 JWT User 创建时写实际 `created_by_user_id`；Admin API Key 创建时 creator 保持 `NULL`，以 Service Principal durable event 归因。普通 Account/Group Update 不再回写 Owner、creator、public level、authorization mode 或 access version。
+- migration 237 扩展 Group 授权快照相关字段的 durable Auth Cache 失效，Outbox 只写 API Key SHA-256；静态 contract 已覆盖字段清单、hash 与 cosmetic 字段边界。本机 PostgreSQL 18.6 隔离库动态用例已覆盖所有监控字段、cosmetic silent 和事务 rollback，运行后临时数据库残留为 0。
+- 本地缓存、Redis 和网络动作通过 after-commit callback 延迟到提交后；callback panic 逐个隔离。SQLSTATE `40001`/`40P01` 稳定映射 409，其他事务基础设施失败映射 503，Policy 403/404 与既有业务校验错误保持原语义。
+
+### 自动化与动态验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| `make -C backend test-unit` | 通过 |
+| 聚焦 `internal/authz`、`internal/service`、`internal/repository`、`internal/handler/admin` resource mutation race | 通过 |
+| 相关 authz/repository/service/middleware 包 `go vet` | 通过 |
+| 默认标签全仓编译 | 通过 |
+| integration 标签全仓编译 | 通过；只证明编译，不冒充动态执行 |
+| `make -C backend build` | 通过 |
+| migration 237 contract | 通过；覆盖授权快照字段清单、SHA-256 与 cosmetic silent 边界 |
+| `SUB2API_AUTHZ_POLICY_POSTGRES_ADMIN_DSN=... go test -tags=integration ./migrations -run '^TestGroupAuthorizationCacheInvalidationPostgres$' -count=1 -v` | PostgreSQL 18.6 通过；27 个子场景全部通过，临时库残留为 0 |
+| `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
+| 五个 1.10 OpenSpec 追踪文件 `git diff --check` | 通过 |
+| `CI=1 go test -tags=integration ./internal/repository` | 未运行；本机无 Docker。新增 Auth/Scheduler Outbox 故障注入场景已通过 integration 标签编译，动态执行待 CI |
+
+### 发布边界
+
+- OAuth、Privacy、probe 等外部网络副作用不能与 PostgreSQL 构成分布式事务。Privacy 网络调用完成后的本地持久化已作为独立 ResourceMutation 重新授权并写版本/event/outbox，但上游副作用无法因后续数据库失败而回滚。
+- 1.10 只完成适用 Auth/Scheduler Outbox 的原子 enqueue 与失败 rollback；Worker 幂等消费、lag 指标、多实例恢复、5 秒/30 秒传播 SLA、到期协调器和积压降级门仍属于 1.11 或后续切片。
+- 没有新增普通用户帐号/分组路由，没有启用 ACL/RBAC Feature Flag，没有切换旧分组资格权威源，也没有完成数据面、WebSocket、异步任务或全部后台 System/Service Principal 写路径。
+- repository Testcontainers 动态套件仍须在 Docker/CI 环境以 `CI=1` 执行；integration 标签编译通过不能记录为该门禁通过。

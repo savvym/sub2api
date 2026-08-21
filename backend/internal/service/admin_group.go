@@ -132,7 +132,7 @@ func (s *adminServiceImpl) ListCompositeRoutes(ctx context.Context, actor authz.
 	return s.compositeRouteRepo.ListByGroup(ctx, groupID, true)
 }
 
-func (s *adminServiceImpl) CreateCompositeRoute(ctx context.Context, actor authz.Actor, groupID int64, input CompositeRouteInput) (*CompositeModelRoute, error) {
+func (s *adminServiceImpl) createCompositeRouteInResourceTx(ctx context.Context, actor authz.Actor, groupID int64, input CompositeRouteInput) (*CompositeModelRoute, error) {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return nil, err
 	}
@@ -152,7 +152,7 @@ func (s *adminServiceImpl) CreateCompositeRoute(ctx context.Context, actor authz
 	return route, nil
 }
 
-func (s *adminServiceImpl) UpdateCompositeRoute(ctx context.Context, actor authz.Actor, groupID, routeID int64, input CompositeRouteInput) (*CompositeModelRoute, error) {
+func (s *adminServiceImpl) updateCompositeRouteInResourceTx(ctx context.Context, actor authz.Actor, groupID, routeID int64, input CompositeRouteInput) (*CompositeModelRoute, error) {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func (s *adminServiceImpl) UpdateCompositeRoute(ctx context.Context, actor authz
 	return route, nil
 }
 
-func (s *adminServiceImpl) DeleteCompositeRoute(ctx context.Context, actor authz.Actor, groupID, routeID int64) error {
+func (s *adminServiceImpl) deleteCompositeRouteInResourceTx(ctx context.Context, actor authz.Actor, groupID, routeID int64) error {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return err
 	}
@@ -329,7 +329,7 @@ func groupSupportsOAuthOnlyFilter(platform string) bool {
 		platform == PlatformComposite
 }
 
-func (s *adminServiceImpl) CreateGroup(ctx context.Context, actor authz.Actor, input *CreateGroupInput) (*Group, error) {
+func (s *adminServiceImpl) createGroupInResourceTx(ctx context.Context, actor authz.Actor, input *CreateGroupInput) (*Group, error) {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return nil, err
 	}
@@ -545,7 +545,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, actor authz.Actor, i
 		RPMLimit:                        input.RPMLimit,
 		MaxReasoningEffort:              maxReasoningEffort,
 		ReasoningEffortMappings:         reasoningEffortMappings,
+		AccessVersion:                   1,
+		AuthorizationMode:               "legacy",
 	}
+	setPlatformResourceCreator(&group.CreatedByUserID, actor)
 	sanitizeGroupMessagesDispatchFields(group)
 	if group.Platform != PlatformOpenAI && group.Platform != PlatformComposite {
 		group.AllowLive = false
@@ -672,7 +675,7 @@ func (s *adminServiceImpl) validateFallbackGroupOnInvalidRequest(ctx context.Con
 	return nil
 }
 
-func (s *adminServiceImpl) UpdateGroup(ctx context.Context, actor authz.Actor, id int64, input *UpdateGroupInput) (*Group, error) {
+func (s *adminServiceImpl) updateGroupInResourceTx(ctx context.Context, actor authz.Actor, id int64, input *UpdateGroupInput) (*Group, error) {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return nil, err
 	}
@@ -940,14 +943,16 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, actor authz.Actor, i
 	}
 
 	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, id)
+		invalidator := s.authCacheInvalidator
+		afterResourceMutationCommit(ctx, func() { invalidator.InvalidateAuthCacheByGroupID(context.Background(), id) })
 	}
 
 	// 平台变了就失效渠道缓存：该缓存持有 groupID → platform，而渠道定价 / 模型映射 /
 	// 模型白名单都按平台严格隔离。不失效的话，缓存最长 10 分钟仍按旧平台匹配，
 	// 期间定价查不到会静默回落到 LiteLLM 价格表、映射与白名单也不生效。
 	if group.Platform != previousPlatform && s.channelCacheInvalidator != nil {
-		s.channelCacheInvalidator.InvalidateCache()
+		invalidator := s.channelCacheInvalidator
+		afterResourceMutationCommit(ctx, invalidator.InvalidateCache)
 	}
 
 	// 如果指定了复制账号的源分组，同步绑定（替换当前分组的账号）
@@ -1049,7 +1054,7 @@ func normalizeGroupModelPricing(platform string, pricing []ChannelModelPricing) 
 	return out, nil
 }
 
-func (s *adminServiceImpl) DeleteGroup(ctx context.Context, actor authz.Actor, id int64) error {
+func (s *adminServiceImpl) deleteGroupInResourceTx(ctx context.Context, actor authz.Actor, id int64) error {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return err
 	}
@@ -1070,20 +1075,28 @@ func (s *adminServiceImpl) DeleteGroup(ctx context.Context, actor authz.Actor, i
 	// 事务成功后，异步失效受影响用户的订阅缓存
 	if len(affectedUserIDs) > 0 && s.billingCacheService != nil {
 		groupID := id
-		go func() {
-			cacheCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			for _, userID := range affectedUserIDs {
-				if err := s.billingCacheService.InvalidateSubscription(cacheCtx, userID, groupID); err != nil {
-					logger.LegacyPrintf("service.admin", "invalidate subscription cache failed: user_id=%d group_id=%d err=%v", userID, groupID, err)
+		userIDs := append([]int64(nil), affectedUserIDs...)
+		billingCache := s.billingCacheService
+		afterResourceMutationCommit(ctx, func() {
+			go func() {
+				cacheCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				for _, userID := range userIDs {
+					if err := billingCache.InvalidateSubscription(cacheCtx, userID, groupID); err != nil {
+						logger.LegacyPrintf("service.admin", "invalidate subscription cache failed: user_id=%d group_id=%d err=%v", userID, groupID, err)
+					}
 				}
-			}
-		}()
+			}()
+		})
 	}
 	if s.authCacheInvalidator != nil {
-		for _, key := range groupKeys {
-			s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, key)
-		}
+		keys := append([]string(nil), groupKeys...)
+		invalidator := s.authCacheInvalidator
+		afterResourceMutationCommit(ctx, func() {
+			for _, key := range keys {
+				invalidator.InvalidateAuthCacheByKey(context.Background(), key)
+			}
+		})
 	}
 
 	return nil
@@ -1111,7 +1124,7 @@ func (s *adminServiceImpl) GetGroupRateMultipliers(ctx context.Context, actor au
 	return s.userGroupRateRepo.GetByGroupID(ctx, groupID)
 }
 
-func (s *adminServiceImpl) ClearGroupRateMultipliers(ctx context.Context, actor authz.Actor, groupID int64) error {
+func (s *adminServiceImpl) clearGroupRateMultipliersInResourceTx(ctx context.Context, actor authz.Actor, groupID int64) error {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return err
 	}
@@ -1121,7 +1134,7 @@ func (s *adminServiceImpl) ClearGroupRateMultipliers(ctx context.Context, actor 
 	return s.userGroupRateRepo.DeleteByGroupID(ctx, groupID)
 }
 
-func (s *adminServiceImpl) BatchSetGroupRateMultipliers(ctx context.Context, actor authz.Actor, groupID int64, entries []GroupRateMultiplierInput) error {
+func (s *adminServiceImpl) batchSetGroupRateMultipliersInResourceTx(ctx context.Context, actor authz.Actor, groupID int64, entries []GroupRateMultiplierInput) error {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return err
 	}
@@ -1136,7 +1149,7 @@ func (s *adminServiceImpl) BatchSetGroupRateMultipliers(ctx context.Context, act
 	return s.userGroupRateRepo.SyncGroupRateMultipliers(ctx, groupID, entries)
 }
 
-func (s *adminServiceImpl) ClearGroupRPMOverrides(ctx context.Context, actor authz.Actor, groupID int64) error {
+func (s *adminServiceImpl) clearGroupRPMOverridesInResourceTx(ctx context.Context, actor authz.Actor, groupID int64) error {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return err
 	}
@@ -1148,12 +1161,13 @@ func (s *adminServiceImpl) ClearGroupRPMOverrides(ctx context.Context, actor aut
 	}
 	// RPM override 已嵌入 auth cache snapshot (v7)，变更后必须失效相关缓存。
 	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, groupID)
+		invalidator := s.authCacheInvalidator
+		afterResourceMutationCommit(ctx, func() { invalidator.InvalidateAuthCacheByGroupID(context.Background(), groupID) })
 	}
 	return nil
 }
 
-func (s *adminServiceImpl) BatchSetGroupRPMOverrides(ctx context.Context, actor authz.Actor, groupID int64, entries []GroupRPMOverrideInput) error {
+func (s *adminServiceImpl) batchSetGroupRPMOverridesInResourceTx(ctx context.Context, actor authz.Actor, groupID int64, entries []GroupRPMOverrideInput) error {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return err
 	}
@@ -1170,12 +1184,13 @@ func (s *adminServiceImpl) BatchSetGroupRPMOverrides(ctx context.Context, actor 
 	}
 	// RPM override 已嵌入 auth cache snapshot (v7)，变更后必须失效相关缓存。
 	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, groupID)
+		invalidator := s.authCacheInvalidator
+		afterResourceMutationCommit(ctx, func() { invalidator.InvalidateAuthCacheByGroupID(context.Background(), groupID) })
 	}
 	return nil
 }
 
-func (s *adminServiceImpl) UpdateGroupSortOrders(ctx context.Context, actor authz.Actor, updates []GroupSortOrderUpdate) error {
+func (s *adminServiceImpl) updateGroupSortOrdersInResourceTx(ctx context.Context, actor authz.Actor, updates []GroupSortOrderUpdate) error {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return err
 	}
@@ -1184,7 +1199,7 @@ func (s *adminServiceImpl) UpdateGroupSortOrders(ctx context.Context, actor auth
 
 // AdminUpdateAPIKeyGroupID 管理员修改 API Key 分组绑定
 // groupID: nil=不修改, 指向0=解绑, 指向正整数=绑定到目标分组
-func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, actor authz.Actor, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error) {
+func (s *adminServiceImpl) adminUpdateAPIKeyGroupIDInResourceTx(ctx context.Context, actor authz.Actor, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error) {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return nil, err
 	}
@@ -1238,7 +1253,9 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, actor a
 		if group.IsExclusive && !group.IsSubscriptionType() {
 			opCtx := ctx
 			var tx *dbent.Tx
-			if s.entClient == nil {
+			if dbent.TxFromContext(ctx) != nil {
+				// The resource-mutation coordinator owns the surrounding transaction.
+			} else if s.entClient == nil {
 				logger.LegacyPrintf("service.admin", "Warning: entClient is nil, skipping transaction protection for exclusive group binding")
 			} else {
 				var txErr error
@@ -1268,7 +1285,9 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, actor a
 
 			// 失效认证缓存（在事务提交后执行）
 			if s.authCacheInvalidator != nil {
-				s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+				invalidator := s.authCacheInvalidator
+				key := apiKey.Key
+				afterResourceMutationCommit(ctx, func() { invalidator.InvalidateAuthCacheByKey(context.Background(), key) })
 			}
 
 			result.APIKey = apiKey
@@ -1283,7 +1302,9 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, actor a
 
 	// 失效认证缓存
 	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+		invalidator := s.authCacheInvalidator
+		key := apiKey.Key
+		afterResourceMutationCommit(ctx, func() { invalidator.InvalidateAuthCacheByKey(context.Background(), key) })
 	}
 
 	result.APIKey = apiKey
@@ -1318,7 +1339,7 @@ func (s *adminServiceImpl) AdminResetAPIKeyRateLimitUsage(ctx context.Context, a
 }
 
 // ReplaceUserGroup 替换用户的专属分组
-func (s *adminServiceImpl) ReplaceUserGroup(ctx context.Context, actor authz.Actor, userID, oldGroupID, newGroupID int64) (*ReplaceUserGroupResult, error) {
+func (s *adminServiceImpl) replaceUserGroupInResourceTx(ctx context.Context, actor authz.Actor, userID, oldGroupID, newGroupID int64) (*ReplaceUserGroupResult, error) {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return nil, err
 	}
@@ -1341,16 +1362,20 @@ func (s *adminServiceImpl) ReplaceUserGroup(ctx context.Context, actor authz.Act
 		return nil, infraerrors.BadRequest("GROUP_IS_SUBSCRIPTION", "subscription groups are not supported for replacement")
 	}
 
-	// 事务保证原子性
-	if s.entClient == nil {
-		return nil, fmt.Errorf("entClient is nil, cannot perform group replacement")
+	// Reuse a coordinator-owned transaction; direct legacy calls still own one.
+	opCtx := ctx
+	var tx *dbent.Tx
+	if dbent.TxFromContext(ctx) == nil {
+		if s.entClient == nil {
+			return nil, fmt.Errorf("entClient is nil, cannot perform group replacement")
+		}
+		tx, err = s.entClient.Tx(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("begin transaction: %w", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		opCtx = dbent.NewTxContext(ctx, tx)
 	}
-	tx, err := s.entClient.Tx(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	opCtx := dbent.NewTxContext(ctx, tx)
 
 	// 1. 授予新分组权限
 	if err := s.userRepo.AddGroupToAllowedGroups(opCtx, userID, newGroupID); err != nil {
@@ -1368,17 +1393,23 @@ func (s *adminServiceImpl) ReplaceUserGroup(ctx context.Context, actor authz.Act
 		return nil, fmt.Errorf("remove old group from allowed groups: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit transaction: %w", err)
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("commit transaction: %w", err)
+		}
 	}
 
 	// 失效该用户所有 Key 的认证缓存
 	if s.authCacheInvalidator != nil {
 		keys, keyErr := s.apiKeyRepo.ListKeysByUserID(ctx, userID)
 		if keyErr == nil {
-			for _, k := range keys {
-				s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, k)
-			}
+			keys = append([]string(nil), keys...)
+			invalidator := s.authCacheInvalidator
+			afterResourceMutationCommit(ctx, func() {
+				for _, key := range keys {
+					invalidator.InvalidateAuthCacheByKey(context.Background(), key)
+				}
+			})
 		}
 	}
 

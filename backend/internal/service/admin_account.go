@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -267,7 +268,7 @@ func cloneAccountValuePointer[T any](value *T) *T {
 // account cannot mutate the in-memory source. Linked credential shadows are excluded because they
 // intentionally do not own credentials and must be created through CreateShadow.
 
-func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Account, error) {
+func (s *adminServiceImpl) duplicateAccountInResourceTx(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Account, error) {
 	actorScope, err := adminResourceActorSubjectKey(actor)
 	if err != nil {
 		return nil, err
@@ -356,6 +357,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, actor authz.Act
 	}
 	// A copied credential must be reviewed before it can share live traffic with its source.
 	duplicate.Schedulable = false
+	setPlatformResourceCreator(&duplicate.CreatedByUserID, actor)
 	if s.accountDuplicateRepo == nil {
 		return nil, errors.New("account duplicate repository is not configured")
 	}
@@ -444,17 +446,18 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	delete(accountExtra, OllamaCloudUsageSnapshotExtraKey)
 	accountExtra = prepareCodexFingerprintExtraForCreate(input.Platform, input.Type, accountExtra)
 	account := &Account{
-		Name:        input.Name,
-		Notes:       normalizeAccountNotes(input.Notes),
-		Platform:    input.Platform,
-		Type:        input.Type,
-		Credentials: input.Credentials,
-		Extra:       accountExtra,
-		ProxyID:     input.ProxyID,
-		Concurrency: normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
-		Priority:    input.Priority,
-		Status:      StatusActive,
-		Schedulable: true,
+		Name:          input.Name,
+		Notes:         normalizeAccountNotes(input.Notes),
+		Platform:      input.Platform,
+		Type:          input.Type,
+		Credentials:   input.Credentials,
+		Extra:         accountExtra,
+		ProxyID:       input.ProxyID,
+		Concurrency:   normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
+		Priority:      input.Priority,
+		Status:        StatusActive,
+		Schedulable:   true,
+		AccessVersion: 1,
 	}
 	if input.ProbeEnabled != nil && *input.ProbeEnabled {
 		if !isUpstreamBillingProbeAccount(account) {
@@ -497,7 +500,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	return account, nil
 }
 
-func (s *adminServiceImpl) CreateAccount(ctx context.Context, actor authz.Actor, input *CreateAccountInput) (*Account, error) {
+func (s *adminServiceImpl) createAccountInResourceTx(ctx context.Context, actor authz.Actor, input *CreateAccountInput) (*Account, error) {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return nil, err
 	}
@@ -544,6 +547,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, actor authz.Actor,
 	if err != nil {
 		return nil, err
 	}
+	setPlatformResourceCreator(&account.CreatedByUserID, actor)
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, err
 	}
@@ -560,30 +564,34 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, actor authz.Actor,
 	if account.Type == AccountTypeOAuth {
 		switch account.Platform {
 		case PlatformOpenAI:
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						slog.Error("create_account_openai_privacy_panic", "account_id", account.ID, "recover", r)
-					}
+			afterResourceMutationCommit(ctx, func() {
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							slog.Error("create_account_openai_privacy_panic", "account_id", account.ID, "recover", r)
+						}
+					}()
+					s.EnsureOpenAIPrivacy(context.Background(), actor, account)
 				}()
-				s.EnsureOpenAIPrivacy(context.Background(), actor, account)
-			}()
+			})
 		case PlatformAntigravity:
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						slog.Error("create_account_antigravity_privacy_panic", "account_id", account.ID, "recover", r)
-					}
+			afterResourceMutationCommit(ctx, func() {
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							slog.Error("create_account_antigravity_privacy_panic", "account_id", account.ID, "recover", r)
+						}
+					}()
+					s.EnsureAntigravityPrivacy(context.Background(), actor, account)
 				}()
-				s.EnsureAntigravityPrivacy(context.Background(), actor, account)
-			}()
+			})
 		}
 	}
 
 	return account, nil
 }
 
-func (s *adminServiceImpl) UpdateAccount(ctx context.Context, actor authz.Actor, id int64, input *UpdateAccountInput) (*Account, error) {
+func (s *adminServiceImpl) updateAccountInResourceTx(ctx context.Context, actor authz.Actor, id int64, input *UpdateAccountInput) (*Account, error) {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return nil, err
 	}
@@ -900,7 +908,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, actor authz.Actor,
 
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
-func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, actor authz.Actor, id int64, updates map[string]any) error {
+func (s *adminServiceImpl) updateAccountExtraInResourceTx(ctx context.Context, actor authz.Actor, id int64, updates map[string]any) error {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return err
 	}
@@ -921,6 +929,9 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, actor authz.A
 		}
 	}
 	if len(updates) == 0 {
+		if runtime, ok := ctx.Value(resourceMutationRuntimeContextKey{}).(*resourceMutationRuntime); ok && runtime != nil {
+			return errResourceMutationNoop
+		}
 		return nil
 	}
 	return s.accountRepo.UpdateExtra(ctx, id, updates)
@@ -928,7 +939,7 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, actor authz.A
 
 // BulkUpdateAccounts updates multiple accounts in one request.
 // It merges credentials/extra keys instead of overwriting the whole object.
-func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, actor authz.Actor, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
+func (s *adminServiceImpl) bulkUpdateAccountsInResourceTx(ctx context.Context, actor authz.Actor, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return nil, err
 	}
@@ -1159,12 +1170,10 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, actor authz.A
 
 		if input.GroupIDs != nil {
 			if err := s.accountRepo.BindGroups(ctx, accountID, *input.GroupIDs); err != nil {
-				entry.Success = false
-				entry.Error = err.Error()
-				result.Failed++
-				result.FailedIDs = append(result.FailedIDs, accountID)
-				result.Results = append(result.Results, entry)
-				continue
+				// A bulk command is one authorization decision and one transaction.
+				// Returning an aggregate partial-success response here would commit the
+				// column updates and earlier bindings while later targets failed.
+				return nil, err
 			}
 		}
 
@@ -1252,7 +1261,7 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, actor
 	}
 }
 
-func (s *adminServiceImpl) DeleteAccount(ctx context.Context, actor authz.Actor, id int64) error {
+func (s *adminServiceImpl) deleteAccountInResourceTx(ctx context.Context, actor authz.Actor, id int64) error {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return err
 	}
@@ -1284,7 +1293,7 @@ func (s *adminServiceImpl) RefreshAccountCredentials(ctx context.Context, actor 
 	return account, nil
 }
 
-func (s *adminServiceImpl) ClearAccountError(ctx context.Context, actor authz.Actor, id int64) (*Account, error) {
+func (s *adminServiceImpl) clearAccountErrorInResourceTx(ctx context.Context, actor authz.Actor, id int64) (*Account, error) {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return nil, err
 	}
@@ -1304,19 +1313,20 @@ func (s *adminServiceImpl) ClearAccountError(ctx context.Context, actor authz.Ac
 		return nil, err
 	}
 	if s.runtimeBlocker != nil {
-		s.runtimeBlocker.ClearAccountSchedulingBlock(id)
+		runtimeBlocker := s.runtimeBlocker
+		afterResourceMutationCommit(ctx, func() { runtimeBlocker.ClearAccountSchedulingBlock(id) })
 	}
 	return s.accountRepo.GetByID(ctx, id)
 }
 
-func (s *adminServiceImpl) SetAccountError(ctx context.Context, actor authz.Actor, id int64, errorMsg string) error {
+func (s *adminServiceImpl) setAccountErrorInResourceTx(ctx context.Context, actor authz.Actor, id int64, errorMsg string) error {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return err
 	}
 	return s.accountRepo.SetError(ctx, id, errorMsg)
 }
 
-func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, actor authz.Actor, id int64, schedulable bool) (*Account, error) {
+func (s *adminServiceImpl) setAccountSchedulableInResourceTx(ctx context.Context, actor authz.Actor, id int64, schedulable bool) (*Account, error) {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return nil, err
 	}
@@ -1330,7 +1340,7 @@ func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, actor auth
 	return updated, nil
 }
 
-func (s *adminServiceImpl) RevertAccountProxyFallback(ctx context.Context, actor authz.Actor, id int64) error {
+func (s *adminServiceImpl) revertAccountProxyFallbackInResourceTx(ctx context.Context, actor authz.Actor, id int64) error {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return err
 	}
@@ -1347,7 +1357,7 @@ func (s *adminServiceImpl) RevertAccountProxyFallback(ctx context.Context, actor
 
 // CreateShadow 为指定 OpenAI OAuth 母账号创建 spark 维度影子账号（一母一影）。
 // 安全不变量：Credentials 恒不含 auth token（仅 model_mapping，守卫 isAllowedSparkShadowCredentialsUpdate 放行）。
-func (s *adminServiceImpl) CreateShadow(ctx context.Context, actor authz.Actor, parentID int64, opts ShadowOptions) (*Account, error) {
+func (s *adminServiceImpl) createShadowInResourceTx(ctx context.Context, actor authz.Actor, parentID int64, opts ShadowOptions) (*Account, error) {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return nil, err
 	}
@@ -1437,10 +1447,12 @@ func (s *adminServiceImpl) CreateShadow(ctx context.Context, actor authz.Actor, 
 		Priority:        priority,
 		Concurrency:     concurrency,
 		Schedulable:     true,
+		AccessVersion:   1,
 		Extra: map[string]any{
 			openAILongContextBillingEnabledKey: parent.IsOpenAILongContextBillingEnabled(),
 		},
 	}
+	setPlatformResourceCreator(&shadow.CreatedByUserID, actor)
 
 	// 5. 持久化（Create 填充 shadow.ID）。并发竞态:预查(步骤2)放行后另一请求抢先建成,本次会撞
 	// 一母一影唯一索引。复查确认确为"已存在"竞态时返回结构化 409 而非裸 500——外审 A/P1。
@@ -1452,15 +1464,15 @@ func (s *adminServiceImpl) CreateShadow(ctx context.Context, actor authz.Actor, 
 		return nil, fmt.Errorf("create spark shadow: %w", err)
 	}
 
-	// 6. 绑定分组。注意:create+bind 非单一 DB 事务(通用 Create 走 r.client、outbox 走 r.sql,
-	// 无现成共享事务路径),故绑组失败时做 best-effort 补偿删除刚建的影子,避免半成品影子(否则
-	// 一母一影唯一索引会挡住重试)——外审 C/P1。补偿删除用 detached ctx,即便请求 ctx 已取消/超时
-	// 仍能完成清理(外审第4轮);进程崩溃这种极端仍可能残留,属已知权衡。
+	// 6. 绑定分组。协调器调用时 create+bind 位于同一外层事务，失败直接回滚；
+	// 旧的直接调用没有外层事务，仍以 detached context 做 best-effort 补偿删除。
 	if len(groupIDs) > 0 {
 		if err := s.accountRepo.BindGroups(ctx, shadow.ID, groupIDs); err != nil {
-			if delErr := s.accountRepo.Delete(context.WithoutCancel(ctx), shadow.ID); delErr != nil {
-				slog.Error("spark_shadow_bind_groups_rollback_failed",
-					"shadow_id", shadow.ID, "parent_id", parentID, "delete_err", delErr)
+			if dbent.TxFromContext(ctx) == nil {
+				if delErr := s.accountRepo.Delete(context.WithoutCancel(ctx), shadow.ID); delErr != nil {
+					slog.Error("spark_shadow_bind_groups_rollback_failed",
+						"shadow_id", shadow.ID, "parent_id", parentID, "delete_err", delErr)
+				}
 			}
 			return nil, fmt.Errorf("bind groups for spark shadow: %w", err)
 		}
@@ -1606,7 +1618,7 @@ func (e *MixedChannelError) Error() string {
 		e.GroupName, e.CurrentPlatform, e.OtherPlatform)
 }
 
-func (s *adminServiceImpl) ResetAccountQuota(ctx context.Context, actor authz.Actor, id int64) error {
+func (s *adminServiceImpl) resetAccountQuotaInResourceTx(ctx context.Context, actor authz.Actor, id int64) error {
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return err
 	}
@@ -1660,7 +1672,9 @@ func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, actor authz.
 		return ""
 	}
 
-	_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode})
+	if err := s.UpdateAccountExtra(ctx, actor, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
+		logger.LegacyPrintf("service.admin", "update_openai_privacy_mode_failed: account_id=%d err=%v", account.ID, err)
+	}
 	return mode
 }
 
@@ -1697,7 +1711,7 @@ func (s *adminServiceImpl) ForceOpenAIPrivacy(ctx context.Context, actor authz.A
 		return ""
 	}
 
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
+	if err := s.UpdateAccountExtra(ctx, actor, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
 		logger.LegacyPrintf("service.admin", "force_update_openai_privacy_mode_failed: account_id=%d err=%v", account.ID, err)
 		return mode
 	}
@@ -1743,7 +1757,7 @@ func (s *adminServiceImpl) EnsureAntigravityPrivacy(ctx context.Context, actor a
 		return ""
 	}
 
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
+	if err := s.UpdateAccountExtra(ctx, actor, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
 		logger.LegacyPrintf("service.admin", "update_antigravity_privacy_mode_failed: account_id=%d err=%v", account.ID, err)
 		return mode
 	}
@@ -1779,7 +1793,7 @@ func (s *adminServiceImpl) ForceAntigravityPrivacy(ctx context.Context, actor au
 		return ""
 	}
 
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
+	if err := s.UpdateAccountExtra(ctx, actor, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
 		logger.LegacyPrintf("service.admin", "force_update_antigravity_privacy_mode_failed: account_id=%d err=%v", account.ID, err)
 		return mode
 	}
