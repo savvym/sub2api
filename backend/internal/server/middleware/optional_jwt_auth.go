@@ -3,6 +3,7 @@ package middleware
 import (
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -18,8 +19,9 @@ func NewOptionalJWTAuthMiddleware(
 	userService *service.UserService,
 	settingService *service.SettingService,
 	auditService *service.AuditLogService,
+	actorResolver authz.Resolver,
 ) OptionalJWTAuthMiddleware {
-	strict := jwtAuth(authService, userService, userService, settingService, auditService)
+	strict := jwtAuth(authService, userService, userService, settingService, auditService, actorResolver)
 	return OptionalJWTAuthMiddleware(func(c *gin.Context) {
 		if strings.TrimSpace(c.GetHeader("Authorization")) == "" {
 			c.Next()

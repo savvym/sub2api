@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -101,6 +102,7 @@ func TestAccountCreateBoundaryDoesNotApplyOpenAIValidationToOtherPlatforms(t *te
 	gin.SetMode(gin.TestMode)
 	handler := NewAccountHandler(newStubAdminService(), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router := gin.New()
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 	router.POST("/accounts", handler.Create)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/accounts", bytes.NewBufferString(

@@ -8,6 +8,7 @@ import (
 
 var (
 	ErrActorInactive                = errors.New("authz: actor inactive")
+	ErrSubjectNotFound              = errors.New("authz: subject not found")
 	ErrInvalidSubjectRef            = errors.New("authz: invalid subject reference")
 	ErrSessionInvalid               = errors.New("authz: session invalid")
 	ErrFeatureDisabled              = errors.New("authz: feature disabled")

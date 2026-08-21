@@ -2,10 +2,12 @@
 package middleware
 
 import (
+	"context"
 	"crypto/subtle"
 	"errors"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -17,8 +19,17 @@ func NewAdminAuthMiddleware(
 	userService *service.UserService,
 	settingService *service.SettingService,
 	auditService *service.AuditLogService,
+	actorResolver authz.Resolver,
 ) AdminAuthMiddleware {
-	return AdminAuthMiddleware(adminAuth(authService, userService, settingService, auditService))
+	return AdminAuthMiddleware(adminAuth(authService, userService, settingService, auditService, actorResolver))
+}
+
+type adminAPIKeyReader interface {
+	GetAdminAPIKey(ctx context.Context) (string, error)
+}
+
+type firstAdminReader interface {
+	GetFirstAdmin(ctx context.Context) (*service.User, error)
 }
 
 // adminAuth 管理员认证中间件实现
@@ -30,6 +41,7 @@ func adminAuth(
 	userService *service.UserService,
 	settingService *service.SettingService,
 	auditService *service.AuditLogService,
+	actorResolver authz.Resolver,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// WebSocket upgrade requests cannot set Authorization headers in browsers.
@@ -38,7 +50,7 @@ func adminAuth(
 		//   Sec-WebSocket-Protocol: sub2api-admin, jwt.<token>
 		if isWebSocketUpgradeRequest(c) {
 			if token := extractJWTFromWebSocketSubprotocol(c); token != "" {
-				if !validateJWTForAdmin(c, token, authService, userService, settingService, auditService) {
+				if !validateJWTForAdmin(c, token, authService, userService, settingService, auditService, actorResolver) {
 					return
 				}
 				c.Next()
@@ -49,7 +61,7 @@ func adminAuth(
 		// 检查 x-api-key header（Admin API Key 认证）
 		apiKey := c.GetHeader("x-api-key")
 		if apiKey != "" {
-			if !validateAdminAPIKey(c, apiKey, settingService, userService) {
+			if !validateAdminAPIKey(c, apiKey, settingService, userService, actorResolver) {
 				return
 			}
 			c.Next()
@@ -66,7 +78,7 @@ func adminAuth(
 					AbortWithError(c, 401, "UNAUTHORIZED", "Authorization required")
 					return
 				}
-				if !validateJWTForAdmin(c, token, authService, userService, settingService, auditService) {
+				if !validateJWTForAdmin(c, token, authService, userService, settingService, auditService, actorResolver) {
 					return
 				}
 				c.Next()
@@ -121,8 +133,9 @@ func extractJWTFromWebSocketSubprotocol(c *gin.Context) string {
 func validateAdminAPIKey(
 	c *gin.Context,
 	key string,
-	settingService *service.SettingService,
-	userService *service.UserService,
+	settingService adminAPIKeyReader,
+	userService firstAdminReader,
+	actorResolver authz.Resolver,
 ) bool {
 	storedKey, err := settingService.GetAdminAPIKey(c.Request.Context())
 	if err != nil {
@@ -135,6 +148,30 @@ func validateAdminAPIKey(
 		AbortWithError(c, 401, "INVALID_ADMIN_KEY", "Invalid admin API key")
 		return false
 	}
+
+	if actorResolver == nil {
+		AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
+		return false
+	}
+	actor, err := actorResolver.ResolveServicePrincipal(
+		c.Request.Context(),
+		authz.AdminAPIKeyServicePrincipalCode,
+		authz.AuthMethodAdminAPIKey,
+	)
+	if err != nil {
+		// Missing and disabled principals deliberately look identical to callers.
+		if errors.Is(err, authz.ErrActorInactive) {
+			AbortWithError(c, 401, "INVALID_ADMIN_KEY", "Invalid admin API key")
+			return false
+		}
+		AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
+		return false
+	}
+	if _, ok := actor.ServicePrincipalID(); !ok || actor.AuthMethod() != authz.AuthMethodAdminAPIKey {
+		AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
+		return false
+	}
+	setRequestActor(c, actor)
 
 	// 获取真实的管理员用户
 	admin, err := userService.GetFirstAdmin(c.Request.Context())
@@ -149,7 +186,7 @@ func validateAdminAPIKey(
 	})
 	c.Set(string(ContextKeyUserRole), admin.Role)
 	c.Set(ContextKeyAuthEmail, admin.Email)
-	c.Set("auth_method", "admin_api_key")
+	c.Set("auth_method", string(authz.AuthMethodAdminAPIKey))
 	return true
 }
 
@@ -161,6 +198,7 @@ func validateJWTForAdmin(
 	userService *service.UserService,
 	settingService *service.SettingService,
 	auditService *service.AuditLogService,
+	actorResolver authz.Resolver,
 ) bool {
 	// 验证 JWT token
 	claims, err := authService.ValidateToken(token)
@@ -197,20 +235,38 @@ func validateJWTForAdmin(
 		return false
 	}
 
-	// 检查管理员权限
-	if !user.IsAdmin() {
-		AbortWithError(c, 403, "FORBIDDEN", "Admin access required")
+	if actorResolver == nil {
+		AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
 		return false
 	}
+	actor, err := actorResolver.ResolveLegacyAdminUser(c.Request.Context(), user.ID)
+	if err != nil {
+		if errors.Is(err, authz.ErrActorInactive) {
+			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
+			return false
+		}
+		if errors.Is(err, authz.ErrPolicyAccessDenied) {
+			AbortWithError(c, 403, "FORBIDDEN", "Admin access required")
+			return false
+		}
+		AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
+		return false
+	}
+	resolvedUserID, ok := actor.UserID()
+	if !ok || resolvedUserID != user.ID || actor.AuthMethod() != authz.AuthMethodJWT {
+		AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
+		return false
+	}
+	setRequestActor(c, actor)
 
 	c.Set(string(ContextKeyUser), AuthSubject{
 		UserID:      user.ID,
 		Concurrency: user.Concurrency,
 	})
-	c.Set(string(ContextKeyUserRole), user.Role)
+	c.Set(string(ContextKeyUserRole), service.RoleAdmin)
 	c.Set(ContextKeyAuthEmail, user.Email)
 	c.Set(ContextKeySessionID, claims.SessionID)
-	c.Set("auth_method", "jwt")
+	c.Set("auth_method", string(authz.AuthMethodJWT))
 
 	return true
 }

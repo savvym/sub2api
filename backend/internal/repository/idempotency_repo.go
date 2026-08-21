@@ -102,6 +102,30 @@ func (r *idempotencyRepository) GetByScopeAndKeyHash(ctx context.Context, scope,
 	return record, nil
 }
 
+func (r *idempotencyRepository) ExtendExpiration(
+	ctx context.Context,
+	id int64,
+	requestFingerprint string,
+	newExpiresAt time.Time,
+) (bool, error) {
+	query := `
+		UPDATE idempotency_records
+		SET expires_at = GREATEST(expires_at, $2),
+			updated_at = NOW()
+		WHERE id = $1
+			AND request_fingerprint = $3
+	`
+	res, err := r.sql.ExecContext(ctx, query, id, newExpiresAt, requestFingerprint)
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected > 0, nil
+}
+
 func (r *idempotencyRepository) TryReclaim(
 	ctx context.Context,
 	id int64,
@@ -145,9 +169,9 @@ func (r *idempotencyRepository) ExtendProcessingLock(
 	newExpiresAt time.Time,
 ) (bool, error) {
 	query := `
-		UPDATE idempotency_records
-		SET locked_until = $2,
-			expires_at = $3,
+			UPDATE idempotency_records
+			SET locked_until = GREATEST(locked_until, $2),
+				expires_at = GREATEST(expires_at, $3),
 			updated_at = NOW()
 		WHERE id = $1
 			AND status = $4
@@ -219,16 +243,19 @@ func (r *idempotencyRepository) DeleteExpired(ctx context.Context, now time.Time
 		limit = 500
 	}
 	query := `
-		WITH victims AS (
-			SELECT id
-			FROM idempotency_records
-			WHERE expires_at <= $1
-			ORDER BY expires_at ASC
-			LIMIT $2
-		)
-		DELETE FROM idempotency_records
-		WHERE id IN (SELECT id FROM victims)
-	`
+			WITH victims AS (
+				SELECT id
+				FROM idempotency_records
+				WHERE expires_at <= $1
+				ORDER BY expires_at ASC
+				LIMIT $2
+				FOR UPDATE SKIP LOCKED
+			)
+			DELETE FROM idempotency_records AS records
+			USING victims
+			WHERE records.id = victims.id
+				AND records.expires_at <= $1
+		`
 	res, err := r.sql.ExecContext(ctx, query, now, limit)
 	if err != nil {
 		return 0, err

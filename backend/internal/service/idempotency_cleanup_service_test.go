@@ -21,6 +21,9 @@ func (r *idempotencyCleanupRepoStub) CreateProcessing(context.Context, *Idempote
 func (r *idempotencyCleanupRepoStub) GetByScopeAndKeyHash(context.Context, string, string) (*IdempotencyRecord, error) {
 	return nil, nil
 }
+func (r *idempotencyCleanupRepoStub) ExtendExpiration(context.Context, int64, string, time.Time) (bool, error) {
+	return false, nil
+}
 func (r *idempotencyCleanupRepoStub) TryReclaim(context.Context, int64, string, time.Time, time.Time, time.Time) (bool, error) {
 	return false, nil
 }

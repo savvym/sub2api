@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -21,6 +22,23 @@ func executeUserIdempotentJSON(
 	ttl time.Duration,
 	execute func(context.Context) (any, error),
 ) {
+	actor, ok := authz.ActorFromContext(c.Request.Context())
+	if !ok {
+		response.ErrorFrom(c, service.ErrIdempotencyActorUnavailable)
+		return
+	}
+	actorUserID, isUser := actor.UserID()
+	subject, hasSubject := middleware2.GetAuthSubjectFromContext(c)
+	if !isUser || !hasSubject || subject.UserID != actorUserID {
+		response.ErrorFrom(c, service.ErrIdempotencyActorUnavailable)
+		return
+	}
+	actorScope, ok := actor.SubjectKey()
+	if !ok {
+		response.ErrorFrom(c, service.ErrIdempotencyActorUnavailable)
+		return
+	}
+
 	coordinator := service.DefaultIdempotencyCoordinator()
 	if coordinator == nil {
 		data, err := execute(c.Request.Context())
@@ -30,11 +48,6 @@ func executeUserIdempotentJSON(
 		}
 		response.Success(c, data)
 		return
-	}
-
-	actorScope := "user:0"
-	if subject, ok := middleware2.GetAuthSubjectFromContext(c); ok {
-		actorScope = "user:" + strconv.FormatInt(subject.UserID, 10)
 	}
 
 	result, err := coordinator.Execute(c.Request.Context(), service.IdempotencyExecuteOptions{

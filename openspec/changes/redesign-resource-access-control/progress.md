@@ -1,6 +1,6 @@
 # 当前进度
 
-更新时间：2026-08-20
+更新时间：2026-08-21
 
 ## 当前状态
 
@@ -12,7 +12,9 @@
 - Fresh Setup Compatibility Bootstrap 提交：`4505b0301`，已推送同一远程分支。
 - Policy 与 SQL Scope Foundation 提交：`75b6582c2`，已推送同一远程分支。
 - Scoped Resource Reader 提交：`af49971aa`，已推送同一远程分支。
-- 当前切片：0.4/0.5 静态审计已到 Review Ready；1.7a/1.7b 已完成完整单测、构建、OpenSpec、本地 HTTP 与 PostgreSQL 动态门禁，专用 mode status/readiness 与 guarded transition API 已接入生产 Wire；下一开发切片为 1.8 ActorResolver。RBAC 未交付，Phase 0 尚未批准退出。
+- RoleService Core 提交：`4a1617e8d`，Guarded Role Mode API 提交：`0201ae488`，均已推送同一远程分支。
+- Trusted ActorResolver 提交：`34e43155c`，已推送同一远程分支。
+- 任务进度：17/49。当前切片 1.8 已完成 ActorResolver 生产接线、机器主体审计、幂等主体隔离和 system mutation 断线/restart 收口；下一开发切片为 1.9 帐号/分组管理员入口显式传 Actor。RBAC 未交付，Phase 0 尚未批准退出。
 - 当前权威行为：旧 `users.role` 与旧分组资格；不得启用任何新 ACL 放行。
 
 ## 已完成
@@ -51,13 +53,21 @@
 - 没有新增普通用户资源路由/UI，也没有将任何运行时授权切换到 ACL/RBAC。
 - 1.7b 已通过完整 `make -C backend test-unit`、相关包 vet、backend build、Wire 编译、OpenSpec strict validate 与 diff check；本机 PostgreSQL 18.6 动态覆盖 GET 非阻塞 snapshot、成功 durable audit 恰好一条及 audit insert 失败原子回滚。
 - 本地 HTTP 已验证未认证拒绝、GET readiness 的 `blockers: []`、未启用 TOTP 拒绝、Admin API Key 拒绝、成功 legacy→shadow→legacy、expected-mode 409 conflict 和两条成功 durable audit；烟测结束后 mode setting、TOTP、临时 Admin API Key、审计记录与临时测试库均恢复/删除。
+- JWT、Optional JWT、管理员 JWT/WebSocket 现在都从数据库最新单快照解析 User Actor；Admin API Key 映射为固定 `admin_api_key` Service Principal Actor，首管理员仅保留为旧 Handler 的兼容 shim。
+- `admin_api_key` 是零角色审计身份锚：migration 234 会清理同 code 的历史角色碰撞但不重新启用 disabled 主体，Resolver 对非零角色/能力快照继续 fail closed；该认证方式不能解析任意其他 Service Principal code。
+- 管理面审计改为 Actor-first，并为 `audit_logs` 增加互斥的 Service Principal 主体、restrict FK、查询过滤和并发部分索引；机器请求不再继承首管理员 email/role。`actor_user_id` 保留既有无 FK 的历史兼容语义。
+- 幂等数据库作用域按 durable Actor 隔离，用户与同数值 ID 的 Service Principal 不再冲突；升级前 raw scope 仅按当前/兼容完整 fingerprint 回放或回收，升级 fence 阻止旧、新实例同时取得同一副作用所有权。缺失或不一致 Actor 稳定返回 `503 AUTHORIZATION_UNAVAILABLE`，不再使用 `admin:0/user:0`。
+- 幂等终态写回已与 HTTP request cancellation 解耦并保留 5 秒上限；兼容矩阵覆盖 raw legacy actor/payload、qualified canonical actor/legacy payload 和当前 canonical 记录，且 qualified-only 兼容不会放宽到 raw scope。migration 236 防止旧 cleanup snapshot 删除已续期 fence。
+- restart 只在外层幂等成功落库、响应写出后且非 replay 时调度；前端明确 HTTP 失败会停止并显示错误，模糊断线才进入重启等待且消费 pending key。update/rollback/restart 的 system mutation 均携带 session-scoped 幂等 key。
+- 已补真实 `ActorResolver -> PolicyService -> AccessibleScope -> ResourceReadService` 贯通测试；主体版本陈旧时在 scoped reader 前 fail closed。本切片没有注册普通用户帐号/分组路由，也没有启用 ACL/RBAC。
+- 1.8 已通过完整 backend unit/vet/build、前端 lint/typecheck/build 与 237 files/1661 tests、OpenSpec strict validate、diff check；本机 PostgreSQL 18.6 动态覆盖 migration 234/235/236、续期/清理锁竞态和 AuthzPolicyStore snapshot，临时数据库残留为 0。
 
 ## 下一步
 
 1. 由平台/认证/安全负责人复核并批准 0.4 credentials/extra 清单和 0.5 自助平台/出站 allowlist。
 2. 对真实服务器只读数据运行 `data-preflight.sql`，记录异常角色、名称冲突、孤立关系和回填规模。
 3. 在 Docker/CI 环境执行 `CI=1 go test -tags=integration ./internal/repository` 严格门禁。
-4. 下一开发切片进入 1.8：增加 ActorResolver，将管理员 JWT 映射为 User Actor、Admin API Key 映射为独立 Service Principal Actor，并补齐审计主体与幂等作用域。
+4. 下一开发切片进入 1.9：帐号/分组管理员入口从请求上下文取得可信 Actor 并显式传入服务边界，保持现有全局管理员响应和行为不变。
 
 ## 阻塞与风险
 
@@ -66,10 +76,12 @@
 - Phase 0 的 credentials/extra 与自助出站文档均为 Review Ready、尚未 Accepted；这是开放自助托管前的硬阻塞。
 - fresh setup 缺失兼容角色的问题已修复，本地管理员也已由 migration 232 补齐；真实服务器升级后仍必须通过专用 GET status/readiness 入口验证全量一致性。
 - 分组名称唯一索引本切片不修改，先完成大小写和 Owner 范围冲突预检。
-- 1.6 scoped reader 已完成，但尚无 Actor Resolver、Handler 或 DI 接线；当前仍是 dark foundation，不能作为已开放的普通用户资源读取入口。
+- 1.6 scoped reader 与 ActorResolver 已完成真实贯通测试，但尚无普通用户 Handler/路由；当前仍是 dark foundation，不能作为已开放的普通用户资源读取入口。
 - `role_authorization_mode` 当前仍没有授权 consumer；专用入口和 1.7b 动态门禁已完成，但部署环境仍必须先运行 readiness，且在 consumer 迁移前保持 `legacy`。本地烟测已恢复为缺失 setting 的 legacy fallback。
 - 1.7b 没有解除 RBAC 硬拒绝；必须等待 1.8 ActorResolver 和全部授权 consumer 迁移后才能另行开放，不能把 legacy↔shadow 管理入口记录成 RBAC 已交付。
 - 通用管理员 settings PUT 跨多个服务不是单一数据库事务；`role_authorization_mode` 已从该路径移除，其余新开关当前没有 consumer，因此不阻塞 dark launch，但需在 1.10 收口。
+- 幂等升级 fence 允许新实例对新业务记录使用 Actor-qualified scope，并使仍写 raw scope 的旧实例 fail closed；混合版本期间旧请求可能收到冲突，因此发布仍应优先同版本切换或维护窗，不能宣称无感滚动升级。
+- 1.8 新增并发用例已通过定向 race；扩大到相关包的 race 命令仍会命中 `grok_import_probe_test.go` 和 `channel_monitor_checker_body_test.go` 两处不在本次 diff 的既有测试辅助代码竞态，不能宣称全量 race 已通过。
 
 ## 续作检查
 

@@ -22,7 +22,7 @@ func duplicateGroupOperationID(sourceID int64, actorScope, operationKey string) 
 	}
 	actorScope = strings.TrimSpace(actorScope)
 	if actorScope == "" {
-		actorScope = "admin:0"
+		return ""
 	}
 	payload := "admin.groups.duplicate\x00" + actorScope + "\x00" + strconv.FormatInt(sourceID, 10) + "\x00" + operationKey
 	digest := sha256.Sum256([]byte(payload))
@@ -162,24 +162,31 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 // committed for the same actor, source group, and idempotency key.
 func (s *adminServiceImpl) RecoverDuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*Group, error) {
 	operationID := duplicateGroupOperationID(id, actorScope, operationKey)
+	if strings.TrimSpace(operationKey) != "" && operationID == "" {
+		return nil, ErrIdempotencyActorUnavailable
+	}
 	if operationID == "" {
 		return nil, nil
 	}
 	if s.groupDuplicateRepo == nil {
 		return nil, errors.New("group duplicate repository is not configured")
 	}
-	group, err := s.groupDuplicateRepo.FindByDuplicateOperationID(ctx, operationID)
-	if err != nil {
-		return nil, fmt.Errorf("find duplicate group operation: %w", err)
+	for _, candidateScope := range idempotencyActorScopeCandidates(ctx, actorScope) {
+		candidateOperationID := duplicateGroupOperationID(id, candidateScope, operationKey)
+		group, err := s.groupDuplicateRepo.FindByDuplicateOperationID(ctx, candidateOperationID)
+		if err != nil {
+			return nil, fmt.Errorf("find duplicate group operation: %w", err)
+		}
+		if group == nil {
+			continue
+		}
+		hydrated, hydrateErr := s.groupRepo.GetByID(ctx, group.ID)
+		if hydrateErr != nil {
+			return nil, fmt.Errorf("load recovered duplicate group: %w", hydrateErr)
+		}
+		return hydrated, nil
 	}
-	if group == nil {
-		return nil, nil
-	}
-	hydrated, err := s.groupRepo.GetByID(ctx, group.ID)
-	if err != nil {
-		return nil, fmt.Errorf("load recovered duplicate group: %w", err)
-	}
-	return hydrated, nil
+	return nil, nil
 }
 
 // DuplicateGroup creates an inactive copy of a group's configuration and exact

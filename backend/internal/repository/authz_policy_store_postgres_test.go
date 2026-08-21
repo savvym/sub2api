@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -67,6 +68,23 @@ func TestAuthzPolicyStorePostgresCTESnapshotAndExpiry(t *testing.T) {
 			($1, $5, $3, CURRENT_TIMESTAMP - INTERVAL '1 second')
 	`, subjectID, activeRoleID, ownerID, boundaryRoleID, pastRoleID); err != nil {
 		t.Fatalf("insert role assignments: %v", err)
+	}
+	var servicePrincipalID int64
+	if err := tx.QueryRowContext(ctx, `
+		INSERT INTO service_principals (code, name, status, authz_version)
+		VALUES ('authz_policy_worker', 'Authz Policy Worker', 'active', 5)
+		RETURNING id
+	`).Scan(&servicePrincipalID); err != nil {
+		t.Fatalf("insert service principal: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO service_principal_roles (service_principal_id, role_id, granted_by_user_id, expires_at)
+		VALUES
+			($1, $2, $3, CURRENT_TIMESTAMP + INTERVAL '1 hour'),
+			($1, $4, $3, CURRENT_TIMESTAMP),
+			($1, $5, $3, CURRENT_TIMESTAMP - INTERVAL '1 second')
+	`, servicePrincipalID, activeRoleID, ownerID, boundaryRoleID, pastRoleID); err != nil {
+		t.Fatalf("insert service principal role assignments: %v", err)
 	}
 	setAuthzPolicyPostgresConfiguration(t, ctx, tx)
 
@@ -136,6 +154,40 @@ func TestAuthzPolicyStorePostgresCTESnapshotAndExpiry(t *testing.T) {
 		t.Fatalf("active PostgreSQL capabilities = %v, want %v", got, want)
 	}
 	assertFullyEnabledPolicyConfiguration(t, subjectSnapshot.Configuration())
+	servicePrincipalSnapshot, err := store.LoadServicePrincipalSubjectSnapshotByCode(ctx, "authz_policy_worker")
+	if err != nil {
+		t.Fatalf("load PostgreSQL service principal snapshot by code: %v", err)
+	}
+	wantServicePrincipalSubject := mustAuthzSubjectRef(t, authz.SubjectKindServicePrincipal, servicePrincipalID)
+	if !servicePrincipalSnapshot.Valid() || servicePrincipalSnapshot.Subject() != wantServicePrincipalSubject ||
+		!servicePrincipalSnapshot.Exists() || !servicePrincipalSnapshot.Active() || servicePrincipalSnapshot.AuthzVersion() != 5 {
+		t.Fatalf("unexpected PostgreSQL service principal state: %+v", servicePrincipalSnapshot)
+	}
+	if got, want := servicePrincipalSnapshot.RoleVersions(), map[int64]int64{activeRoleID: 1}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("active PostgreSQL service principal roles = %v, want %v", got, want)
+	}
+	if got, want := servicePrincipalSnapshot.Capabilities(), []authz.Capability{authz.CapabilityAccountCreate}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("active PostgreSQL service principal capabilities = %v, want %v", got, want)
+	}
+	assertFullyEnabledPolicyConfiguration(t, servicePrincipalSnapshot.Configuration())
+	missingServicePrincipalSnapshot, err := store.LoadServicePrincipalSubjectSnapshotByCode(ctx, "authz_policy_missing")
+	if !errors.Is(err, authz.ErrSubjectNotFound) || errors.Is(err, sql.ErrNoRows) || missingServicePrincipalSnapshot.Valid() {
+		t.Fatalf("missing PostgreSQL service principal result: snapshot=%+v err=%v", missingServicePrincipalSnapshot, err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE service_principals
+		SET status = 'disabled'
+		WHERE id = $1
+	`, servicePrincipalID); err != nil {
+		t.Fatalf("disable service principal: %v", err)
+	}
+	servicePrincipalSnapshot, err = store.LoadServicePrincipalSubjectSnapshotByCode(ctx, "authz_policy_worker")
+	if err != nil {
+		t.Fatalf("load disabled PostgreSQL service principal snapshot by code: %v", err)
+	}
+	if !servicePrincipalSnapshot.Valid() || !servicePrincipalSnapshot.Exists() || servicePrincipalSnapshot.Active() {
+		t.Fatalf("unexpected disabled PostgreSQL service principal state: %+v", servicePrincipalSnapshot)
+	}
 
 	resourceSnapshot, err := store.LoadResourceAccessSnapshot(ctx, subject, resource)
 	if err != nil {

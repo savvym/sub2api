@@ -80,6 +80,22 @@ func (r *inMemoryIdempotencyRepo) GetByScopeAndKeyHash(_ context.Context, scope,
 	return cloneRecord(r.data[r.key(scope, keyHash)]), nil
 }
 
+func (r *inMemoryIdempotencyRepo) ExtendExpiration(_ context.Context, id int64, requestFingerprint string, newExpiresAt time.Time) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, rec := range r.data {
+		if rec.ID != id || rec.RequestFingerprint != requestFingerprint {
+			continue
+		}
+		if newExpiresAt.After(rec.ExpiresAt) {
+			rec.ExpiresAt = newExpiresAt
+		}
+		rec.UpdatedAt = time.Now()
+		return true, nil
+	}
+	return false, nil
+}
+
 func (r *inMemoryIdempotencyRepo) TryReclaim(_ context.Context, id int64, fromStatus string, now, newLockedUntil, newExpiresAt time.Time) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -94,8 +110,12 @@ func (r *inMemoryIdempotencyRepo) TryReclaim(_ context.Context, id int64, fromSt
 			return false, nil
 		}
 		rec.Status = IdempotencyStatusProcessing
-		rec.LockedUntil = &newLockedUntil
-		rec.ExpiresAt = newExpiresAt
+		if rec.LockedUntil == nil || newLockedUntil.After(*rec.LockedUntil) {
+			rec.LockedUntil = &newLockedUntil
+		}
+		if newExpiresAt.After(rec.ExpiresAt) {
+			rec.ExpiresAt = newExpiresAt
+		}
 		rec.ErrorReason = nil
 		rec.UpdatedAt = time.Now()
 		return true, nil
@@ -257,7 +277,8 @@ func TestIdempotencyCoordinator_ReclaimExpiredSucceededRecord(t *testing.T) {
 
 	keyHash := HashIdempotencyKey(opts.IdempotencyKey)
 	repo.mu.Lock()
-	existing := repo.data[repo.key(opts.Scope, keyHash)]
+	persistedScope := BuildActorQualifiedIdempotencyScope(opts.Scope, opts.ActorScope)
+	existing := repo.data[repo.key(persistedScope, keyHash)]
 	require.NotNil(t, existing)
 	existing.ExpiresAt = time.Now().Add(-time.Second)
 	repo.mu.Unlock()
@@ -407,6 +428,9 @@ func (failingIdempotencyRepo) CreateProcessing(context.Context, *IdempotencyReco
 func (failingIdempotencyRepo) GetByScopeAndKeyHash(context.Context, string, string) (*IdempotencyRecord, error) {
 	return nil, errors.New("store unavailable")
 }
+func (failingIdempotencyRepo) ExtendExpiration(context.Context, int64, string, time.Time) (bool, error) {
+	return false, errors.New("store unavailable")
+}
 func (failingIdempotencyRepo) TryReclaim(context.Context, int64, string, time.Time, time.Time, time.Time) (bool, error) {
 	return false, errors.New("store unavailable")
 }
@@ -480,7 +504,11 @@ func TestIdempotencyCoordinator_TruncatedStoredResponseRemainsUTF8(t *testing.T)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	stored, err := repo.GetByScopeAndKeyHash(context.Background(), opts.Scope, HashIdempotencyKey(opts.IdempotencyKey))
+	stored, err := repo.GetByScopeAndKeyHash(
+		context.Background(),
+		BuildActorQualifiedIdempotencyScope(opts.Scope, opts.ActorScope),
+		HashIdempotencyKey(opts.IdempotencyKey),
+	)
 	require.NoError(t, err)
 	require.NotNil(t, stored)
 	require.NotNil(t, stored.ResponseBody)
@@ -538,6 +566,450 @@ func TestNormalizeIdempotencyKeyAndFingerprint(t *testing.T) {
 	require.Equal(t, infraerrors.Code(ErrIdempotencyInvalidPayload), infraerrors.Code(err))
 }
 
+func TestIdempotencyCoordinator_RejectsInvalidScopeBeforeRepository(t *testing.T) {
+	coordinator := NewIdempotencyCoordinator(nil, DefaultIdempotencyConfig())
+	tests := map[string]IdempotencyExecuteOptions{
+		"nul": {
+			Scope: "admin.accounts\x00create",
+		},
+		"control character": {
+			Scope: "admin.accounts\ncreate",
+		},
+		"raw scope too long": {
+			Scope: strings.Repeat("界", MaxIdempotencyScopeCharacters+1),
+		},
+		"qualified scope too long": {
+			Scope:      strings.Repeat("s", MaxIdempotencyScopeCharacters-5),
+			ActorScope: "user:42",
+		},
+	}
+
+	for name, opts := range tests {
+		t.Run(name, func(t *testing.T) {
+			opts.IdempotencyKey = "scope-validation"
+			called := false
+			_, err := coordinator.Execute(context.Background(), opts, func(context.Context) (any, error) {
+				called = true
+				return nil, nil
+			})
+			require.Error(t, err)
+			require.Equal(t, infraerrors.Code(ErrIdempotencyScopeInvalid), infraerrors.Code(err))
+			require.False(t, called)
+		})
+	}
+}
+
+func TestIdempotencyCoordinator_PartitionsPersistedScopeByActor(t *testing.T) {
+	repo := newInMemoryIdempotencyRepo()
+	coordinator := NewIdempotencyCoordinator(repo, DefaultIdempotencyConfig())
+	base := IdempotencyExecuteOptions{
+		Scope:          "admin.accounts.create",
+		Method:         "POST",
+		Route:          "/api/v1/admin/accounts",
+		IdempotencyKey: "same-key",
+		Payload:        map[string]any{"name": "isolated"},
+	}
+
+	executions := map[string]int{}
+	for _, actorScope := range []string{"user:42", "service_principal:42"} {
+		opts := base
+		opts.ActorScope = actorScope
+		result, err := coordinator.Execute(context.Background(), opts, func(context.Context) (any, error) {
+			executions[actorScope]++
+			return map[string]any{"actor": actorScope}, nil
+		})
+		require.NoError(t, err)
+		require.False(t, result.Replayed)
+
+		replayed, err := coordinator.Execute(context.Background(), opts, func(context.Context) (any, error) {
+			executions[actorScope]++
+			return nil, nil
+		})
+		require.NoError(t, err)
+		require.True(t, replayed.Replayed)
+		require.Equal(t, 1, executions[actorScope])
+
+		stored, err := repo.GetByScopeAndKeyHash(
+			context.Background(),
+			BuildActorQualifiedIdempotencyScope(base.Scope, actorScope),
+			HashIdempotencyKey(base.IdempotencyKey),
+		)
+		require.NoError(t, err)
+		require.NotNil(t, stored)
+		wantFingerprint, err := BuildIdempotencyFingerprint(base.Method, base.Route, actorScope, base.Payload)
+		require.NoError(t, err)
+		require.Equal(t, wantFingerprint, stored.RequestFingerprint, "qualified records must persist the canonical actor fingerprint")
+	}
+
+	legacy, err := repo.GetByScopeAndKeyHash(context.Background(), base.Scope, HashIdempotencyKey(base.IdempotencyKey))
+	require.NoError(t, err)
+	require.NotNil(t, legacy)
+	require.Equal(t, idempotencyUpgradeFenceFingerprint, legacy.RequestFingerprint)
+	require.Equal(t, IdempotencyStatusProcessing, legacy.Status)
+}
+
+func TestIdempotencyCoordinator_LegacyRawScopeRequiresExactFingerprint(t *testing.T) {
+	base := IdempotencyExecuteOptions{
+		Scope:          "admin.groups.duplicate",
+		Method:         "POST",
+		Route:          "/api/v1/admin/groups/:id/duplicate",
+		ActorScope:     "user:7",
+		IdempotencyKey: "legacy-key",
+		Payload:        map[string]any{"group_id": 9},
+	}
+	keyHash := HashIdempotencyKey(base.IdempotencyKey)
+
+	t.Run("matching legacy record replays", func(t *testing.T) {
+		repo := newInMemoryIdempotencyRepo()
+		fingerprint, err := BuildIdempotencyFingerprint(base.Method, base.Route, base.ActorScope, base.Payload)
+		require.NoError(t, err)
+		body := `{"legacy":true}`
+		status := 200
+		repo.data[repo.key(base.Scope, keyHash)] = &IdempotencyRecord{
+			ID:                 1,
+			Scope:              base.Scope,
+			IdempotencyKeyHash: keyHash,
+			RequestFingerprint: fingerprint,
+			Status:             IdempotencyStatusSucceeded,
+			ResponseStatus:     &status,
+			ResponseBody:       &body,
+			ExpiresAt:          time.Now().Add(time.Hour),
+		}
+
+		executed := 0
+		result, err := NewIdempotencyCoordinator(repo, DefaultIdempotencyConfig()).Execute(
+			context.Background(),
+			base,
+			func(context.Context) (any, error) {
+				executed++
+				return nil, nil
+			},
+		)
+		require.NoError(t, err)
+		require.True(t, result.Replayed)
+		require.Zero(t, executed)
+		qualified, err := repo.GetByScopeAndKeyHash(
+			context.Background(),
+			BuildActorQualifiedIdempotencyScope(base.Scope, base.ActorScope),
+			keyHash,
+		)
+		require.NoError(t, err)
+		require.Nil(t, qualified, "legacy replay must not create a second record")
+	})
+
+	t.Run("mismatched legacy actor fails closed", func(t *testing.T) {
+		repo := newInMemoryIdempotencyRepo()
+		otherFingerprint, err := BuildIdempotencyFingerprint(base.Method, base.Route, "user:8", base.Payload)
+		require.NoError(t, err)
+		repo.data[repo.key(base.Scope, keyHash)] = &IdempotencyRecord{
+			ID:                 1,
+			Scope:              base.Scope,
+			IdempotencyKeyHash: keyHash,
+			RequestFingerprint: otherFingerprint,
+			Status:             IdempotencyStatusProcessing,
+			ExpiresAt:          time.Now().Add(time.Hour),
+		}
+
+		executed := 0
+		result, err := NewIdempotencyCoordinator(repo, DefaultIdempotencyConfig()).Execute(
+			context.Background(),
+			base,
+			func(context.Context) (any, error) {
+				executed++
+				return map[string]any{"ok": true}, nil
+			},
+		)
+		require.ErrorIs(t, err, ErrIdempotencyKeyConflict)
+		require.Nil(t, result)
+		require.Zero(t, executed)
+		qualified, err := repo.GetByScopeAndKeyHash(
+			context.Background(),
+			BuildActorQualifiedIdempotencyScope(base.Scope, base.ActorScope),
+			keyHash,
+		)
+		require.NoError(t, err)
+		require.Nil(t, qualified)
+	})
+}
+
+func TestIdempotencyCoordinator_LegacyRequestsRequireExactActorPayloadPair(t *testing.T) {
+	base := IdempotencyExecuteOptions{
+		Scope:          "admin.system.update",
+		Method:         "POST",
+		Route:          "/api/v1/admin/system/update",
+		ActorScope:     "service_principal:7",
+		IdempotencyKey: "legacy-pair",
+		Payload:        map[string]any{"operation_id": "canonical-operation"},
+		LegacyRequests: []IdempotencyLegacyRequest{{
+			ActorScope: "admin:1",
+			Payload:    map[string]any{"operation_id": "legacy-operation"},
+		}},
+	}
+	keyHash := HashIdempotencyKey(base.IdempotencyKey)
+
+	for _, testCase := range []struct {
+		name         string
+		payload      any
+		wantReplay   bool
+		wantConflict bool
+	}{
+		{name: "explicit legacy pair replays", payload: map[string]any{"operation_id": "legacy-operation"}, wantReplay: true},
+		{name: "legacy actor with canonical payload is rejected", payload: base.Payload, wantConflict: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := newInMemoryIdempotencyRepo()
+			fingerprint, err := BuildIdempotencyFingerprint(base.Method, base.Route, "admin:1", testCase.payload)
+			require.NoError(t, err)
+			body := `{"legacy":true}`
+			status := 200
+			repo.data[repo.key(base.Scope, keyHash)] = &IdempotencyRecord{
+				ID:                 1,
+				Scope:              base.Scope,
+				IdempotencyKeyHash: keyHash,
+				RequestFingerprint: fingerprint,
+				Status:             IdempotencyStatusSucceeded,
+				ResponseStatus:     &status,
+				ResponseBody:       &body,
+				ExpiresAt:          time.Now().Add(time.Hour),
+			}
+
+			executed := 0
+			result, err := NewIdempotencyCoordinator(repo, DefaultIdempotencyConfig()).Execute(
+				context.Background(),
+				base,
+				func(context.Context) (any, error) {
+					executed++
+					return nil, nil
+				},
+			)
+			if testCase.wantConflict {
+				require.ErrorIs(t, err, ErrIdempotencyKeyConflict)
+				require.Nil(t, result)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, testCase.wantReplay, result.Replayed)
+			}
+			require.Zero(t, executed)
+		})
+	}
+}
+
+func TestIdempotencyCoordinator_QualifiedLegacyRequestIsNotAcceptedInRawScope(t *testing.T) {
+	legacyPayload := map[string]any{"operation_id": "legacy-admin-operation"}
+	base := IdempotencyExecuteOptions{
+		Scope:          "admin.system.update",
+		Method:         "POST",
+		Route:          "/api/v1/admin/system/update",
+		ActorScope:     "service_principal:7",
+		IdempotencyKey: "qualified-legacy-pair",
+		Payload:        map[string]any{"operation_id": "canonical-principal-operation"},
+		LegacyRequests: []IdempotencyLegacyRequest{{
+			ActorScope: "admin:1",
+			Payload:    legacyPayload,
+		}},
+		QualifiedLegacyRequests: []IdempotencyLegacyRequest{{
+			ActorScope: "service_principal:7",
+			Payload:    legacyPayload,
+		}},
+	}
+	keyHash := HashIdempotencyKey(base.IdempotencyKey)
+	legacyFingerprint, err := BuildIdempotencyFingerprint(base.Method, base.Route, base.ActorScope, legacyPayload)
+	require.NoError(t, err)
+	body := `{"legacy":true}`
+	status := 200
+
+	for _, testCase := range []struct {
+		name              string
+		scope             string
+		actorScope        string
+		wantReplay        bool
+		assertNoQualified bool
+	}{
+		{
+			name:       "qualified historical record replays",
+			scope:      BuildActorQualifiedIdempotencyScope(base.Scope, base.ActorScope),
+			actorScope: base.ActorScope,
+			wantReplay: true,
+		},
+		{
+			name:              "same fingerprint in raw scope conflicts",
+			scope:             base.Scope,
+			actorScope:        base.ActorScope,
+			assertNoQualified: true,
+		},
+		{
+			name:       "missing actor never turns raw scope into qualified scope",
+			scope:      base.Scope,
+			actorScope: "",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := newInMemoryIdempotencyRepo()
+			repo.data[repo.key(testCase.scope, keyHash)] = &IdempotencyRecord{
+				ID:                 1,
+				Scope:              testCase.scope,
+				IdempotencyKeyHash: keyHash,
+				RequestFingerprint: legacyFingerprint,
+				Status:             IdempotencyStatusSucceeded,
+				ResponseStatus:     &status,
+				ResponseBody:       &body,
+				ExpiresAt:          time.Now().Add(time.Hour),
+			}
+
+			executed := 0
+			opts := base
+			opts.ActorScope = testCase.actorScope
+			result, executeErr := NewIdempotencyCoordinator(repo, DefaultIdempotencyConfig()).Execute(
+				context.Background(),
+				opts,
+				func(context.Context) (any, error) {
+					executed++
+					return nil, nil
+				},
+			)
+			if testCase.wantReplay {
+				require.NoError(t, executeErr)
+				require.NotNil(t, result)
+				require.True(t, result.Replayed)
+			} else {
+				require.ErrorIs(t, executeErr, ErrIdempotencyKeyConflict)
+				require.Nil(t, result)
+				if testCase.assertNoQualified {
+					qualified, getErr := repo.GetByScopeAndKeyHash(
+						context.Background(),
+						BuildActorQualifiedIdempotencyScope(base.Scope, base.ActorScope),
+						keyHash,
+					)
+					require.NoError(t, getErr)
+					require.Nil(t, qualified)
+				}
+			}
+			require.Zero(t, executed)
+		})
+	}
+}
+
+type failedFenceExtensionRepo struct {
+	*inMemoryIdempotencyRepo
+	extendErr error
+}
+
+func (r *failedFenceExtensionRepo) ExtendExpiration(context.Context, int64, string, time.Time) (bool, error) {
+	return false, r.extendErr
+}
+
+func TestIdempotencyCoordinator_RenewsUpgradeFenceBeforeQualifiedClaim(t *testing.T) {
+	repo := newInMemoryIdempotencyRepo()
+	coordinator := NewIdempotencyCoordinator(repo, DefaultIdempotencyConfig())
+	base := IdempotencyExecuteOptions{
+		Scope:          "admin.accounts.create",
+		Method:         "POST",
+		Route:          "/api/v1/admin/accounts",
+		ActorScope:     "user:1",
+		IdempotencyKey: "upgrade-fence-renewal",
+		Payload:        map[string]any{"name": "first"},
+		TTL:            time.Hour,
+	}
+
+	_, err := coordinator.Execute(context.Background(), base, func(context.Context) (any, error) {
+		return map[string]any{"ok": true}, nil
+	})
+	require.NoError(t, err)
+
+	keyHash := HashIdempotencyKey(base.IdempotencyKey)
+	repo.mu.Lock()
+	raw := repo.data[repo.key(base.Scope, keyHash)]
+	require.NotNil(t, raw)
+	raw.ExpiresAt = time.Now().Add(-time.Minute)
+	repo.mu.Unlock()
+
+	second := base
+	second.ActorScope = "user:2"
+	second.Payload = map[string]any{"name": "second"}
+	executed := 0
+	_, err = coordinator.Execute(context.Background(), second, func(context.Context) (any, error) {
+		executed++
+		return map[string]any{"ok": true}, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, executed)
+
+	renewed, err := repo.GetByScopeAndKeyHash(context.Background(), base.Scope, keyHash)
+	require.NoError(t, err)
+	require.NotNil(t, renewed)
+	require.True(t, renewed.ExpiresAt.After(time.Now().Add(50*time.Minute)))
+	deleted, err := repo.DeleteExpired(context.Background(), time.Now(), 100)
+	require.NoError(t, err)
+	require.Zero(t, deleted, "cleanup must not delete a renewed upgrade fence")
+
+	oldBinaryClaim := &IdempotencyRecord{
+		Scope:              base.Scope,
+		IdempotencyKeyHash: keyHash,
+		RequestFingerprint: "old-binary-request",
+		Status:             IdempotencyStatusProcessing,
+		ExpiresAt:          time.Now().Add(time.Hour),
+	}
+	owner, err := repo.CreateProcessing(context.Background(), oldBinaryClaim)
+	require.NoError(t, err)
+	require.False(t, owner, "a renewed raw fence must continue blocking old binaries")
+}
+
+func TestIdempotencyCoordinator_FailsClosedWhenUpgradeFenceCannotBeRenewed(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		err  error
+	}{
+		{name: "condition update missed"},
+		{name: "store error", err: errors.New("extend failed")},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			baseRepo := newInMemoryIdempotencyRepo()
+			repo := &failedFenceExtensionRepo{inMemoryIdempotencyRepo: baseRepo, extendErr: testCase.err}
+			coordinator := NewIdempotencyCoordinator(repo, DefaultIdempotencyConfig())
+			opts := IdempotencyExecuteOptions{
+				Scope:          "admin.groups.create",
+				Method:         "POST",
+				Route:          "/api/v1/admin/groups",
+				ActorScope:     "user:1",
+				IdempotencyKey: "fence-extension-failure",
+				Payload:        map[string]any{"name": "group"},
+			}
+			_, err := coordinator.Execute(context.Background(), opts, func(context.Context) (any, error) {
+				return map[string]any{"ok": true}, nil
+			})
+			require.NoError(t, err)
+
+			opts.ActorScope = "user:2"
+			executed := 0
+			result, err := coordinator.Execute(context.Background(), opts, func(context.Context) (any, error) {
+				executed++
+				return nil, nil
+			})
+			require.Error(t, err)
+			require.Equal(t, infraerrors.Code(ErrIdempotencyStoreUnavail), infraerrors.Code(err))
+			require.Nil(t, result)
+			require.Zero(t, executed)
+		})
+	}
+}
+
+func TestDuplicateOperationIDsNeverUseSharedMissingActorBucket(t *testing.T) {
+	for name, build := range map[string]func(int64, string, string) string{
+		"account": duplicateAccountOperationID,
+		"group":   duplicateGroupOperationID,
+		"monitor": duplicateChannelMonitorOperationID,
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Empty(t, build(9, "", "same-key"))
+			userID := build(9, "user:42", "same-key")
+			principalID := build(9, "service_principal:42", "same-key")
+			require.NotEmpty(t, userID)
+			require.NotEmpty(t, principalID)
+			require.NotEqual(t, userID, principalID)
+		})
+	}
+}
+
 func TestRetryAfterSecondsFromErrorBranches(t *testing.T) {
 	require.Equal(t, 0, RetryAfterSecondsFromError(nil))
 	require.Equal(t, 0, RetryAfterSecondsFromError(errors.New("plain")))
@@ -583,6 +1055,9 @@ func (noIDOwnerRepo) CreateProcessing(context.Context, *IdempotencyRecord) (bool
 }
 func (noIDOwnerRepo) GetByScopeAndKeyHash(context.Context, string, string) (*IdempotencyRecord, error) {
 	return nil, nil
+}
+func (noIDOwnerRepo) ExtendExpiration(context.Context, int64, string, time.Time) (bool, error) {
+	return false, nil
 }
 func (noIDOwnerRepo) TryReclaim(context.Context, int64, string, time.Time, time.Time, time.Time) (bool, error) {
 	return false, nil
@@ -643,6 +1118,9 @@ func (r *conflictBranchRepo) CreateProcessing(context.Context, *IdempotencyRecor
 }
 func (r *conflictBranchRepo) GetByScopeAndKeyHash(context.Context, string, string) (*IdempotencyRecord, error) {
 	return cloneRecord(r.existing), nil
+}
+func (r *conflictBranchRepo) ExtendExpiration(context.Context, int64, string, time.Time) (bool, error) {
+	return true, nil
 }
 func (r *conflictBranchRepo) TryReclaim(context.Context, int64, string, time.Time, time.Time, time.Time) (bool, error) {
 	if r.tryReclaimErr != nil {
@@ -818,6 +1296,93 @@ func TestIdempotencyCoordinator_MarkAndMarshalBranches(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Equal(t, "plain failure", err.Error())
+}
+
+type contextValidatingFinalizationRepo struct {
+	*inMemoryIdempotencyRepo
+	markSucceededContextErr error
+	markSucceededDeadline   bool
+	markFailedContextErr    error
+	markFailedDeadline      bool
+}
+
+func (r *contextValidatingFinalizationRepo) MarkSucceeded(
+	ctx context.Context,
+	id int64,
+	responseStatus int,
+	responseBody string,
+	expiresAt time.Time,
+) error {
+	r.markSucceededContextErr = ctx.Err()
+	_, r.markSucceededDeadline = ctx.Deadline()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return r.inMemoryIdempotencyRepo.MarkSucceeded(ctx, id, responseStatus, responseBody, expiresAt)
+}
+
+func (r *contextValidatingFinalizationRepo) MarkFailedRetryable(
+	ctx context.Context,
+	id int64,
+	errorReason string,
+	lockedUntil time.Time,
+	expiresAt time.Time,
+) error {
+	r.markFailedContextErr = ctx.Err()
+	_, r.markFailedDeadline = ctx.Deadline()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return r.inMemoryIdempotencyRepo.MarkFailedRetryable(ctx, id, errorReason, lockedUntil, expiresAt)
+}
+
+func TestIdempotencyCoordinator_FinalizesAfterRequestCancellation(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		repo := &contextValidatingFinalizationRepo{inMemoryIdempotencyRepo: newInMemoryIdempotencyRepo()}
+		coordinator := NewIdempotencyCoordinator(repo, DefaultIdempotencyConfig())
+		requestCtx, cancelRequest := context.WithCancel(context.Background())
+
+		result, err := coordinator.Execute(requestCtx, IdempotencyExecuteOptions{
+			Scope:          "admin.system.update",
+			IdempotencyKey: "disconnect-success",
+			Method:         "POST",
+			Route:          "/api/v1/admin/system/update",
+			ActorScope:     "user:1",
+			Payload:        map[string]any{"operation_id": "sysop-success"},
+		}, func(context.Context) (any, error) {
+			cancelRequest()
+			return map[string]any{"ok": true}, nil
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.NoError(t, repo.markSucceededContextErr)
+		require.True(t, repo.markSucceededDeadline)
+	})
+
+	t.Run("retryable failure", func(t *testing.T) {
+		repo := &contextValidatingFinalizationRepo{inMemoryIdempotencyRepo: newInMemoryIdempotencyRepo()}
+		coordinator := NewIdempotencyCoordinator(repo, DefaultIdempotencyConfig())
+		requestCtx, cancelRequest := context.WithCancel(context.Background())
+		executionErr := errors.New("detached operation failed")
+
+		result, err := coordinator.Execute(requestCtx, IdempotencyExecuteOptions{
+			Scope:          "admin.system.rollback",
+			IdempotencyKey: "disconnect-failure",
+			Method:         "POST",
+			Route:          "/api/v1/admin/system/rollback",
+			ActorScope:     "user:1",
+			Payload:        map[string]any{"operation_id": "sysop-failure"},
+		}, func(context.Context) (any, error) {
+			cancelRequest()
+			return nil, executionErr
+		})
+
+		require.ErrorIs(t, err, executionErr)
+		require.Nil(t, result)
+		require.NoError(t, repo.markFailedContextErr)
+		require.True(t, repo.markFailedDeadline)
+	})
 }
 
 func TestIdempotencyCoordinator_HelperBranches(t *testing.T) {

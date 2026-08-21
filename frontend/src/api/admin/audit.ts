@@ -14,6 +14,9 @@ export interface AuditLog {
   id: number
   created_at: string
   actor_user_id?: number
+  actor_service_principal_id?: number
+  actor_service_principal_code?: string
+  actor_service_principal_name?: string
   actor_email: string
   actor_role: string
   auth_method: string
@@ -36,6 +39,7 @@ export interface AuditLogQuery {
   start_time?: string
   end_time?: string
   actor_user_id?: number
+  actor_service_principal_id?: number
   actor_email?: string
   auth_method?: string
   action?: string

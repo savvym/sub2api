@@ -308,3 +308,44 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 ### 剩余外部验证
 
 - Docker/Testcontainers repository integration suite 仍待 CI 或有 Docker 的机器执行；本机没有 Docker。
+
+## 2026-08-21 - Trusted Runtime Actor Integration（1.8）
+
+### 实现范围
+
+- PostgreSQL `ActorResolverStore` 以单条 SQL 按固定 code 解析 Service Principal 的状态、授权版本、有效角色、能力和当前配置；生产 Wire 为 JWT、Optional JWT、管理员 JWT/WebSocket 与 Admin API Key 注入同一个可信 Resolver。
+- 普通/管理员 JWT 从数据库最新快照生成 User Actor；管理员校验不再信任先前加载的 legacy role。Admin API Key 只允许解析固定 `admin_api_key` code，并生成独立 Service Principal Actor；首管理员 `AuthSubject` 仅为尚未迁移的旧 Handler 提供兼容字段。
+- `admin_api_key` 不拥有 RBAC 角色。migration 234 清理升级前同 code 碰撞留下的 `service_principal_roles`，但不修改已有主体状态；Resolver 遇到该主体带角色或能力时继续返回 authorization unavailable。RBAC transition 仍硬拒绝。
+- `audit_logs` 新增 `actor_service_principal_id`、User/SP at-most-one 约束、Service Principal restrict FK 和两个并发部分索引。写入、COPY、列表、详情、搜索/筛选与前端展示均支持机器主体；Actor 存在时审计不再接受首管理员 shim 覆写机器身份。
+- `audit_logs.actor_user_id` 保留既有无 FK 行为，以兼容历史记录和用户生命周期；用户 email/role 继续作为写入时快照保存。Service Principal 显示名/code 由受 restrict FK 保护的主体表读取。
+- 新幂等业务记录使用 `<operation-scope>|user:<id>` 或 `<operation-scope>|service_principal:<id>`；raw scope 仅作为升级 fence 或升级前记录存在。兼容回放/回收必须匹配 method、route、payload 和当前/旧 actor scope 的完整 fingerprint，升级 fence 使旧、新实例不能同时取得副作用所有权。
+- 兼容 fingerprint 明确区分 raw 历史记录与 Actor-qualified 历史记录：raw 只接受明确列出的 current/legacy actor-payload 组合；qualified 额外接受已发布版本写入的 canonical actor + legacy system payload，不能把该 qualified-only 组合放宽到 raw scope。migration 236 使过期清理在 DELETE 时重新校验 `expires_at`，避免并发续期后的升级 fence 被旧清理快照删除。
+- 幂等成功/失败终态使用保留 request values、移除 request cancellation 的 5 秒有界 context 写回；system update/rollback 在客户端断线后完成时不会把记录遗留在 `processing`。restart 仅在外层终态落库并写出响应后、且不是 replay 时安排进程退出。
+- 前端 system update/rollback/restart 使用 session-scoped 幂等 key。restart 成功或无响应/`status: 0` 的模糊结果会消费 pending key并进入重启等待；明确 HTTP 失败保留 key、停止倒计时并显示错误，避免把 409/503 误报为正在重启或在响应丢失后永久 replay 旧成功。
+- Account/Group/Channel Monitor duplicate recovery 与 system operation ID 使用同一 durable Actor scope；不再生成 `admin:0`、`user:0`。User Actor 必须与 `AuthSubject` 同 ID，Admin API Key SP 必须携带有效首管理员兼容 shim，但 shim 不参与新作用域、审计或机器主体归因。
+- 幂等 scope 在访问存储前按 PostgreSQL `VARCHAR(128)` 字符语义校验，并拒绝非法控制字符；缺 Actor、主体类型错误或 shim 不一致稳定返回 `503 AUTHORIZATION_UNAVAILABLE`。
+- 新增真实 `ActorResolver -> PolicyService -> AccessibleScope -> ResourceReadService -> scoped reader` 跨包测试，证明 Actor 快照不能伪造、Policy 使用当前快照生成 opaque scope，主体版本陈旧时 reader 不会被调用。
+- 本切片保持 dark launch：没有新增普通用户帐号/分组路由，没有开启任何 ACL/RBAC Feature Flag，没有改变现有管理员全局资源行为。
+
+### 自动化与动态验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| `make -C backend test-unit` | 通过 |
+| `make -C backend build` | 通过 |
+| 相关 authz/repository/middleware/handler/service 包 `go vet` | 通过 |
+| `npx --yes pnpm@9.15.9 --dir frontend run lint:check` | 通过 |
+| `npx --yes pnpm@9.15.9 --dir frontend run typecheck` | 通过 |
+| `npx --yes pnpm@9.15.9 --dir frontend run build` | 通过；仅有既有 chunk/dynamic import 警告 |
+| `npx --yes pnpm@9.15.9 --dir frontend run test:run` | 通过；237 个 test files、1661 个 tests |
+| 新增幂等 finalization / fingerprint / restart 顺序相关 `go test -race` | 通过 |
+| `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
+| `git diff --check` | 通过 |
+| PostgreSQL 18.6 migration 234/235/236 隔离库动态测试 | 通过；覆盖 fresh/reapply、disabled 保留、历史 admin role 清理、User/SP XOR、restrict FK、并发部分索引，以及续期与旧 cleanup snapshot 的真实锁竞态；临时数据库残留为 0 |
+| PostgreSQL 18.6 `AuthzPolicyStore` 隔离库动态测试 | 通过；覆盖单快照、严格到期边界和缺失 Service Principal fail closed |
+
+### 发布边界
+
+- raw-scope upgrade fence 会阻止旧实例与新实例对同一 key 双重执行，但混合版本期间旧实例可能收到 fingerprint conflict；生产发布应优先同版本切换或维护窗，并观察幂等 conflict/store-unavailable 指标。
+- 扩大到相关 handler/service 包的 race 命令仍会命中两处既有测试辅助代码竞态：`grok_import_probe_test.go` 与后台 slog 共用 `bytes.Buffer`，以及 `channel_monitor_checker_body_test.go` 并发写共享 capture handler；两处首因均不在 1.8 diff。新增 1.8 并发用例已单独通过 race，但不能把全量 race 记为通过。
+- Docker/Testcontainers repository integration suite 仍待 CI 或有 Docker 的机器执行；本机 PostgreSQL 隔离库验证不冒充 CI 等价门禁。

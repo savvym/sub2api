@@ -532,8 +532,9 @@ func validateMigrationExecutionMode(name, content string) (bool, error) {
 		}
 
 		if strings.Contains(normalizedStmt, "CONCURRENTLY") {
-			isCreateIndex := strings.Contains(normalizedStmt, "CREATE") && strings.Contains(normalizedStmt, "INDEX")
-			isDropIndex := strings.Contains(normalizedStmt, "DROP") && strings.Contains(normalizedStmt, "INDEX")
+			isCreateIndex := strings.HasPrefix(normalizedStmt, "CREATE INDEX ") ||
+				strings.HasPrefix(normalizedStmt, "CREATE UNIQUE INDEX ")
+			isDropIndex := strings.HasPrefix(normalizedStmt, "DROP INDEX ")
 			if !isCreateIndex && !isDropIndex {
 				return false, errors.New("*_notx.sql currently only supports CREATE/DROP INDEX CONCURRENTLY statements")
 			}

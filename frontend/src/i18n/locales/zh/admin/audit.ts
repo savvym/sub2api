@@ -8,7 +8,7 @@ export default {
     filters: {
       all: '全部',
       q: '关键字',
-      qPlaceholder: '路径 / 动作 / 操作者邮箱',
+      qPlaceholder: '路径 / 动作 / 操作者',
       actorEmail: '操作者邮箱',
       action: '动作',
       clientIp: '客户端 IP',
@@ -32,6 +32,7 @@ export default {
     detail: {
       title: '操作日志详情',
       actorRole: '角色',
+      servicePrincipal: '服务主体',
       methodPath: '方法 / 路径',
       latency: '耗时',
       requestId: '请求 ID',

@@ -181,6 +181,18 @@
                   </div>
                 </div>
 
+                <div
+                  v-if="restartError"
+                  class="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800/50 dark:bg-red-900/20"
+                >
+                  <p class="text-sm font-medium text-red-700 dark:text-red-300">
+                    {{ t('version.restartFailed') }}
+                  </p>
+                  <p class="mt-1 break-words text-xs text-red-600/70 dark:text-red-400/70">
+                    {{ restartError }}
+                  </p>
+                </div>
+
                 <!-- Restart button with countdown -->
                 <button
                   @click="handleRestart"
@@ -684,6 +696,7 @@ const needRestart = ref(false)
 const updateError = ref('')
 const updateSuccess = ref(false)
 const restartCountdown = ref(0)
+const restartError = ref('')
 // Distinguishes the success + restart panel between update and rollback flows
 const successKind = ref<'update' | 'rollback'>('update')
 
@@ -746,6 +759,7 @@ async function refreshVersion(force = true) {
   updateError.value = ''
   updateSuccess.value = false
   needRestart.value = false
+  restartError.value = ''
   resetRollbackState()
 
   await appStore.fetchVersion(force)
@@ -757,6 +771,7 @@ async function handleUpdate() {
   updating.value = true
   updateError.value = ''
   updateSuccess.value = false
+  restartError.value = ''
 
   try {
     const result = await performUpdate()
@@ -831,6 +846,7 @@ async function handleRollback() {
 
   rollingBack.value = true
   rollbackError.value = ''
+  restartError.value = ''
 
   try {
     const result = await rollbackAPI(selectedRollbackVersion.value)
@@ -852,17 +868,22 @@ async function handleRestart() {
   if (restarting.value) return
 
   restarting.value = true
-  restartCountdown.value = 8
+  restartCountdown.value = 0
+  restartError.value = ''
 
   try {
     await restartService()
-    // Service will restart, page will reload automatically or show disconnected
-  } catch (error) {
-    // Expected - connection will be lost during restart
-    console.log('Service restarting...')
+  } catch (error: unknown) {
+    const err = error as { response?: { data?: { message?: string } }; message?: string }
+    restartError.value =
+      err.response?.data?.message || err.message || t('version.restartFailed')
+    restarting.value = false
+    restartCountdown.value = 0
+    return
   }
 
   // Start countdown
+  restartCountdown.value = 8
   const countdownInterval = setInterval(() => {
     restartCountdown.value--
     if (restartCountdown.value <= 0) {

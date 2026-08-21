@@ -94,6 +94,189 @@ func (s *scopedGroupReaderStub) GetAccessibleGroup(_ context.Context, scope auth
 	return s.getItem, s.getErr
 }
 
+type resolverPolicyStoreStub struct {
+	resolverSnapshot       authz.SubjectSnapshot
+	policySnapshot         authz.SubjectSnapshot
+	subjectCalls           int
+	servicePrincipalCalls  int
+	resourceSnapshotCalls  int
+	lastRequestedSubject   authz.SubjectRef
+	lastRequestedPrincipal string
+}
+
+func (s *resolverPolicyStoreStub) LoadSubjectSnapshot(_ context.Context, subject authz.SubjectRef) (authz.SubjectSnapshot, error) {
+	s.subjectCalls++
+	s.lastRequestedSubject = subject
+	if s.subjectCalls == 1 {
+		return s.resolverSnapshot, nil
+	}
+	return s.policySnapshot, nil
+}
+
+func (s *resolverPolicyStoreStub) LoadServicePrincipalSubjectSnapshotByCode(_ context.Context, code string) (authz.SubjectSnapshot, error) {
+	s.servicePrincipalCalls++
+	s.lastRequestedPrincipal = code
+	return authz.SubjectSnapshot{}, errors.New("unexpected service principal lookup")
+}
+
+func (s *resolverPolicyStoreStub) LoadResourceAccessSnapshot(_ context.Context, _ authz.SubjectRef, _ authz.ResourceRef) (authz.ResourceAccessSnapshot, error) {
+	s.resourceSnapshotCalls++
+	return authz.ResourceAccessSnapshot{}, errors.New("unexpected resource snapshot lookup")
+}
+
+func TestResourceReadServiceUsesResolverActorAndCurrentPolicyScope(t *testing.T) {
+	const userID int64 = 42
+	subject := mustResourceReadSubject(t, authz.SubjectKindUser, userID)
+	resolverSnapshot := mustResourceReadSubjectSnapshot(t, authz.SubjectSnapshotInput{
+		Subject:      subject,
+		Exists:       true,
+		Active:       true,
+		AuthzVersion: 7,
+		RoleVersions: map[int64]int64{9: 3, 2: 1},
+		Capabilities: []authz.Capability{authz.CapabilityResourceShare},
+		Configuration: mustResourceReadPolicyConfiguration(t, authz.PolicyConfigurationInput{
+			RoleAuthorizationMode: authz.RoleAuthorizationModeLegacy,
+		}),
+	})
+	currentPolicySnapshot := mustResourceReadSubjectSnapshot(t, authz.SubjectSnapshotInput{
+		Subject:      subject,
+		Exists:       true,
+		Active:       true,
+		AuthzVersion: 7,
+		RoleVersions: map[int64]int64{9: 3, 2: 1},
+		Capabilities: []authz.Capability{authz.CapabilityResourceShare},
+		Configuration: mustResourceReadPolicyConfiguration(t, authz.PolicyConfigurationInput{
+			RoleAuthorizationMode:          authz.RoleAuthorizationModeRBAC,
+			ResourceAccessControlEnabled:   true,
+			SelfServiceHostingEnabled:      true,
+			AccountSharingEnabled:          true,
+			RoleBasedResourceGrantsEnabled: true,
+		}),
+	})
+	store := &resolverPolicyStoreStub{
+		resolverSnapshot: resolverSnapshot,
+		policySnapshot:   currentPolicySnapshot,
+	}
+	actor, err := authz.NewActorResolver(store).ResolveUser(context.Background(), userID, authz.AuthMethodJWT)
+	if err != nil {
+		t.Fatalf("resolve trusted user actor: %v", err)
+	}
+	if actor.Kind() != authz.SubjectKindUser || actor.AuthMethod() != authz.AuthMethodJWT {
+		t.Fatalf("unexpected resolved actor: %+v", actor)
+	}
+	if key, ok := actor.SubjectKey(); !ok || key != "user:42" {
+		t.Fatalf("resolved actor key = %q, %v", key, ok)
+	}
+
+	reader := &scopedAccountReaderStub{
+		listItems: []AccountListItem{{ID: 81, Name: "visible"}},
+		listResult: &pagination.PaginationResult{
+			Total: 1, Page: 1, PageSize: 20, Pages: 1,
+		},
+	}
+	readService := NewResourceReadService(authz.NewPolicyService(store), reader, nil)
+	items, result, err := readService.ListAccounts(context.Background(), actor, AccountReadQuery{
+		Platform: " openai ",
+	})
+	if err != nil {
+		t.Fatalf("list accounts through real policy: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != 81 || result == nil || result.Total != 1 {
+		t.Fatalf("unexpected reader result: items=%+v pagination=%+v", items, result)
+	}
+	if store.subjectCalls != 2 || store.servicePrincipalCalls != 0 || store.resourceSnapshotCalls != 0 || store.lastRequestedSubject != subject {
+		t.Fatalf("unexpected resolver/policy store calls: subject=%d principal=%d resource=%d last=%+v", store.subjectCalls, store.servicePrincipalCalls, store.resourceSnapshotCalls, store.lastRequestedSubject)
+	}
+	if reader.listCalls != 1 || reader.getCalls != 0 || reader.lastQuery.Platform != "openai" {
+		t.Fatalf("unexpected scoped reader calls: list=%d get=%d query=%+v", reader.listCalls, reader.getCalls, reader.lastQuery)
+	}
+	scope := reader.lastScope
+	if !scope.Valid() || scope.ResourceType() != authz.ResourceTypeAccount || scope.Action() != authz.ActionAccountView ||
+		scope.SubjectKind() != authz.SubjectKindUser || scope.SubjectID() != userID || scope.SubjectAuthzVersion() != 7 ||
+		scope.RoleMode() != authz.RoleAuthorizationModeRBAC {
+		t.Fatalf("unexpected opaque reader scope: %+v", scope)
+	}
+	if got, want := scope.RoleVersions(), map[int64]int64{2: 1, 9: 3}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("scope role versions = %v, want %v", got, want)
+	}
+	if got, want := scope.Capabilities(), []authz.Capability{authz.CapabilityResourceShare}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("scope capabilities = %v, want %v", got, want)
+	}
+	if !scope.IncludesOwner() || !scope.IncludesPublicAccess() || !scope.IncludesDirectUserGrants() || !scope.IncludesRoleGrants() {
+		t.Fatalf("current policy configuration did not reach reader scope: %+v", scope)
+	}
+}
+
+func TestResourceReadServiceRejectsStaleResolvedActorBeforeReader(t *testing.T) {
+	const userID int64 = 43
+	subject := mustResourceReadSubject(t, authz.SubjectKindUser, userID)
+	configuration := mustResourceReadPolicyConfiguration(t, authz.PolicyConfigurationInput{
+		RoleAuthorizationMode:        authz.RoleAuthorizationModeRBAC,
+		ResourceAccessControlEnabled: true,
+		SelfServiceHostingEnabled:    true,
+	})
+	store := &resolverPolicyStoreStub{
+		resolverSnapshot: mustResourceReadSubjectSnapshot(t, authz.SubjectSnapshotInput{
+			Subject:       subject,
+			Exists:        true,
+			Active:        true,
+			AuthzVersion:  7,
+			RoleVersions:  map[int64]int64{2: 1},
+			Configuration: configuration,
+		}),
+		policySnapshot: mustResourceReadSubjectSnapshot(t, authz.SubjectSnapshotInput{
+			Subject:       subject,
+			Exists:        true,
+			Active:        true,
+			AuthzVersion:  8,
+			RoleVersions:  map[int64]int64{2: 1},
+			Configuration: configuration,
+		}),
+	}
+	actor, err := authz.NewActorResolver(store).ResolveUser(context.Background(), userID, authz.AuthMethodJWT)
+	if err != nil {
+		t.Fatalf("resolve trusted user actor: %v", err)
+	}
+	reader := &scopedAccountReaderStub{listResult: &pagination.PaginationResult{}}
+	readService := NewResourceReadService(authz.NewPolicyService(store), reader, nil)
+	if _, _, err = readService.ListAccounts(context.Background(), actor, AccountReadQuery{}); !errors.Is(err, authz.ErrSessionInvalid) {
+		t.Fatalf("stale actor error = %v, want %v", err, authz.ErrSessionInvalid)
+	}
+	if store.subjectCalls != 2 || store.servicePrincipalCalls != 0 || store.resourceSnapshotCalls != 0 {
+		t.Fatalf("unexpected stale actor store calls: subject=%d principal=%d resource=%d", store.subjectCalls, store.servicePrincipalCalls, store.resourceSnapshotCalls)
+	}
+	if reader.listCalls != 0 || reader.getCalls != 0 || reader.lastScope.Valid() {
+		t.Fatalf("stale actor reached reader: list=%d get=%d scope=%+v", reader.listCalls, reader.getCalls, reader.lastScope)
+	}
+}
+
+func mustResourceReadSubject(t testing.TB, kind authz.SubjectKind, id int64) authz.SubjectRef {
+	t.Helper()
+	subject, err := authz.NewSubjectRef(kind, id)
+	if err != nil {
+		t.Fatalf("create resource read subject: %v", err)
+	}
+	return subject
+}
+
+func mustResourceReadPolicyConfiguration(t testing.TB, input authz.PolicyConfigurationInput) authz.PolicyConfiguration {
+	t.Helper()
+	configuration, err := authz.NewPolicyConfiguration(input)
+	if err != nil {
+		t.Fatalf("create resource read policy configuration: %v", err)
+	}
+	return configuration
+}
+
+func mustResourceReadSubjectSnapshot(t testing.TB, input authz.SubjectSnapshotInput) authz.SubjectSnapshot {
+	t.Helper()
+	snapshot, err := authz.NewSubjectSnapshot(input)
+	if err != nil {
+		t.Fatalf("create resource read subject snapshot: %v", err)
+	}
+	return snapshot
+}
+
 func TestResourceReadServiceListsWithExactViewScopes(t *testing.T) {
 	tests := []struct {
 		name         string
