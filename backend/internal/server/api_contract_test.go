@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	adminhandler "github.com/Wei-Shaw/sub2api/internal/handler/admin"
@@ -1429,6 +1430,18 @@ type contractDeps struct {
 	redeemRepo  *stubRedeemCodeRepo
 }
 
+type contractActorResolverStore struct {
+	snapshot authz.SubjectSnapshot
+}
+
+func (s contractActorResolverStore) LoadSubjectSnapshot(context.Context, authz.SubjectRef) (authz.SubjectSnapshot, error) {
+	return s.snapshot, nil
+}
+
+func (s contractActorResolverStore) LoadServicePrincipalSubjectSnapshotByCode(context.Context, string) (authz.SubjectSnapshot, error) {
+	return authz.SubjectSnapshot{}, errors.New("unexpected service principal lookup")
+}
+
 func newContractDeps(t *testing.T) *contractDeps {
 	t.Helper()
 
@@ -1489,12 +1502,34 @@ func newContractDeps(t *testing.T) *contractDeps {
 	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil, nil, nil)
 	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
+	subject, err := authz.NewSubjectRef(authz.SubjectKindUser, 1)
+	require.NoError(t, err)
+	policyConfiguration, err := authz.NewPolicyConfiguration(authz.PolicyConfigurationInput{
+		RoleAuthorizationMode: authz.RoleAuthorizationModeLegacy,
+	})
+	require.NoError(t, err)
+	snapshot, err := authz.NewSubjectSnapshot(authz.SubjectSnapshotInput{
+		Subject:       subject,
+		Exists:        true,
+		Active:        true,
+		AuthzVersion:  1,
+		Configuration: policyConfiguration,
+	})
+	require.NoError(t, err)
+	userActor, err := authz.NewActorResolver(contractActorResolverStore{snapshot: snapshot}).ResolveUser(
+		context.Background(),
+		1,
+		authz.AuthMethodJWT,
+	)
+	require.NoError(t, err)
+
 	jwtAuth := func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{
 			UserID:      1,
 			Concurrency: 5,
 		})
 		c.Set(string(middleware.ContextKeyUserRole), service.RoleUser)
+		c.Request = c.Request.WithContext(authz.ContextWithActor(c.Request.Context(), userActor))
 		c.Next()
 	}
 	adminAuth := func(c *gin.Context) {

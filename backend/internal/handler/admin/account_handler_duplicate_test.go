@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -97,6 +98,7 @@ func setupDuplicateAccountRouter(t *testing.T, svc service.AdminService) *gin.En
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 77)))
 	router.Use(func(c *gin.Context) {
 		c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 77})
 		c.Next()
@@ -181,7 +183,7 @@ func TestDuplicateAccountHandlerReplaysSameIdempotencyKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, second.Code)
 	require.Equal(t, 1, svc.calls)
 	require.Equal(t, int64(42), svc.accountID)
-	require.Equal(t, "admin:77", svc.actorScope)
+	require.Equal(t, "user:77", svc.actorScope)
 	require.Equal(t, "duplicate-account-42", svc.operationKey)
 	require.Equal(t, "true", second.Header().Get("X-Idempotency-Replayed"))
 }
@@ -218,7 +220,7 @@ func TestDuplicateAccountHandlerRecoversAfterMarkSucceededFailure(t *testing.T) 
 	require.Equal(t, "true", second.Header().Get("X-Idempotency-Recovered"))
 	require.Equal(t, 1, svc.calls, "ambiguous retries must not repeat the create side effect")
 	require.Equal(t, 2, svc.recoverCalls)
-	require.Equal(t, "admin:77", svc.recoverScope)
+	require.Equal(t, "user:77", svc.recoverScope)
 	require.Equal(t, "duplicate-account-42-recovery", svc.recoverKey)
 	require.Contains(t, second.Body.String(), `"id":43`)
 }
@@ -248,7 +250,7 @@ func TestDuplicateAccountHandlerPreservesIdempotencyErrorWhenRecoveryLookupFails
 	require.Contains(t, recorder.Body.String(), "IDEMPOTENCY_STORE_UNAVAILABLE")
 	require.Equal(t, 1, svc.calls)
 	require.Equal(t, 1, svc.recoverCalls)
-	require.Equal(t, "admin:77", svc.recoverScope)
+	require.Equal(t, "user:77", svc.recoverScope)
 }
 
 func TestDuplicateAccountHandlerDoesNotReexecuteWhileOriginalIsProcessing(t *testing.T) {

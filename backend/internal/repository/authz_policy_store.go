@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -20,7 +21,16 @@ type authzPolicyStore struct {
 	queryer authzPolicyQueryer
 }
 
+var (
+	_ authz.PolicyStore        = (*authzPolicyStore)(nil)
+	_ authz.ActorResolverStore = (*authzPolicyStore)(nil)
+)
+
 func NewAuthzPolicyStore(client *dbent.Client) authz.PolicyStore {
+	return &authzPolicyStore{client: client}
+}
+
+func NewAuthzActorResolverStore(client *dbent.Client) authz.ActorResolverStore {
 	return &authzPolicyStore{client: client}
 }
 
@@ -44,6 +54,37 @@ func (s *authzPolicyStore) LoadSubjectSnapshot(ctx context.Context, subject auth
 	document, err := decodeAuthzPolicyDocument(payload, false)
 	if err != nil {
 		return authz.SubjectSnapshot{}, err
+	}
+	return document.subjectSnapshot(subject)
+}
+
+func (s *authzPolicyStore) LoadServicePrincipalSubjectSnapshotByCode(ctx context.Context, code string) (authz.SubjectSnapshot, error) {
+	code = strings.TrimSpace(code)
+	if code == "" || len(code) > 64 {
+		return authz.SubjectSnapshot{}, fmt.Errorf("authz policy store: invalid service principal code")
+	}
+	queryer := s.queryerForContext(ctx)
+	if queryer == nil {
+		return authz.SubjectSnapshot{}, fmt.Errorf("authz policy store: nil database client")
+	}
+
+	payload, err := queryAuthzPolicyJSON(ctx, queryer, buildServicePrincipalSubjectSnapshotByCodeSQL(), code)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return authz.SubjectSnapshot{}, fmt.Errorf("load authz service principal subject snapshot by code: %w", authz.ErrSubjectNotFound)
+		}
+		return authz.SubjectSnapshot{}, fmt.Errorf("load authz service principal subject snapshot by code: %w", err)
+	}
+	document, err := decodeAuthzPolicyDocument(payload, false)
+	if err != nil {
+		return authz.SubjectSnapshot{}, err
+	}
+	if document.SubjectID <= 0 || !document.Subject.Exists {
+		return authz.SubjectSnapshot{}, authz.ErrInvalidPolicySnapshot
+	}
+	subject, err := authz.NewSubjectRef(authz.SubjectKindServicePrincipal, document.SubjectID)
+	if err != nil {
+		return authz.SubjectSnapshot{}, authz.ErrInvalidPolicySnapshot
 	}
 	return document.subjectSnapshot(subject)
 }
@@ -122,6 +163,7 @@ func queryAuthzPolicyJSON(ctx context.Context, queryer authzPolicyQueryer, query
 }
 
 type rawAuthzPolicyDocument struct {
+	SubjectID     int64                 `json:"subject_id,omitempty"`
 	Subject       rawAuthzSubject       `json:"subject"`
 	Configuration rawAuthzConfiguration `json:"configuration"`
 	Resource      *rawAuthzResource     `json:"resource,omitempty"`
@@ -388,6 +430,39 @@ SELECT jsonb_build_object(
 	'subject', %s,
 	'configuration', %s
 )::text`, subjectRow, activeRoles, authzPolicyConfigurationCTE, authzSubjectJSON(kind), authzConfigurationJSON)
+}
+
+func buildServicePrincipalSubjectSnapshotByCodeSQL() string {
+	return fmt.Sprintf(`WITH
+subject_row AS (
+	SELECT id, status, authz_version
+	FROM service_principals
+	WHERE code = $1
+),
+active_roles AS (
+	SELECT r.id, r.authz_version
+	FROM service_principal_roles spr
+	JOIN subject_row sr ON sr.id = spr.service_principal_id
+	JOIN roles r ON r.id = spr.role_id
+	WHERE spr.expires_at IS NULL OR spr.expires_at > CURRENT_TIMESTAMP
+),
+current_capabilities AS (
+	SELECT DISTINCT p.code
+	FROM active_roles ar
+	JOIN role_permissions rp ON rp.role_id = ar.id
+	JOIN permissions p ON p.id = rp.permission_id
+),
+policy_configuration AS (%s)
+SELECT jsonb_build_object(
+	'subject_id', (SELECT id FROM subject_row),
+	'subject', %s,
+	'configuration', %s
+)::text
+WHERE EXISTS (SELECT 1 FROM subject_row)`,
+		authzPolicyConfigurationCTE,
+		authzSubjectJSON(authz.SubjectKindServicePrincipal),
+		authzConfigurationJSON,
+	)
 }
 
 func buildResourceSnapshotSQL(kind authz.SubjectKind, resourceType authz.ResourceType) string {

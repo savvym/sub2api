@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -244,29 +245,7 @@ func NewAuditLogMiddleware(auditService *service.AuditLogService) AuditLogMiddle
 			entry.RequestID = requestID
 		}
 
-		// 操作者身份：优先取认证中间件写入的上下文，其次取 handler 覆写（登录等场景）。
-		if subject, ok := GetAuthSubjectFromContext(c); ok && subject.UserID > 0 {
-			uid := subject.UserID
-			entry.ActorUserID = &uid
-		}
-		if role, ok := GetUserRoleFromContext(c); ok {
-			entry.ActorRole = role
-		}
-		entry.ActorEmail = c.GetString(ContextKeyAuthEmail)
-		entry.AuthMethod = c.GetString("auth_method")
-		if entry.AuthMethod == "" && entry.ActorUserID != nil {
-			entry.AuthMethod = service.AuditAuthMethodJWT
-		}
-		if v, ok := c.Get(auditCtxKeyActorID); ok {
-			if id, ok := v.(int64); ok && id > 0 {
-				entry.ActorUserID = &id
-			}
-		}
-		if v, ok := c.Get(auditCtxKeyActorEmail); ok {
-			if s, ok := v.(string); ok && s != "" {
-				entry.ActorEmail = s
-			}
-		}
+		populateAuditActor(c, entry)
 
 		// 请求头凭证掩码（仅保留首尾）。
 		entry.CredentialMasked = MaskedRequestCredential(c)
@@ -295,6 +274,61 @@ func NewAuditLogMiddleware(auditService *service.AuditLogService) AuditLogMiddle
 
 		auditService.Record(entry)
 	})
+}
+
+// populateAuditActor treats the opaque authorization Actor as the only
+// trusted identity when present. Legacy Gin values remain a compatibility
+// path for unauthenticated flows such as login and for routes not yet wired to
+// ActorResolver during dark launch.
+func populateAuditActor(c *gin.Context, entry *service.AuditLog) {
+	if c == nil || entry == nil {
+		return
+	}
+	if actor, ok := authz.ActorFromContext(c.Request.Context()); ok {
+		entry.AuthMethod = string(actor.AuthMethod())
+		if userID, isUser := actor.UserID(); isUser {
+			entry.ActorUserID = &userID
+			// Email and legacy role are display snapshots only. Accept them when
+			// the compatibility subject identifies the same resolved user.
+			if subject, hasSubject := GetAuthSubjectFromContext(c); hasSubject && subject.UserID == userID {
+				entry.ActorEmail = c.GetString(ContextKeyAuthEmail)
+				entry.ActorRole, _ = GetUserRoleFromContext(c)
+			}
+			return
+		}
+		if principalID, isServicePrincipal := actor.ServicePrincipalID(); isServicePrincipal {
+			entry.ActorServicePrincipalID = &principalID
+			// Do not copy the legacy first-admin compatibility identity into a
+			// machine-authenticated audit record.
+			entry.ActorEmail = ""
+			entry.ActorRole = ""
+			return
+		}
+		return
+	}
+
+	if subject, ok := GetAuthSubjectFromContext(c); ok && subject.UserID > 0 {
+		uid := subject.UserID
+		entry.ActorUserID = &uid
+	}
+	if role, ok := GetUserRoleFromContext(c); ok {
+		entry.ActorRole = role
+	}
+	entry.ActorEmail = c.GetString(ContextKeyAuthEmail)
+	entry.AuthMethod = c.GetString("auth_method")
+	if entry.AuthMethod == "" && entry.ActorUserID != nil {
+		entry.AuthMethod = service.AuditAuthMethodJWT
+	}
+	if v, ok := c.Get(auditCtxKeyActorID); ok {
+		if id, ok := v.(int64); ok && id > 0 {
+			entry.ActorUserID = &id
+		}
+	}
+	if v, ok := c.Get(auditCtxKeyActorEmail); ok {
+		if s, ok := v.(string); ok && s != "" {
+			entry.ActorEmail = s
+		}
+	}
 }
 
 // restoredBody 把审计中间件按上限读出的前缀与未读完的原始 body 拼接回填，

@@ -194,7 +194,7 @@ func duplicateAccountOperationID(sourceID int64, actorScope, operationKey string
 	}
 	actorScope = strings.TrimSpace(actorScope)
 	if actorScope == "" {
-		actorScope = "admin:0"
+		return ""
 	}
 	payload := "admin.accounts.duplicate\x00" + actorScope + "\x00" + strconv.FormatInt(sourceID, 10) + "\x00" + operationKey
 	digest := sha256.Sum256([]byte(payload))
@@ -220,7 +220,18 @@ func (s *adminServiceImpl) findDuplicateByOperationID(ctx context.Context, opera
 // It is used when the idempotency coordinator cannot confirm whether response persistence
 // succeeded, and deliberately never repeats the create side effect.
 func (s *adminServiceImpl) RecoverDuplicateAccount(ctx context.Context, id int64, actorScope, operationKey string) (*Account, error) {
-	return s.findDuplicateByOperationID(ctx, duplicateAccountOperationID(id, actorScope, operationKey))
+	operationID := duplicateAccountOperationID(id, actorScope, operationKey)
+	if strings.TrimSpace(operationKey) != "" && operationID == "" {
+		return nil, ErrIdempotencyActorUnavailable
+	}
+	for _, candidateScope := range idempotencyActorScopeCandidates(ctx, actorScope) {
+		candidateOperationID := duplicateAccountOperationID(id, candidateScope, operationKey)
+		account, err := s.findDuplicateByOperationID(ctx, candidateOperationID)
+		if err != nil || account != nil {
+			return account, err
+		}
+	}
+	return nil, nil
 }
 
 func cloneAccountValuePointer[T any](value *T) *T {

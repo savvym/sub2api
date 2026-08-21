@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -52,7 +53,8 @@ func (r *recordingActivityToucher) TouchLastActiveForUser(_ context.Context, use
 
 // newJWTTestEnv 创建 JWT 认证中间件测试环境。
 // 返回 gin.Engine（已注册 JWT 中间件）和 AuthService（用于生成 Token）。
-func newJWTTestEnv(users map[int64]*service.User) (*gin.Engine, *service.AuthService) {
+func newJWTTestEnv(t testing.TB, users map[int64]*service.User) (*gin.Engine, *service.AuthService, *middlewareActorResolverStore) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 
 	cfg := &config.Config{}
@@ -62,19 +64,25 @@ func newJWTTestEnv(users map[int64]*service.User) (*gin.Engine, *service.AuthSer
 	userRepo := &stubJWTUserRepo{users: users}
 	authSvc := service.NewAuthService(nil, userRepo, nil, nil, cfg, nil, nil, nil, nil, nil, nil, nil, nil)
 	userSvc := service.NewUserService(userRepo, nil, nil, nil)
-	mw := NewJWTAuthMiddleware(authSvc, userSvc, nil, nil)
+	actorResolver, actorStore := newMiddlewareActorResolver(t, users)
+	mw := NewJWTAuthMiddleware(authSvc, userSvc, nil, nil, actorResolver)
 
 	r := gin.New()
 	r.Use(gin.HandlerFunc(mw))
 	r.GET("/protected", func(c *gin.Context) {
 		subject, _ := GetAuthSubjectFromContext(c)
 		role, _ := GetUserRoleFromContext(c)
+		actor, hasActor := authz.ActorFromContext(c.Request.Context())
+		actorUserID, _ := actor.UserID()
 		c.JSON(http.StatusOK, gin.H{
-			"user_id": subject.UserID,
-			"role":    role,
+			"user_id":           subject.UserID,
+			"role":              role,
+			"has_actor":         hasActor,
+			"actor_user_id":     actorUserID,
+			"actor_auth_method": actor.AuthMethod(),
 		})
 	})
-	return r, authSvc
+	return r, authSvc, actorStore
 }
 
 func TestJWTAuth_ValidToken(t *testing.T) {
@@ -86,7 +94,7 @@ func TestJWTAuth_ValidToken(t *testing.T) {
 		Concurrency:  5,
 		TokenVersion: 1,
 	}
-	router, authSvc := newJWTTestEnv(map[int64]*service.User{1: user})
+	router, authSvc, _ := newJWTTestEnv(t, map[int64]*service.User{1: user})
 
 	token, err := authSvc.GenerateToken(context.Background(), user)
 	require.NoError(t, err)
@@ -102,6 +110,9 @@ func TestJWTAuth_ValidToken(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Equal(t, float64(1), body["user_id"])
 	require.Equal(t, "user", body["role"])
+	require.Equal(t, true, body["has_actor"])
+	require.Equal(t, float64(1), body["actor_user_id"])
+	require.Equal(t, string(authz.AuthMethodJWT), body["actor_auth_method"])
 }
 
 func TestJWTAuth_ValidToken_LowercaseBearer(t *testing.T) {
@@ -113,7 +124,7 @@ func TestJWTAuth_ValidToken_LowercaseBearer(t *testing.T) {
 		Concurrency:  5,
 		TokenVersion: 1,
 	}
-	router, authSvc := newJWTTestEnv(map[int64]*service.User{1: user})
+	router, authSvc, _ := newJWTTestEnv(t, map[int64]*service.User{1: user})
 
 	token, err := authSvc.GenerateToken(context.Background(), user)
 	require.NoError(t, err)
@@ -146,9 +157,10 @@ func TestJWTAuth_ValidToken_TouchesLastActive(t *testing.T) {
 	authSvc := service.NewAuthService(nil, userRepo, nil, nil, cfg, nil, nil, nil, nil, nil, nil, nil, nil)
 	userSvc := service.NewUserService(userRepo, nil, nil, nil)
 	toucher := &recordingActivityToucher{}
+	actorResolver, _ := newMiddlewareActorResolver(t, map[int64]*service.User{1: user})
 
 	r := gin.New()
-	r.Use(jwtAuth(authSvc, userSvc, toucher, nil, nil))
+	r.Use(jwtAuth(authSvc, userSvc, toucher, nil, nil, actorResolver))
 	r.GET("/protected", func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
@@ -166,7 +178,7 @@ func TestJWTAuth_ValidToken_TouchesLastActive(t *testing.T) {
 }
 
 func TestJWTAuth_MissingAuthorizationHeader(t *testing.T) {
-	router, _ := newJWTTestEnv(nil)
+	router, _, _ := newJWTTestEnv(t, nil)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
@@ -187,7 +199,7 @@ func TestJWTAuth_InvalidHeaderFormat(t *testing.T) {
 		{"缺少空格分隔", "Bearerabc123"},
 		{"仅有单词", "abc123"},
 	}
-	router, _ := newJWTTestEnv(nil)
+	router, _, _ := newJWTTestEnv(t, nil)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -205,7 +217,7 @@ func TestJWTAuth_InvalidHeaderFormat(t *testing.T) {
 }
 
 func TestJWTAuth_EmptyToken(t *testing.T) {
-	router, _ := newJWTTestEnv(nil)
+	router, _, _ := newJWTTestEnv(t, nil)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
@@ -219,7 +231,7 @@ func TestJWTAuth_EmptyToken(t *testing.T) {
 }
 
 func TestJWTAuth_TamperedToken(t *testing.T) {
-	router, _ := newJWTTestEnv(nil)
+	router, _, _ := newJWTTestEnv(t, nil)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
@@ -242,7 +254,7 @@ func TestJWTAuth_UserNotFound(t *testing.T) {
 		TokenVersion: 1,
 	}
 	// 创建环境时不注入此用户，这样 GetByID 会失败
-	router, authSvc := newJWTTestEnv(map[int64]*service.User{})
+	router, authSvc, _ := newJWTTestEnv(t, map[int64]*service.User{})
 
 	token, err := authSvc.GenerateToken(context.Background(), fakeUser)
 	require.NoError(t, err)
@@ -266,7 +278,7 @@ func TestJWTAuth_UserInactive(t *testing.T) {
 		Status:       service.StatusDisabled,
 		TokenVersion: 1,
 	}
-	router, authSvc := newJWTTestEnv(map[int64]*service.User{1: user})
+	router, authSvc, _ := newJWTTestEnv(t, map[int64]*service.User{1: user})
 
 	token, err := authSvc.GenerateToken(context.Background(), user)
 	require.NoError(t, err)
@@ -298,7 +310,7 @@ func TestJWTAuth_TokenVersionMismatch(t *testing.T) {
 		Status:       service.StatusActive,
 		TokenVersion: 2, // 密码修改后版本递增
 	}
-	router, authSvc := newJWTTestEnv(map[int64]*service.User{1: userInDB})
+	router, authSvc, _ := newJWTTestEnv(t, map[int64]*service.User{1: userInDB})
 
 	token, err := authSvc.GenerateToken(context.Background(), userForToken)
 	require.NoError(t, err)
@@ -312,4 +324,28 @@ func TestJWTAuth_TokenVersionMismatch(t *testing.T) {
 	var body ErrorResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Equal(t, "TOKEN_REVOKED", body.Code)
+}
+
+func TestJWTAuth_AuthorizationSnapshotUnavailable(t *testing.T) {
+	user := &service.User{
+		ID:           1,
+		Email:        "test@example.com",
+		Role:         service.RoleUser,
+		Status:       service.StatusActive,
+		TokenVersion: 1,
+	}
+	router, authSvc, actorStore := newJWTTestEnv(t, map[int64]*service.User{1: user})
+	actorStore.userErr = errors.New("database unavailable")
+
+	token, err := authSvc.GenerateToken(context.Background(), user)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	var body ErrorResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, "AUTHORIZATION_UNAVAILABLE", body.Code)
 }

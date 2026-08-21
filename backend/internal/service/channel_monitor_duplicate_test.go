@@ -138,7 +138,7 @@ func TestDuplicateChannelMonitorCopiesConfigurationAndResetsRuntimeState(t *test
 	repo := &duplicateChannelMonitorRepoStub{source: source}
 	service := NewChannelMonitorService(repo, &duplicateChannelMonitorEncryptor{})
 
-	duplicate, err := service.Duplicate(context.Background(), source.ID, 77, "admin:77", "copy-primary")
+	duplicate, err := service.Duplicate(context.Background(), source.ID, 77, "user:77", "copy-primary")
 
 	require.NoError(t, err)
 	require.Len(t, repo.created, 1)
@@ -190,7 +190,7 @@ func TestDuplicateChannelMonitorRejectsUndecryptableAPIKey(t *testing.T) {
 	repo := &duplicateChannelMonitorRepoStub{source: source}
 	service := NewChannelMonitorService(repo, &duplicateChannelMonitorEncryptor{decryptErr: errors.New("wrong encryption key")})
 
-	duplicate, err := service.Duplicate(context.Background(), source.ID, 77, "admin:77", "copy-broken")
+	duplicate, err := service.Duplicate(context.Background(), source.ID, 77, "user:77", "copy-broken")
 
 	require.Nil(t, duplicate)
 	require.ErrorIs(t, err, ErrChannelMonitorAPIKeyDecryptFailed)
@@ -213,9 +213,9 @@ func TestDuplicateChannelMonitorRecoversCommittedCopyForSameOperation(t *testing
 	repo := &duplicateChannelMonitorRepoStub{source: source}
 	service := NewChannelMonitorService(repo, &duplicateChannelMonitorEncryptor{})
 
-	first, err := service.Duplicate(context.Background(), source.ID, 77, "admin:77", "stable-key")
+	first, err := service.Duplicate(context.Background(), source.ID, 77, "user:77", "stable-key")
 	require.NoError(t, err)
-	retry, err := service.Duplicate(context.Background(), source.ID, 77, "admin:77", "stable-key")
+	retry, err := service.Duplicate(context.Background(), source.ID, 77, "user:77", "stable-key")
 	require.NoError(t, err)
 
 	require.Len(t, repo.created, 1, "same operation must not create a second monitor")

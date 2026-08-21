@@ -23,7 +23,7 @@ func NewAuditLogRepository(db *sql.DB) service.AuditLogRepository {
 	return &auditLogRepository{db: db}
 }
 
-const auditLogInsertColumns = `created_at, actor_user_id, actor_email, actor_role, auth_method,
+const auditLogInsertColumns = `created_at, actor_user_id, actor_service_principal_id, actor_email, actor_role, auth_method,
 credential_masked, action, method, path, request_id, client_ip, user_agent,
 request_body, status_code, latency_ms, extra`
 
@@ -41,6 +41,7 @@ func auditLogInsertValues(log *service.AuditLog) []any {
 	return []any{
 		createdAt.UTC(),
 		nullInt64Ptr(log.ActorUserID),
+		nullInt64Ptr(log.ActorServicePrincipalID),
 		truncateString(log.ActorEmail, 255),
 		truncateString(log.ActorRole, 32),
 		truncateString(log.AuthMethod, 32),
@@ -72,7 +73,7 @@ func (r *auditLogRepository) BatchInsert(ctx context.Context, logs []*service.Au
 	}
 	stmt, err := tx.PrepareContext(ctx, pq.CopyIn(
 		"audit_logs",
-		"created_at", "actor_user_id", "actor_email", "actor_role", "auth_method",
+		"created_at", "actor_user_id", "actor_service_principal_id", "actor_email", "actor_role", "auth_method",
 		"credential_masked", "action", "method", "path", "request_id", "client_ip", "user_agent",
 		"request_body", "status_code", "latency_ms", "extra",
 	))
@@ -117,7 +118,7 @@ func (r *auditLogRepository) Insert(ctx context.Context, log *service.AuditLog) 
 		return fmt.Errorf("nil audit log")
 	}
 	query := `INSERT INTO audit_logs (` + auditLogInsertColumns + `)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`
 	_, err := r.db.ExecContext(ctx, query, auditLogInsertValues(log)...)
 	return err
 }
@@ -138,6 +139,10 @@ func buildAuditLogsWhere(filter *service.AuditLogFilter) (string, []any) {
 	if filter.ActorUserID != nil {
 		args = append(args, *filter.ActorUserID)
 		clauses = append(clauses, "l.actor_user_id = $"+itoa(len(args)))
+	}
+	if filter.ActorServicePrincipalID != nil {
+		args = append(args, *filter.ActorServicePrincipalID)
+		clauses = append(clauses, "l.actor_service_principal_id = $"+itoa(len(args)))
 	}
 	if v := strings.TrimSpace(filter.ActorEmail); v != "" {
 		args = append(args, "%"+escapeLikePattern(v)+"%")
@@ -169,7 +174,7 @@ func buildAuditLogsWhere(filter *service.AuditLogFilter) (string, []any) {
 	if v := strings.TrimSpace(filter.Query); v != "" {
 		args = append(args, "%"+escapeLikePattern(v)+"%")
 		idx := itoa(len(args))
-		clauses = append(clauses, "(l.path ILIKE $"+idx+" OR l.action ILIKE $"+idx+" OR l.actor_email ILIKE $"+idx+")")
+		clauses = append(clauses, "(l.path ILIKE $"+idx+" OR l.action ILIKE $"+idx+" OR l.actor_email ILIKE $"+idx+" OR sp.code ILIKE $"+idx+" OR sp.name ILIKE $"+idx+")")
 	}
 
 	return "WHERE " + strings.Join(clauses, " AND "), args
@@ -179,6 +184,9 @@ const auditLogSelectColumns = `
   l.id,
   l.created_at,
   l.actor_user_id,
+  l.actor_service_principal_id,
+  COALESCE(sp.code, ''),
+  COALESCE(sp.name, ''),
   COALESCE(l.actor_email, ''),
   COALESCE(l.actor_role, ''),
   COALESCE(l.auth_method, ''),
@@ -197,11 +205,15 @@ const auditLogSelectColumns = `
 func scanAuditLogRow(scan func(dest ...any) error) (*service.AuditLog, error) {
 	item := &service.AuditLog{}
 	var actorUserID sql.NullInt64
+	var actorServicePrincipalID sql.NullInt64
 	var extraRaw string
 	if err := scan(
 		&item.ID,
 		&item.CreatedAt,
 		&actorUserID,
+		&actorServicePrincipalID,
+		&item.ActorServicePrincipalCode,
+		&item.ActorServicePrincipalName,
 		&item.ActorEmail,
 		&item.ActorRole,
 		&item.AuthMethod,
@@ -222,6 +234,10 @@ func scanAuditLogRow(scan func(dest ...any) error) (*service.AuditLog, error) {
 	if actorUserID.Valid {
 		v := actorUserID.Int64
 		item.ActorUserID = &v
+	}
+	if actorServicePrincipalID.Valid {
+		v := actorServicePrincipalID.Int64
+		item.ActorServicePrincipalID = &v
 	}
 	extraRaw = strings.TrimSpace(extraRaw)
 	if extraRaw != "" && extraRaw != "null" && extraRaw != "{}" {
@@ -254,7 +270,7 @@ func (r *auditLogRepository) List(ctx context.Context, filter *service.AuditLogF
 	}
 
 	where, args := buildAuditLogsWhere(filter)
-	countSQL := "SELECT COUNT(*) FROM audit_logs l " + where
+	countSQL := "SELECT COUNT(*) FROM audit_logs l LEFT JOIN service_principals sp ON sp.id = l.actor_service_principal_id " + where
 	var total int
 	if err := r.db.QueryRowContext(ctx, countSQL, args...).Scan(&total); err != nil {
 		return nil, err
@@ -262,7 +278,7 @@ func (r *auditLogRepository) List(ctx context.Context, filter *service.AuditLogF
 
 	offset := (page - 1) * pageSize
 	argsWithLimit := append(args, pageSize, offset)
-	query := "SELECT" + auditLogSelectColumns + "\nFROM audit_logs l\n" + where + `
+	query := "SELECT" + auditLogSelectColumns + "\nFROM audit_logs l\nLEFT JOIN service_principals sp ON sp.id = l.actor_service_principal_id\n" + where + `
 ORDER BY l.created_at DESC, l.id DESC
 LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 
@@ -298,7 +314,7 @@ func (r *auditLogRepository) GetByID(ctx context.Context, id int64) (*service.Au
 	if r == nil || r.db == nil {
 		return nil, fmt.Errorf("nil audit log repository")
 	}
-	query := "SELECT" + auditLogSelectColumns + "\nFROM audit_logs l WHERE l.id = $1"
+	query := "SELECT" + auditLogSelectColumns + "\nFROM audit_logs l\nLEFT JOIN service_principals sp ON sp.id = l.actor_service_principal_id\nWHERE l.id = $1"
 	row := r.db.QueryRowContext(ctx, query, id)
 	item, err := scanAuditLogRow(row.Scan)
 	if err != nil {

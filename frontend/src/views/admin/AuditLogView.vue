@@ -91,11 +91,11 @@
 
           <template #cell-actor="{ row }">
             <div class="min-w-0 max-w-[220px]">
-              <div class="truncate font-medium text-gray-900 dark:text-white" :title="row.actor_email">
-                {{ row.actor_email || '—' }}
+              <div class="truncate font-medium text-gray-900 dark:text-white" :title="actorLabel(row)">
+                {{ actorLabel(row) }}
               </div>
               <div class="mt-0.5 truncate text-xs text-gray-400">
-                {{ row.actor_role }}<span v-if="row.auth_method"> · {{ authMethodLabel(row.auth_method) }}</span>
+                {{ actorDetail(row) }}<span v-if="row.auth_method"> · {{ authMethodLabel(row.auth_method) }}</span>
               </div>
             </div>
           </template>
@@ -214,9 +214,9 @@
               {{ t('admin.audit.columns.actor') }}
             </div>
             <div class="mt-1 break-all text-sm font-medium text-gray-900 dark:text-white">
-              {{ detail.actor_email || '—' }}
+              {{ actorLabel(detail) }}
             </div>
-            <div class="mt-0.5 text-xs text-gray-400">{{ detail.actor_role }}</div>
+            <div class="mt-0.5 text-xs text-gray-400">{{ actorDetail(detail) }}</div>
           </div>
 
           <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
@@ -497,6 +497,27 @@ const resultOptions = computed(() => [
 function authMethodLabel(method: string): string {
   const found = authMethodOptions.value.find((o) => o.value === method)
   return found && found.value ? found.label : method
+}
+
+function actorLabel(log: AuditLog): string {
+  if (log.actor_service_principal_id) {
+    return (
+      log.actor_service_principal_name ||
+      log.actor_service_principal_code ||
+      `#${log.actor_service_principal_id}`
+    )
+  }
+  return log.actor_email || (log.actor_user_id ? `#${log.actor_user_id}` : '—')
+}
+
+function actorDetail(log: AuditLog): string {
+  if (log.actor_service_principal_id) {
+    const code = log.actor_service_principal_code
+    return code
+      ? `${t('admin.audit.detail.servicePrincipal')} · ${code}`
+      : t('admin.audit.detail.servicePrincipal')
+  }
+  return log.actor_role
 }
 
 function toRFC3339(local: string): string | undefined {

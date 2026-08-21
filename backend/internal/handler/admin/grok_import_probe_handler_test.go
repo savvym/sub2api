@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -110,6 +111,7 @@ func TestAccountCreateWithoutAutomaticGrokProbeServiceStillSucceeds(t *testing.T
 	)
 
 	router := gin.New()
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 	router.POST("/api/v1/admin/accounts", handler.Create)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(

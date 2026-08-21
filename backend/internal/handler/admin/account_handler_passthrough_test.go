@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -33,6 +34,7 @@ func TestAccountHandler_Create_AnthropicAPIKeyPassthroughExtraForwarded(t *testi
 	)
 
 	router := gin.New()
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 	router.POST("/api/v1/admin/accounts", handler.Create)
 
 	body := map[string]any{

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -16,8 +17,9 @@ func NewJWTAuthMiddleware(
 	userService *service.UserService,
 	settingService *service.SettingService,
 	auditService *service.AuditLogService,
+	actorResolver authz.Resolver,
 ) JWTAuthMiddleware {
-	return JWTAuthMiddleware(jwtAuth(authService, userService, userService, settingService, auditService))
+	return JWTAuthMiddleware(jwtAuth(authService, userService, userService, settingService, auditService, actorResolver))
 }
 
 type jwtUserReader interface {
@@ -35,6 +37,7 @@ func jwtAuth(
 	activityToucher userActivityToucher,
 	settingService *service.SettingService,
 	auditService *service.AuditLogService,
+	actorResolver authz.Resolver,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 从Authorization header中提取token
@@ -93,6 +96,16 @@ func jwtAuth(
 			return
 		}
 
+		if actorResolver == nil {
+			AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
+			return
+		}
+		actor, err := actorResolver.ResolveUser(c.Request.Context(), user.ID, authz.AuthMethodJWT)
+		if !acceptResolvedUserActor(c, actor, err, user.ID) {
+			return
+		}
+		setRequestActor(c, actor)
+
 		c.Set(string(ContextKeyUser), AuthSubject{
 			UserID:      user.ID,
 			Concurrency: user.Concurrency,
@@ -106,6 +119,27 @@ func jwtAuth(
 
 		c.Next()
 	}
+}
+
+func acceptResolvedUserActor(c *gin.Context, actor authz.Actor, err error, userID int64) bool {
+	if err != nil {
+		if errors.Is(err, authz.ErrActorInactive) {
+			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
+			return false
+		}
+		AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
+		return false
+	}
+	resolvedUserID, ok := actor.UserID()
+	if !ok || resolvedUserID != userID || actor.AuthMethod() != authz.AuthMethodJWT {
+		AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
+		return false
+	}
+	return true
+}
+
+func setRequestActor(c *gin.Context, actor authz.Actor) {
+	c.Request = c.Request.WithContext(authz.ContextWithActor(c.Request.Context(), actor))
 }
 
 // Deprecated: prefer GetAuthSubjectFromContext in auth_subject.go.

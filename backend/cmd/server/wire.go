@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
@@ -42,6 +43,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		payment.ProviderSet,
 		middleware.ProviderSet,
 		handler.ProviderSet,
+		authz.NewActorResolver,
 
 		// Server layer ProviderSet
 		server.ProviderSet,
@@ -328,12 +330,12 @@ func provideCleanup(
 				return nil
 			}},
 			{"ChannelMonitorV2Aggregator", func() error {
-			if channelMonitorV2Aggregator != nil {
-				channelMonitorV2Aggregator.Stop()
-			}
-			return nil
-		}},
-		{"ChannelMonitorRunner", func() error {
+				if channelMonitorV2Aggregator != nil {
+					channelMonitorV2Aggregator.Stop()
+				}
+				return nil
+			}},
+			{"ChannelMonitorRunner", func() error {
 				if channelMonitorRunner != nil {
 					channelMonitorRunner.Stop()
 				}

@@ -100,6 +100,139 @@ func TestAuthzPolicyStoreLoadsServicePrincipalSubjectSnapshotWithOneStatement(t 
 	assertAuthzPolicyStoreExpectations(t, mock)
 }
 
+func TestAuthzPolicyStoreLoadsServicePrincipalSubjectSnapshotByCodeWithOneStatement(t *testing.T) {
+	store, mock := newAuthzPolicyStoreSQLMock(t)
+	payload := mustAuthzPolicyJSON(t, rawAuthzPolicyDocument{
+		SubjectID: 73,
+		Subject: rawAuthzSubject{
+			Exists:       true,
+			Active:       true,
+			AuthzVersion: 6,
+			Roles:        []rawAuthzRole{{ID: 19, Version: 4}},
+			Capabilities: []string{string(authz.CapabilityAPIKeyCreate)},
+		},
+		Configuration: fullyEnabledRawAuthzConfiguration(),
+	})
+	mock.ExpectQuery(buildServicePrincipalSubjectSnapshotByCodeSQL()).
+		WithArgs(authz.AdminAPIKeyServicePrincipalCode).
+		WillReturnRows(sqlmock.NewRows([]string{"document"}).AddRow(payload)).
+		RowsWillBeClosed()
+
+	snapshot, err := store.LoadServicePrincipalSubjectSnapshotByCode(context.Background(), authz.AdminAPIKeyServicePrincipalCode)
+	if err != nil {
+		t.Fatalf("load service principal subject snapshot by code: %v", err)
+	}
+	wantSubject := mustAuthzSubjectRef(t, authz.SubjectKindServicePrincipal, 73)
+	if !snapshot.Valid() || snapshot.Subject() != wantSubject || !snapshot.Exists() || !snapshot.Active() {
+		t.Fatalf("unexpected service principal subject state: %+v", snapshot)
+	}
+	if snapshot.AuthzVersion() != 6 || snapshot.CurrentLegacyAdmin() {
+		t.Fatalf("unexpected service principal versions or legacy role: %+v", snapshot)
+	}
+	if got, want := snapshot.RoleVersions(), map[int64]int64{19: 4}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("role versions = %v, want %v", got, want)
+	}
+	if got, want := snapshot.Capabilities(), []authz.Capability{authz.CapabilityAPIKeyCreate}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("capabilities = %v, want %v", got, want)
+	}
+	assertFullyEnabledPolicyConfiguration(t, snapshot.Configuration())
+	assertAuthzPolicyStoreExpectations(t, mock)
+}
+
+func TestAuthzPolicyStoreLoadsDisabledServicePrincipalByCode(t *testing.T) {
+	store, mock := newAuthzPolicyStoreSQLMock(t)
+	payload := mustAuthzPolicyJSON(t, rawAuthzPolicyDocument{
+		SubjectID: 74,
+		Subject: rawAuthzSubject{
+			Exists:       true,
+			Active:       false,
+			AuthzVersion: 2,
+		},
+		Configuration: fullyEnabledRawAuthzConfiguration(),
+	})
+	mock.ExpectQuery(buildServicePrincipalSubjectSnapshotByCodeSQL()).
+		WithArgs("disabled_worker").
+		WillReturnRows(sqlmock.NewRows([]string{"document"}).AddRow(payload)).
+		RowsWillBeClosed()
+
+	snapshot, err := store.LoadServicePrincipalSubjectSnapshotByCode(context.Background(), "disabled_worker")
+	if err != nil {
+		t.Fatalf("load disabled service principal: %v", err)
+	}
+	if !snapshot.Valid() || !snapshot.Exists() || snapshot.Active() || snapshot.AuthzVersion() != 2 {
+		t.Fatalf("unexpected disabled service principal snapshot: %+v", snapshot)
+	}
+	assertAuthzPolicyStoreExpectations(t, mock)
+}
+
+func TestAuthzPolicyStoreServicePrincipalByCodeMissingAndInvalidDocumentsFailClosed(t *testing.T) {
+	t.Run("missing code", func(t *testing.T) {
+		store, mock := newAuthzPolicyStoreSQLMock(t)
+		mock.ExpectQuery(buildServicePrincipalSubjectSnapshotByCodeSQL()).
+			WithArgs("missing_worker").
+			WillReturnRows(sqlmock.NewRows([]string{"document"})).
+			RowsWillBeClosed()
+
+		snapshot, err := store.LoadServicePrincipalSubjectSnapshotByCode(context.Background(), "missing_worker")
+		if !errors.Is(err, authz.ErrSubjectNotFound) || errors.Is(err, sql.ErrNoRows) || snapshot.Valid() {
+			t.Fatalf("missing service principal result: snapshot=%+v err=%v", snapshot, err)
+		}
+		assertAuthzPolicyStoreExpectations(t, mock)
+	})
+
+	for _, testCase := range []struct {
+		name       string
+		document   rawAuthzPolicyDocument
+		wantErr    error
+		wantNoCall bool
+		code       string
+	}{
+		{
+			name: "missing resolved id",
+			code: "missing_id",
+			document: rawAuthzPolicyDocument{
+				Subject:       rawAuthzSubject{Exists: true, Active: true, AuthzVersion: 1},
+				Configuration: fullyEnabledRawAuthzConfiguration(),
+			},
+			wantErr: authz.ErrInvalidPolicySnapshot,
+		},
+		{
+			name: "inconsistent missing subject",
+			code: "inconsistent_missing",
+			document: rawAuthzPolicyDocument{
+				SubjectID:     75,
+				Subject:       rawAuthzSubject{},
+				Configuration: fullyEnabledRawAuthzConfiguration(),
+			},
+			wantErr: authz.ErrInvalidPolicySnapshot,
+		},
+		{
+			name:       "blank code",
+			code:       "  ",
+			wantNoCall: true,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			store, mock := newAuthzPolicyStoreSQLMock(t)
+			if !testCase.wantNoCall {
+				mock.ExpectQuery(buildServicePrincipalSubjectSnapshotByCodeSQL()).
+					WithArgs(testCase.code).
+					WillReturnRows(sqlmock.NewRows([]string{"document"}).AddRow(mustAuthzPolicyJSON(t, testCase.document))).
+					RowsWillBeClosed()
+			}
+
+			snapshot, err := store.LoadServicePrincipalSubjectSnapshotByCode(context.Background(), testCase.code)
+			if err == nil || snapshot.Valid() {
+				t.Fatalf("invalid service principal lookup accepted: snapshot=%+v err=%v", snapshot, err)
+			}
+			if testCase.wantErr != nil && !errors.Is(err, testCase.wantErr) {
+				t.Fatalf("lookup error = %v, want %v", err, testCase.wantErr)
+			}
+			assertAuthzPolicyStoreExpectations(t, mock)
+		})
+	}
+}
+
 func TestAuthzPolicyStoreBuildsAccountResourceSnapshotWithDirectAndRoleGrants(t *testing.T) {
 	store, mock := newAuthzPolicyStoreSQLMock(t)
 	subject := mustAuthzSubjectRef(t, authz.SubjectKindUser, 61)
@@ -537,6 +670,13 @@ func TestAuthzPolicyStoreSQLUsesStrictDatabaseExpiryBoundary(t *testing.T) {
 			assertStrictAuthzExpiryPredicates(t, query, strictExpiry, inclusiveExpiry, 1)
 		})
 	}
+	t.Run("service principal by code", func(t *testing.T) {
+		query := buildServicePrincipalSubjectSnapshotByCodeSQL()
+		assertStrictAuthzExpiryPredicates(t, query, strictExpiry, inclusiveExpiry, 1)
+		if got := strings.Count(query, "WHERE code = $1"); got != 1 {
+			t.Fatalf("service principal code lookup predicates = %d, want 1:\n%s", got, query)
+		}
+	})
 
 	resourceTests := []struct {
 		name          string

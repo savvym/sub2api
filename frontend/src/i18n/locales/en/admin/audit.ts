@@ -8,7 +8,7 @@ export default {
     filters: {
       all: 'All',
       q: 'Keyword',
-      qPlaceholder: 'Path / action / actor email',
+      qPlaceholder: 'Path / action / actor',
       actorEmail: 'Actor Email',
       action: 'Action',
       clientIp: 'Client IP',
@@ -32,6 +32,7 @@ export default {
     detail: {
       title: 'Audit Log Detail',
       actorRole: 'Role',
+      servicePrincipal: 'Service Principal',
       methodPath: 'Method / Path',
       latency: 'Latency',
       requestId: 'Request ID',

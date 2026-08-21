@@ -182,6 +182,10 @@ func (s *systemLockRepoStub) GetByScopeAndKeyHash(context.Context, string, strin
 	return cloneRecord(s.existing), nil
 }
 
+func (s *systemLockRepoStub) ExtendExpiration(context.Context, int64, string, time.Time) (bool, error) {
+	return true, nil
+}
+
 func (s *systemLockRepoStub) TryReclaim(context.Context, int64, string, time.Time, time.Time, time.Time) (bool, error) {
 	if s.reclaimErr != nil {
 		return false, s.reclaimErr

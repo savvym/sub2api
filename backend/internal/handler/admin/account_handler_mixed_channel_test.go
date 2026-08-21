@@ -15,6 +15,7 @@ import (
 func setupAccountMixedChannelRouter(adminSvc *stubAdminService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(withAdminTestUserActorID(1))
 	accountHandler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router.POST("/api/v1/admin/accounts/check-mixed-channel", accountHandler.CheckMixedChannel)
 	router.POST("/api/v1/admin/accounts", accountHandler.Create)

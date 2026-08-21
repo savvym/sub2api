@@ -77,8 +77,6 @@ func TestActorResolverResolvesServicePrincipalByCanonicalCode(t *testing.T) {
 		Exists:       true,
 		Active:       true,
 		AuthzVersion: 4,
-		RoleVersions: map[int64]int64{5: 2},
-		Capabilities: []Capability{CapabilityPlatformResourceViewAll},
 	})}
 
 	actor, err := NewActorResolver(store).ResolveServicePrincipal(
@@ -98,11 +96,90 @@ func TestActorResolverResolvesServicePrincipalByCanonicalCode(t *testing.T) {
 	if _, ok := actor.UserID(); ok || actor.hasLegacyAdminBypass() {
 		t.Fatal("service principal inherited user-only identity state")
 	}
-	if actor.subjectVersion() != 4 || !actor.hasCapabilitySnapshot(CapabilityPlatformResourceViewAll) {
+	if actor.subjectVersion() != 4 || len(actor.roleVersionsSnapshot()) != 0 || len(actor.capabilitiesSnapshot()) != 0 {
 		t.Fatal("service principal snapshot state not preserved")
 	}
 	if store.servicePrincipalCalls != 1 || store.userCalls != 0 || store.lastServicePrincipalCode != AdminAPIKeyServicePrincipalCode {
 		t.Fatalf("unexpected store calls: principal=%d user=%d code=%q", store.servicePrincipalCalls, store.userCalls, store.lastServicePrincipalCode)
+	}
+}
+
+func TestActorResolverRejectsAuthorizedAdminAPIKeyPrincipal(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name         string
+		roleVersions map[int64]int64
+		capabilities []Capability
+	}{
+		{name: "role assignment", roleVersions: map[int64]int64{5: 2}},
+		{name: "capability", capabilities: []Capability{CapabilityPlatformResourceViewAll}},
+	} {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			subject := mustActorResolverSubject(t, SubjectKindServicePrincipal, 44)
+			store := &actorResolverStoreStub{servicePrincipalSnapshot: mustActorResolverSnapshot(t, SubjectSnapshotInput{
+				Subject:      subject,
+				Exists:       true,
+				Active:       true,
+				AuthzVersion: 3,
+				RoleVersions: testCase.roleVersions,
+				Capabilities: testCase.capabilities,
+			})}
+
+			actor, err := NewActorResolver(store).ResolveServicePrincipal(
+				context.Background(),
+				AdminAPIKeyServicePrincipalCode,
+				AuthMethodAdminAPIKey,
+			)
+			if !errors.Is(err, ErrAuthorizationUnavailable) || actor.Valid() {
+				t.Fatalf("authorized admin API key principal accepted: actor=%+v err=%v", actor, err)
+			}
+			if store.servicePrincipalCalls != 1 || store.lastServicePrincipalCode != AdminAPIKeyServicePrincipalCode {
+				t.Fatalf("unexpected store lookup: calls=%d code=%q", store.servicePrincipalCalls, store.lastServicePrincipalCode)
+			}
+		})
+	}
+}
+
+func TestActorResolverPreservesGeneralServicePrincipalCodeSemantics(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []string{"worker", AdminAPIKeyServicePrincipalCode} {
+		code := code
+		t.Run(code, func(t *testing.T) {
+			t.Parallel()
+
+			subject := mustActorResolverSubject(t, SubjectKindServicePrincipal, 43)
+			store := &actorResolverStoreStub{servicePrincipalSnapshot: mustActorResolverSnapshot(t, SubjectSnapshotInput{
+				Subject:      subject,
+				Exists:       true,
+				Active:       true,
+				AuthzVersion: 2,
+				RoleVersions: map[int64]int64{5: 4},
+				Capabilities: []Capability{CapabilityPlatformResourceViewAll},
+			})}
+
+			actor, err := NewActorResolver(store).ResolveServicePrincipal(
+				context.Background(),
+				"  "+code+"  ",
+				AuthMethodServicePrincipal,
+			)
+			if err != nil {
+				t.Fatalf("resolve general service principal: %v", err)
+			}
+			if !actor.Valid() || actor.Kind() != SubjectKindServicePrincipal || actor.AuthMethod() != AuthMethodServicePrincipal {
+				t.Fatalf("unexpected general service principal actor: %+v", actor)
+			}
+			if actor.roleVersionsSnapshot()[5] != 4 || !actor.hasCapabilitySnapshot(CapabilityPlatformResourceViewAll) {
+				t.Fatalf("general service principal authorization state was lost: %+v", actor)
+			}
+			if store.servicePrincipalCalls != 1 || store.lastServicePrincipalCode != code {
+				t.Fatalf("unexpected store lookup: calls=%d code=%q", store.servicePrincipalCalls, store.lastServicePrincipalCode)
+			}
+		})
 	}
 }
 
@@ -148,6 +225,38 @@ func TestActorResolverRejectsMissingAndInactiveSubjects(t *testing.T) {
 			}
 			if !errors.Is(err, ErrActorInactive) || actor.Valid() {
 				t.Fatalf("expected inactive actor failure, got actor=%+v err=%v", actor, err)
+			}
+		})
+	}
+}
+
+func TestActorResolverMapsMissingStoreSubjectToInactive(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name    string
+		resolve func(*actorResolverStoreStub) (Actor, error)
+	}{
+		{
+			name: "user",
+			resolve: func(store *actorResolverStoreStub) (Actor, error) {
+				store.userErr = ErrSubjectNotFound
+				return NewActorResolver(store).ResolveUser(context.Background(), 42, AuthMethodJWT)
+			},
+		},
+		{
+			name: "service principal",
+			resolve: func(store *actorResolverStoreStub) (Actor, error) {
+				store.servicePrincipalErr = ErrSubjectNotFound
+				return NewActorResolver(store).ResolveServicePrincipal(context.Background(), "worker", AuthMethodServicePrincipal)
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			actor, err := testCase.resolve(&actorResolverStoreStub{})
+			if !errors.Is(err, ErrActorInactive) || errors.Is(err, ErrAuthorizationUnavailable) || actor.Valid() {
+				t.Fatalf("missing store subject was not normalized to inactive: actor=%+v err=%v", actor, err)
 			}
 		})
 	}
@@ -276,6 +385,12 @@ func TestActorResolverRejectsWrongAuthenticationMethodBeforeStoreLookup(t *testi
 			name: "service principal with jwt",
 			resolve: func(store *actorResolverStoreStub) (Actor, error) {
 				return NewActorResolver(store).ResolveServicePrincipal(context.Background(), "worker", AuthMethodJWT)
+			},
+		},
+		{
+			name: "non builtin service principal with admin api key",
+			resolve: func(store *actorResolverStoreStub) (Actor, error) {
+				return NewActorResolver(store).ResolveServicePrincipal(context.Background(), "worker", AuthMethodAdminAPIKey)
 			},
 		},
 	} {

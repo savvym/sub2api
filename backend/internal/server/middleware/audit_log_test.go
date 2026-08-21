@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -155,6 +156,89 @@ func TestPasskeyLoginAuditUsesCanonicalLoginActionAndOmitsCredentialBody(t *test
 func TestRoleAuthorizationModeTransitionUsesStableAuditAction(t *testing.T) {
 	route := "POST /api/v1/admin/authorization/role-mode/transitions"
 	require.Equal(t, service.AuditActionRoleAuthorizationModeTransition, auditActionOverrides[route])
+}
+
+type auditActorResolverStore struct {
+	snapshot authz.SubjectSnapshot
+}
+
+func (s *auditActorResolverStore) LoadSubjectSnapshot(context.Context, authz.SubjectRef) (authz.SubjectSnapshot, error) {
+	return s.snapshot, nil
+}
+
+func (s *auditActorResolverStore) LoadServicePrincipalSubjectSnapshotByCode(context.Context, string) (authz.SubjectSnapshot, error) {
+	return s.snapshot, nil
+}
+
+func mustAuditActor(t *testing.T, kind authz.SubjectKind, id int64, method authz.AuthMethod) authz.Actor {
+	t.Helper()
+	configuration, err := authz.NewPolicyConfiguration(authz.PolicyConfigurationInput{
+		RoleAuthorizationMode: authz.RoleAuthorizationModeLegacy,
+	})
+	require.NoError(t, err)
+	subject, err := authz.NewSubjectRef(kind, id)
+	require.NoError(t, err)
+	snapshot, err := authz.NewSubjectSnapshot(authz.SubjectSnapshotInput{
+		Subject:       subject,
+		Exists:        true,
+		Active:        true,
+		AuthzVersion:  1,
+		Configuration: configuration,
+	})
+	require.NoError(t, err)
+	resolver := authz.NewActorResolver(&auditActorResolverStore{snapshot: snapshot})
+	if kind == authz.SubjectKindUser {
+		actor, resolveErr := resolver.ResolveUser(context.Background(), id, method)
+		require.NoError(t, resolveErr)
+		return actor
+	}
+	actor, resolveErr := resolver.ResolveServicePrincipal(context.Background(), "admin_api_key", method)
+	require.NoError(t, resolveErr)
+	return actor
+}
+
+func TestPopulateAuditActorServicePrincipalDoesNotImpersonateLegacyAdmin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts", nil)
+	actor := mustAuditActor(t, authz.SubjectKindServicePrincipal, 41, authz.AuthMethodAdminAPIKey)
+	c.Request = c.Request.WithContext(authz.ContextWithActor(c.Request.Context(), actor))
+	c.Set(string(ContextKeyUser), AuthSubject{UserID: 1})
+	c.Set(string(ContextKeyUserRole), "admin")
+	c.Set(ContextKeyAuthEmail, "first-admin@example.test")
+	c.Set("auth_method", service.AuditAuthMethodAdminAPIKey)
+
+	entry := &service.AuditLog{}
+	populateAuditActor(c, entry)
+
+	require.Nil(t, entry.ActorUserID)
+	require.NotNil(t, entry.ActorServicePrincipalID)
+	require.Equal(t, int64(41), *entry.ActorServicePrincipalID)
+	require.Empty(t, entry.ActorEmail)
+	require.Empty(t, entry.ActorRole)
+	require.Equal(t, service.AuditAuthMethodAdminAPIKey, entry.AuthMethod)
+}
+
+func TestPopulateAuditActorTrustedUserIgnoresHandlerIdentityOverride(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts", nil)
+	actor := mustAuditActor(t, authz.SubjectKindUser, 77, authz.AuthMethodJWT)
+	c.Request = c.Request.WithContext(authz.ContextWithActor(c.Request.Context(), actor))
+	c.Set(string(ContextKeyUser), AuthSubject{UserID: 77})
+	c.Set(string(ContextKeyUserRole), "admin")
+	c.Set(ContextKeyAuthEmail, "resolved-user@example.test")
+	SetAuditActor(c, 999, "handler-override@example.test")
+
+	entry := &service.AuditLog{}
+	populateAuditActor(c, entry)
+
+	require.NotNil(t, entry.ActorUserID)
+	require.Equal(t, int64(77), *entry.ActorUserID)
+	require.Nil(t, entry.ActorServicePrincipalID)
+	require.Equal(t, "resolved-user@example.test", entry.ActorEmail)
+	require.Equal(t, "admin", entry.ActorRole)
+	require.Equal(t, service.AuditAuthMethodJWT, entry.AuthMethod)
 }
 
 // Ollama 会话保存的请求体整体就是浏览器 Cookie 明文，键级脱敏清单曾漏掉裸键

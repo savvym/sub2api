@@ -270,18 +270,25 @@ func (s *ChannelMonitorService) RecoverDuplicate(
 	actorScope, operationKey string,
 ) (*ChannelMonitor, error) {
 	operationID := duplicateChannelMonitorOperationID(id, actorScope, operationKey)
+	if strings.TrimSpace(operationKey) != "" && operationID == "" {
+		return nil, ErrIdempotencyActorUnavailable
+	}
 	if operationID == "" {
 		return nil, nil
 	}
-	monitor, err := s.repo.FindByDuplicateOperationID(ctx, operationID)
-	if err != nil {
-		return nil, fmt.Errorf("find duplicate channel monitor operation: %w", err)
+	for _, candidateScope := range idempotencyActorScopeCandidates(ctx, actorScope) {
+		candidateOperationID := duplicateChannelMonitorOperationID(id, candidateScope, operationKey)
+		monitor, err := s.repo.FindByDuplicateOperationID(ctx, candidateOperationID)
+		if err != nil {
+			return nil, fmt.Errorf("find duplicate channel monitor operation: %w", err)
+		}
+		if monitor == nil {
+			continue
+		}
+		s.decryptInPlace(monitor)
+		return monitor, nil
 	}
-	if monitor == nil {
-		return nil, nil
-	}
-	s.decryptInPlace(monitor)
-	return monitor, nil
+	return nil, nil
 }
 
 func duplicateChannelMonitorOperationID(sourceID int64, actorScope, operationKey string) string {
@@ -291,7 +298,7 @@ func duplicateChannelMonitorOperationID(sourceID int64, actorScope, operationKey
 	}
 	actorScope = strings.TrimSpace(actorScope)
 	if actorScope == "" {
-		actorScope = "admin:0"
+		return ""
 	}
 	payload := "admin.channel_monitors.duplicate\x00" + actorScope + "\x00" + strconv.FormatInt(sourceID, 10) + "\x00" + operationKey
 	digest := sha256.Sum256([]byte(payload))

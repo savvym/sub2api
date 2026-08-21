@@ -2,6 +2,7 @@ package authz
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -46,6 +47,9 @@ func (r *ActorResolver) ResolveUser(ctx context.Context, userID int64, method Au
 
 	snapshot, err := r.store.LoadSubjectSnapshot(ctx, subject)
 	if err != nil {
+		if errors.Is(err, ErrSubjectNotFound) {
+			return Actor{}, ErrActorInactive
+		}
 		return Actor{}, fmt.Errorf("%w: load user subject: %w", ErrAuthorizationUnavailable, err)
 	}
 	return userActorFromSnapshot(subject, snapshot, method)
@@ -67,7 +71,8 @@ func (r *ActorResolver) ResolveLegacyAdminUser(ctx context.Context, userID int64
 
 func (r *ActorResolver) ResolveServicePrincipal(ctx context.Context, code string, method AuthMethod) (Actor, error) {
 	code = strings.TrimSpace(code)
-	if code == "" || len(code) > 64 || !method.validFor(SubjectKindServicePrincipal) {
+	if code == "" || len(code) > 64 || !method.validFor(SubjectKindServicePrincipal) ||
+		(method == AuthMethodAdminAPIKey && code != AdminAPIKeyServicePrincipalCode) {
 		return Actor{}, ErrInvalidActor
 	}
 	if r == nil || r.store == nil || ctx == nil {
@@ -76,10 +81,17 @@ func (r *ActorResolver) ResolveServicePrincipal(ctx context.Context, code string
 
 	snapshot, err := r.store.LoadServicePrincipalSubjectSnapshotByCode(ctx, code)
 	if err != nil {
+		if errors.Is(err, ErrSubjectNotFound) {
+			return Actor{}, ErrActorInactive
+		}
 		return Actor{}, fmt.Errorf("%w: load service principal subject: %w", ErrAuthorizationUnavailable, err)
 	}
 	if !snapshot.Valid() || snapshot.Subject().Kind() != SubjectKindServicePrincipal {
 		return Actor{}, fmt.Errorf("%w: invalid service principal snapshot", ErrAuthorizationUnavailable)
+	}
+	if method == AuthMethodAdminAPIKey &&
+		(len(snapshot.RoleVersions()) != 0 || len(snapshot.Capabilities()) != 0) {
+		return Actor{}, fmt.Errorf("%w: admin API key service principal must not have roles or capabilities", ErrAuthorizationUnavailable)
 	}
 	if !snapshot.Exists() || !snapshot.Active() {
 		return Actor{}, ErrActorInactive
