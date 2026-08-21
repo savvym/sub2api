@@ -401,6 +401,10 @@ func accountStatsPricingRuleRequestToService(r accountStatsPricingRuleRequest) s
 // List handles listing channels with pagination
 // GET /api/v1/admin/channels
 func (h *ChannelHandler) List(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	page, pageSize := response.ParsePagination(c)
 	status := c.Query("status")
 	search := strings.TrimSpace(c.Query("search"))
@@ -408,7 +412,7 @@ func (h *ChannelHandler) List(c *gin.Context) {
 		search = search[:100]
 	}
 
-	channels, pag, err := h.channelService.List(c.Request.Context(), pagination.PaginationParams{
+	channels, pag, err := h.channelService.AdminListChannels(c.Request.Context(), actor, pagination.PaginationParams{
 		Page:      page,
 		PageSize:  pageSize,
 		SortBy:    c.DefaultQuery("sort_by", "created_at"),
@@ -429,13 +433,17 @@ func (h *ChannelHandler) List(c *gin.Context) {
 // GetByID handles getting a channel by ID
 // GET /api/v1/admin/channels/:id
 func (h *ChannelHandler) GetByID(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_CHANNEL_ID", "Invalid channel ID"))
 		return
 	}
 
-	channel, err := h.channelService.GetByID(c.Request.Context(), id)
+	channel, err := h.channelService.AdminGetChannel(c.Request.Context(), actor, id)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -447,6 +455,10 @@ func (h *ChannelHandler) GetByID(c *gin.Context) {
 // Create handles creating a new channel
 // POST /api/v1/admin/channels
 func (h *ChannelHandler) Create(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	var req createChannelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
@@ -478,7 +490,7 @@ func (h *ChannelHandler) Create(c *gin.Context) {
 		statsRules = append(statsRules, rule)
 	}
 
-	channel, err := h.channelService.Create(c.Request.Context(), &service.CreateChannelInput{
+	channel, err := h.channelService.AdminCreateChannel(c.Request.Context(), actor, &service.CreateChannelInput{
 		Name:                       req.Name,
 		Description:                req.Description,
 		GroupIDs:                   req.GroupIDs,
@@ -502,6 +514,10 @@ func (h *ChannelHandler) Create(c *gin.Context) {
 // Update handles updating a channel
 // PUT /api/v1/admin/channels/:id
 func (h *ChannelHandler) Update(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_CHANNEL_ID", "Invalid channel ID"))
@@ -555,7 +571,7 @@ func (h *ChannelHandler) Update(c *gin.Context) {
 		input.AccountStatsPricingRules = &statsRules
 	}
 
-	channel, err := h.channelService.Update(c.Request.Context(), id, input)
+	channel, err := h.channelService.AdminUpdateChannel(c.Request.Context(), actor, id, input)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -567,13 +583,17 @@ func (h *ChannelHandler) Update(c *gin.Context) {
 // Delete handles deleting a channel
 // DELETE /api/v1/admin/channels/:id
 func (h *ChannelHandler) Delete(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_CHANNEL_ID", "Invalid channel ID"))
 		return
 	}
 
-	if err := h.channelService.Delete(c.Request.Context(), id); err != nil {
+	if err := h.channelService.AdminDeleteChannel(c.Request.Context(), actor, id); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}

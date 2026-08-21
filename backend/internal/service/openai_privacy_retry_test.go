@@ -40,7 +40,7 @@ func TestAdminService_EnsureOpenAIPrivacy_RetriesNonSuccessModes(t *testing.T) {
 				},
 			}
 
-			got := svc.EnsureOpenAIPrivacy(context.Background(), account)
+			got := svc.EnsureOpenAIPrivacy(context.Background(), adminResourceUserTestActor(t), account)
 
 			require.Equal(t, PrivacyModeFailed, got)
 			require.Equal(t, 1, privacyCalls)

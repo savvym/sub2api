@@ -32,6 +32,11 @@ func NewCNProviderHandler(
 
 // QueryQuota 查询 Coding Plan 滚动窗口用量（5h + weekly）。
 func (h *CNProviderHandler) QueryQuota(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
@@ -41,7 +46,7 @@ func (h *CNProviderHandler) QueryQuota(c *gin.Context) {
 		response.BadRequest(c, "cn provider quota service is not enabled")
 		return
 	}
-	result, err := h.quotaService.QueryUsage(c.Request.Context(), accountID)
+	result, err := h.quotaService.AdminQueryUsage(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -51,6 +56,11 @@ func (h *CNProviderHandler) QueryQuota(c *gin.Context) {
 
 // QueryBalance 查询 payg 账号余额。
 func (h *CNProviderHandler) QueryBalance(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
@@ -60,7 +70,7 @@ func (h *CNProviderHandler) QueryBalance(c *gin.Context) {
 		response.BadRequest(c, "cn provider balance service is not enabled")
 		return
 	}
-	result, err := h.balanceService.QueryBalance(c.Request.Context(), accountID)
+	result, err := h.balanceService.AdminQueryBalance(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

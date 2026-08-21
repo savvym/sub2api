@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/robfig/cron/v3"
 )
 
@@ -25,6 +26,54 @@ func NewScheduledTestService(
 		planRepo:   planRepo,
 		resultRepo: resultRepo,
 	}
+}
+
+// AdminCreatePlan is the authenticated admin facade for creating a plan.
+func (s *ScheduledTestService) AdminCreatePlan(ctx context.Context, actor authz.Actor, plan *ScheduledTestPlan) (*ScheduledTestPlan, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.CreatePlan(ctx, plan)
+}
+
+// AdminGetPlan is the authenticated admin facade for retrieving a plan.
+func (s *ScheduledTestService) AdminGetPlan(ctx context.Context, actor authz.Actor, id int64) (*ScheduledTestPlan, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.GetPlan(ctx, id)
+}
+
+// AdminListPlansByAccount is the authenticated admin facade for account plans.
+func (s *ScheduledTestService) AdminListPlansByAccount(ctx context.Context, actor authz.Actor, accountID int64) ([]*ScheduledTestPlan, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.ListPlansByAccount(ctx, accountID)
+}
+
+// AdminUpdatePlan is the authenticated admin facade for updating a plan.
+func (s *ScheduledTestService) AdminUpdatePlan(ctx context.Context, actor authz.Actor, plan *ScheduledTestPlan) (*ScheduledTestPlan, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.UpdatePlan(ctx, plan)
+}
+
+// AdminDeletePlan is the authenticated admin facade for deleting a plan.
+func (s *ScheduledTestService) AdminDeletePlan(ctx context.Context, actor authz.Actor, id int64) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
+	return s.DeletePlan(ctx, id)
+}
+
+// AdminListResults is the authenticated admin facade for plan results.
+func (s *ScheduledTestService) AdminListResults(ctx context.Context, actor authz.Actor, planID int64, limit int) ([]*ScheduledTestResult, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.ListResults(ctx, planID, limit)
 }
 
 // CreatePlan validates the cron expression, computes next_run_at, and persists the plan.

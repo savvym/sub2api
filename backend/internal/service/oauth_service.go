@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/oauth"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
@@ -31,6 +32,7 @@ type GrokOAuthClient interface {
 // GrokOAuthTokenService is the narrow refresh port used by Grok token providers.
 type GrokOAuthTokenService interface {
 	RefreshAccountToken(ctx context.Context, account *Account) (*GrokTokenInfo, error)
+	AdminRefreshAccountToken(ctx context.Context, actor authz.Actor, account *Account) (*GrokTokenInfo, error)
 	BuildAccountCredentials(tokenInfo *GrokTokenInfo) map[string]any
 }
 

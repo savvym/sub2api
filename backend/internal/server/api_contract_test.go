@@ -1540,6 +1540,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 			Concurrency: 5,
 		})
 		c.Set(string(middleware.ContextKeyUserRole), service.RoleAdmin)
+		c.Request = c.Request.WithContext(authz.ContextWithActor(c.Request.Context(), userActor))
 		c.Next()
 	}
 

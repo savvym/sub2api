@@ -12,6 +12,7 @@ import (
 func setupRedeemExportRouter() (*gin.Engine, *stubAdminService) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(withAdminTestUserActorID(1))
 	adminSvc := newStubAdminService()
 
 	h := NewRedeemHandler(adminSvc, nil)

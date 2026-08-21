@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -31,18 +32,18 @@ type openAIQuotaWorkflowStub struct {
 	cacheCtxErr error
 }
 
-func (s *openAIQuotaWorkflowStub) ResetCredit(context.Context, int64) (*service.OpenAIQuotaResetResult, error) {
+func (s *openAIQuotaWorkflowStub) AdminResetCredit(context.Context, authz.Actor, int64) (*service.OpenAIQuotaResetResult, error) {
 	s.resetCalls++
 	return s.resetResult, s.resetErr
 }
 
-func (s *openAIQuotaWorkflowStub) QueryUsage(ctx context.Context, _ int64) (*service.OpenAIQuotaUsage, error) {
+func (s *openAIQuotaWorkflowStub) AdminQueryUsage(ctx context.Context, _ authz.Actor, _ int64) (*service.OpenAIQuotaUsage, error) {
 	s.queryCalls++
 	s.queryCtxErr = ctx.Err()
 	return s.queryResult, s.queryErr
 }
 
-func (s *openAIQuotaWorkflowStub) CacheResetCreditsSnapshot(ctx context.Context, _ int64, _ *service.OpenAIRateLimitResetCredits) error {
+func (s *openAIQuotaWorkflowStub) AdminCacheResetCreditsSnapshot(ctx context.Context, _ authz.Actor, _ int64, _ *service.OpenAIRateLimitResetCredits) error {
 	s.cacheCalls++
 	s.cacheCtxErr = ctx.Err()
 	return s.cacheErr
@@ -56,7 +57,7 @@ type openAIAccountStateRecovererStub struct {
 	lastCtxErr  error
 }
 
-func (s *openAIAccountStateRecovererStub) RecoverAccountState(ctx context.Context, accountID int64, options service.AccountRecoveryOptions) (*service.SuccessfulTestRecoveryResult, error) {
+func (s *openAIAccountStateRecovererStub) AdminRecoverAccountState(ctx context.Context, _ authz.Actor, accountID int64, options service.AccountRecoveryOptions) (*service.SuccessfulTestRecoveryResult, error) {
 	s.calls++
 	s.accountID = accountID
 	s.lastOptions = options
@@ -69,10 +70,12 @@ type openAIResetAdminServiceStub struct {
 	account *service.Account
 	err     error
 	calls   int
+	actor   authz.Actor
 }
 
-func (s *openAIResetAdminServiceStub) GetAccount(context.Context, int64) (*service.Account, error) {
+func (s *openAIResetAdminServiceStub) GetAccount(_ context.Context, actor authz.Actor, _ int64) (*service.Account, error) {
 	s.calls++
+	s.actor = actor
 	return s.account, s.err
 }
 
@@ -98,6 +101,7 @@ func performOpenAIQuotaResetRequestWithContext(t *testing.T, handler *OpenAIOAut
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 	router.POST("/api/v1/admin/openai/accounts/:id/reset-quota", handler.ResetQuota)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/openai/accounts/42/reset-quota", nil)
@@ -116,6 +120,7 @@ func performOpenAIQuotaRefreshRequest(t *testing.T, handler *OpenAIOAuthHandler)
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 	router.POST("/api/v1/admin/openai/accounts/:id/quota/refresh", handler.RefreshQuota)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/openai/accounts/42/quota/refresh", nil)
@@ -200,6 +205,9 @@ func TestOpenAIResetQuota_RecoversAccountStateBeforeRefreshingCache(t *testing.T
 	require.Equal(t, 1, quota.cacheCalls)
 	require.Equal(t, 1, recoverer.calls)
 	require.Equal(t, 1, adminService.calls)
+	actorUserID, ok := adminService.actor.UserID()
+	require.True(t, ok)
+	require.Equal(t, int64(1), actorUserID)
 }
 
 func TestOpenAIResetQuota_RecoveryFailureStopsWorkflow(t *testing.T) {
@@ -359,6 +367,7 @@ func TestOpenAIResetQuota_PostProcessingSurvivesClientCancellation(t *testing.T)
 	require.NoError(t, quota.queryCtxErr)
 	require.NoError(t, quota.cacheCtxErr)
 	require.Equal(t, 1, adminService.calls)
+	require.True(t, adminService.actor.Valid(), "detached post-processing must receive the request Actor explicitly")
 }
 
 func TestOpenAIRefreshQuota_PersistsSnapshot(t *testing.T) {
@@ -467,6 +476,7 @@ func TestNewOpenAIOAuthHandlerKeepsNilQuotaCapabilitiesGuarded(t *testing.T) {
 
 	router := gin.New()
 	router.Use(gin.Recovery())
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 	router.GET("/openai/accounts/:id/quota", handler.QueryQuota)
 	router.POST("/openai/accounts/:id/quota/refresh", handler.RefreshQuota)
 	router.POST("/openai/accounts/:id/reset-quota", handler.ResetQuota)

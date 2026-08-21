@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -84,6 +85,10 @@ func resolveRedeemCodeExpiresAt(expiresAt *time.Time, expiresInDays *int) (*time
 // List handles listing all redeem codes with pagination
 // GET /api/v1/admin/redeem-codes
 func (h *RedeemHandler) List(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	page, pageSize := response.ParsePagination(c)
 	codeType := c.Query("type")
 	status := c.Query("status")
@@ -96,7 +101,7 @@ func (h *RedeemHandler) List(c *gin.Context) {
 		search = search[:100]
 	}
 
-	codes, total, err := h.adminService.ListRedeemCodes(c.Request.Context(), page, pageSize, codeType, status, search, sortBy, sortOrder)
+	codes, total, err := h.adminService.AdminListRedeemCodes(c.Request.Context(), actor, page, pageSize, codeType, status, search, sortBy, sortOrder)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -112,13 +117,17 @@ func (h *RedeemHandler) List(c *gin.Context) {
 // GetByID handles getting a redeem code by ID
 // GET /api/v1/admin/redeem-codes/:id
 func (h *RedeemHandler) GetByID(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	codeID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid redeem code ID")
 		return
 	}
 
-	code, err := h.adminService.GetRedeemCode(c.Request.Context(), codeID)
+	code, err := h.adminService.AdminGetRedeemCode(c.Request.Context(), actor, codeID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -130,6 +139,10 @@ func (h *RedeemHandler) GetByID(c *gin.Context) {
 // Generate handles generating new redeem codes
 // POST /api/v1/admin/redeem-codes/generate
 func (h *RedeemHandler) Generate(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	var req GenerateRedeemCodesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -143,7 +156,7 @@ func (h *RedeemHandler) Generate(c *gin.Context) {
 	}
 
 	executeAdminIdempotentJSON(c, "admin.redeem_codes.generate", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
-		codes, execErr := h.adminService.GenerateRedeemCodes(ctx, &service.GenerateRedeemCodesInput{
+		codes, execErr := h.adminService.GenerateRedeemCodes(ctx, actor, &service.GenerateRedeemCodesInput{
 			Count:        req.Count,
 			Type:         req.Type,
 			Value:        req.Value,
@@ -166,6 +179,10 @@ func (h *RedeemHandler) Generate(c *gin.Context) {
 // CreateAndRedeem creates a fixed redeem code and redeems it for a target user in one step.
 // POST /api/v1/admin/redeem-codes/create-and-redeem
 func (h *RedeemHandler) CreateAndRedeem(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	if h.redeemService == nil {
 		response.InternalError(c, "redeem service not configured")
 		return
@@ -201,15 +218,15 @@ func (h *RedeemHandler) CreateAndRedeem(c *gin.Context) {
 	}
 
 	executeAdminIdempotentJSON(c, "admin.redeem_codes.create_and_redeem", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
-		existing, err := h.redeemService.GetByCode(ctx, req.Code)
+		existing, err := h.redeemService.AdminGetByCode(ctx, actor, req.Code)
 		if err == nil {
-			return h.resolveCreateAndRedeemExisting(ctx, existing, req.UserID)
+			return h.resolveCreateAndRedeemExisting(ctx, actor, existing, req.UserID)
 		}
 		if !errors.Is(err, service.ErrRedeemCodeNotFound) {
 			return nil, err
 		}
 
-		createErr := h.redeemService.CreateCode(ctx, &service.RedeemCode{
+		createErr := h.redeemService.AdminCreateCode(ctx, actor, &service.RedeemCode{
 			Code:         req.Code,
 			Type:         req.Type,
 			Value:        req.Value,
@@ -221,14 +238,14 @@ func (h *RedeemHandler) CreateAndRedeem(c *gin.Context) {
 		})
 		if createErr != nil {
 			// Unique code race: if code now exists, use idempotent semantics by used_by.
-			existingAfterCreateErr, getErr := h.redeemService.GetByCode(ctx, req.Code)
+			existingAfterCreateErr, getErr := h.redeemService.AdminGetByCode(ctx, actor, req.Code)
 			if getErr == nil {
-				return h.resolveCreateAndRedeemExisting(ctx, existingAfterCreateErr, req.UserID)
+				return h.resolveCreateAndRedeemExisting(ctx, actor, existingAfterCreateErr, req.UserID)
 			}
 			return nil, createErr
 		}
 
-		redeemed, redeemErr := h.redeemService.Redeem(ctx, req.UserID, req.Code)
+		redeemed, redeemErr := h.redeemService.AdminRedeem(ctx, actor, req.UserID, req.Code)
 		if redeemErr != nil {
 			return nil, redeemErr
 		}
@@ -236,7 +253,7 @@ func (h *RedeemHandler) CreateAndRedeem(c *gin.Context) {
 	})
 }
 
-func (h *RedeemHandler) resolveCreateAndRedeemExisting(ctx context.Context, existing *service.RedeemCode, userID int64) (any, error) {
+func (h *RedeemHandler) resolveCreateAndRedeemExisting(ctx context.Context, actor authz.Actor, existing *service.RedeemCode, userID int64) (any, error) {
 	if existing == nil {
 		return nil, infraerrors.Conflict("REDEEM_CODE_CONFLICT", "redeem code conflict")
 	}
@@ -246,14 +263,14 @@ func (h *RedeemHandler) resolveCreateAndRedeemExisting(ctx context.Context, exis
 		return nil, service.ErrRedeemCodeExpired
 	}
 	if existing.CanUse() {
-		redeemed, err := h.redeemService.Redeem(ctx, userID, existing.Code)
+		redeemed, err := h.redeemService.AdminRedeem(ctx, actor, userID, existing.Code)
 		if err == nil {
 			return gin.H{"redeem_code": dto.RedeemCodeFromServiceAdmin(redeemed)}, nil
 		}
 		if !errors.Is(err, service.ErrRedeemCodeUsed) {
 			return nil, err
 		}
-		latest, getErr := h.redeemService.GetByCode(ctx, existing.Code)
+		latest, getErr := h.redeemService.AdminGetByCode(ctx, actor, existing.Code)
 		if getErr == nil {
 			existing = latest
 		}
@@ -269,13 +286,17 @@ func (h *RedeemHandler) resolveCreateAndRedeemExisting(ctx context.Context, exis
 // Delete handles deleting a redeem code
 // DELETE /api/v1/admin/redeem-codes/:id
 func (h *RedeemHandler) Delete(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	codeID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid redeem code ID")
 		return
 	}
 
-	err = h.adminService.DeleteRedeemCode(c.Request.Context(), codeID)
+	err = h.adminService.AdminDeleteRedeemCode(c.Request.Context(), actor, codeID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -287,6 +308,10 @@ func (h *RedeemHandler) Delete(c *gin.Context) {
 // BatchDelete handles batch deleting redeem codes
 // POST /api/v1/admin/redeem-codes/batch-delete
 func (h *RedeemHandler) BatchDelete(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	var req struct {
 		IDs []int64 `json:"ids" binding:"required,min=1"`
 	}
@@ -295,7 +320,7 @@ func (h *RedeemHandler) BatchDelete(c *gin.Context) {
 		return
 	}
 
-	deleted, err := h.adminService.BatchDeleteRedeemCodes(c.Request.Context(), req.IDs)
+	deleted, err := h.adminService.AdminBatchDeleteRedeemCodes(c.Request.Context(), actor, req.IDs)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -310,6 +335,10 @@ func (h *RedeemHandler) BatchDelete(c *gin.Context) {
 // BatchUpdate handles batch updating redeem codes
 // POST /api/v1/admin/redeem-codes/batch-update
 func (h *RedeemHandler) BatchUpdate(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	if h.redeemService == nil {
 		response.InternalError(c, "redeem service not configured")
 		return
@@ -321,7 +350,7 @@ func (h *RedeemHandler) BatchUpdate(c *gin.Context) {
 		return
 	}
 
-	result, err := h.redeemService.BatchUpdate(c.Request.Context(), &service.RedeemCodeBatchUpdateInput{
+	result, err := h.redeemService.AdminBatchUpdate(c.Request.Context(), actor, &service.RedeemCodeBatchUpdateInput{
 		IDs:    req.IDs,
 		Fields: redeemBatchUpdateFieldsFromDTO(req.Fields),
 	})
@@ -355,13 +384,17 @@ func redeemBatchUpdateFieldsFromDTO(in dto.BatchUpdateRedeemCodeFields) service.
 // Expire handles expiring a redeem code
 // POST /api/v1/admin/redeem-codes/:id/expire
 func (h *RedeemHandler) Expire(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	codeID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid redeem code ID")
 		return
 	}
 
-	code, err := h.adminService.ExpireRedeemCode(c.Request.Context(), codeID)
+	code, err := h.adminService.AdminExpireRedeemCode(c.Request.Context(), actor, codeID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -391,6 +424,10 @@ func (h *RedeemHandler) GetStats(c *gin.Context) {
 // Export handles exporting redeem codes to CSV
 // GET /api/v1/admin/redeem-codes/export
 func (h *RedeemHandler) Export(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	codeType := c.Query("type")
 	status := c.Query("status")
 	search := strings.TrimSpace(c.Query("search"))
@@ -401,7 +438,7 @@ func (h *RedeemHandler) Export(c *gin.Context) {
 	}
 
 	// Get all codes without pagination (use large page size)
-	codes, _, err := h.adminService.ListRedeemCodes(c.Request.Context(), 1, 10000, codeType, status, search, sortBy, sortOrder)
+	codes, _, err := h.adminService.AdminListRedeemCodes(c.Request.Context(), actor, 1, 10000, codeType, status, search, sortBy, sortOrder)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

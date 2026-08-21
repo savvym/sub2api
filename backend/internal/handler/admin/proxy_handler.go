@@ -307,13 +307,18 @@ func (h *ProxyHandler) GetStats(c *gin.Context) {
 // GetProxyAccounts handles getting accounts using a proxy
 // GET /api/v1/admin/proxies/:id/accounts
 func (h *ProxyHandler) GetProxyAccounts(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	proxyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid proxy ID")
 		return
 	}
 
-	accounts, err := h.adminService.GetProxyAccounts(c.Request.Context(), proxyID)
+	accounts, err := h.adminService.AdminGetProxyAccounts(c.Request.Context(), actor, proxyID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

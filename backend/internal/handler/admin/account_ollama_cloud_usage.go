@@ -17,11 +17,16 @@ type ollamaCloudUsageAutoRefreshRequest struct {
 }
 
 func (h *AccountHandler) GetOllamaCloudUsageSettings(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	if h.ollamaCloudUsage == nil {
 		response.ErrorFrom(c, service.ErrOllamaCloudUsageUnavailable)
 		return
 	}
-	settings, err := h.ollamaCloudUsage.GetSettings(c.Request.Context())
+	settings, err := h.ollamaCloudUsage.AdminGetSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -30,6 +35,11 @@ func (h *AccountHandler) GetOllamaCloudUsageSettings(c *gin.Context) {
 }
 
 func (h *AccountHandler) UpdateOllamaCloudUsageSettings(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	if h.ollamaCloudUsage == nil {
 		response.ErrorFrom(c, service.ErrOllamaCloudUsageUnavailable)
 		return
@@ -39,11 +49,11 @@ func (h *AccountHandler) UpdateOllamaCloudUsageSettings(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	if err := h.ollamaCloudUsage.UpdateSettings(c.Request.Context(), &req); err != nil {
+	if err := h.ollamaCloudUsage.AdminUpdateSettings(c.Request.Context(), actor, &req); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	settings, err := h.ollamaCloudUsage.GetSettings(c.Request.Context())
+	settings, err := h.ollamaCloudUsage.AdminGetSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -52,6 +62,11 @@ func (h *AccountHandler) UpdateOllamaCloudUsageSettings(c *gin.Context) {
 }
 
 func (h *AccountHandler) GetOllamaCloudUsage(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	if !h.requireOllamaCloudUsage(c) {
 		return
 	}
@@ -59,7 +74,7 @@ func (h *AccountHandler) GetOllamaCloudUsage(c *gin.Context) {
 	if !ok {
 		return
 	}
-	state, err := h.ollamaCloudUsage.GetState(c.Request.Context(), accountID)
+	state, err := h.ollamaCloudUsage.AdminGetState(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -68,6 +83,11 @@ func (h *AccountHandler) GetOllamaCloudUsage(c *gin.Context) {
 }
 
 func (h *AccountHandler) SaveOllamaCloudUsageSession(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	if !h.requireOllamaCloudUsage(c) {
 		return
 	}
@@ -80,7 +100,7 @@ func (h *AccountHandler) SaveOllamaCloudUsageSession(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	state, err := h.ollamaCloudUsage.SaveSession(c.Request.Context(), accountID, req.Session)
+	state, err := h.ollamaCloudUsage.AdminSaveSession(c.Request.Context(), actor, accountID, req.Session)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -89,6 +109,11 @@ func (h *AccountHandler) SaveOllamaCloudUsageSession(c *gin.Context) {
 }
 
 func (h *AccountHandler) DeleteOllamaCloudUsageSession(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	if !h.requireOllamaCloudUsage(c) {
 		return
 	}
@@ -96,7 +121,7 @@ func (h *AccountHandler) DeleteOllamaCloudUsageSession(c *gin.Context) {
 	if !ok {
 		return
 	}
-	state, err := h.ollamaCloudUsage.DeleteSession(c.Request.Context(), accountID)
+	state, err := h.ollamaCloudUsage.AdminDeleteSession(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -105,6 +130,11 @@ func (h *AccountHandler) DeleteOllamaCloudUsageSession(c *gin.Context) {
 }
 
 func (h *AccountHandler) SetOllamaCloudUsageAutoRefresh(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	if !h.requireOllamaCloudUsage(c) {
 		return
 	}
@@ -117,7 +147,7 @@ func (h *AccountHandler) SetOllamaCloudUsageAutoRefresh(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	state, err := h.ollamaCloudUsage.SetAutoRefresh(c.Request.Context(), accountID, *req.Enabled)
+	state, err := h.ollamaCloudUsage.AdminSetAutoRefresh(c.Request.Context(), actor, accountID, *req.Enabled)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -126,6 +156,11 @@ func (h *AccountHandler) SetOllamaCloudUsageAutoRefresh(c *gin.Context) {
 }
 
 func (h *AccountHandler) RefreshOllamaCloudUsage(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	if !h.requireOllamaCloudUsage(c) {
 		return
 	}
@@ -133,7 +168,7 @@ func (h *AccountHandler) RefreshOllamaCloudUsage(c *gin.Context) {
 	if !ok {
 		return
 	}
-	state, err := h.ollamaCloudUsage.Refresh(c.Request.Context(), accountID)
+	state, err := h.ollamaCloudUsage.AdminRefresh(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

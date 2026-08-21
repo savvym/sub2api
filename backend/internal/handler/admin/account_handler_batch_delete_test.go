@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
@@ -28,7 +29,7 @@ type batchDeleteAdminService struct {
 	accountsByID     map[int64]*service.Account
 }
 
-func (s *batchDeleteAdminService) GetAccountsByIDs(_ context.Context, ids []int64) ([]*service.Account, error) {
+func (s *batchDeleteAdminService) GetAccountsByIDs(_ context.Context, _ authz.Actor, ids []int64) ([]*service.Account, error) {
 	accounts := make([]*service.Account, 0, len(ids))
 	for _, id := range ids {
 		if s.accountsByID != nil {
@@ -42,7 +43,7 @@ func (s *batchDeleteAdminService) GetAccountsByIDs(_ context.Context, ids []int6
 	return accounts, nil
 }
 
-func (s *batchDeleteAdminService) DeleteAccount(ctx context.Context, id int64) error {
+func (s *batchDeleteAdminService) DeleteAccount(ctx context.Context, _ authz.Actor, id int64) error {
 	s.mu.Lock()
 	s.active++
 	if s.active > s.maxActive {
@@ -69,6 +70,7 @@ func (s *batchDeleteAdminService) DeleteAccount(ctx context.Context, id int64) e
 func setupAccountBatchDeleteRouter(adminSvc *batchDeleteAdminService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(withAdminTestUserActorID(1))
 	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router.POST("/api/v1/admin/accounts/batch-delete", handler.BatchDelete)
 	return router

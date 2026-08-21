@@ -26,7 +26,7 @@ func TestAdminService_CreateUser_Success(t *testing.T) {
 		AllowedGroups: []int64{3, 5},
 	}
 
-	user, err := svc.CreateUser(context.Background(), input)
+	user, err := svc.CreateUser(context.Background(), adminResourceUserTestActor(t), input)
 	require.NoError(t, err)
 	require.NotNil(t, user)
 	require.Equal(t, int64(10), user.ID)
@@ -55,7 +55,7 @@ func TestAdminService_CreateUser_UsesDefaultBalanceWhenBalanceOmitted(t *testing
 	}}, cfg)
 	svc := &adminServiceImpl{userRepo: repo, settingService: settingService}
 
-	user, err := svc.CreateUser(context.Background(), &CreateUserInput{
+	user, err := svc.CreateUser(context.Background(), adminResourceUserTestActor(t), &CreateUserInput{
 		Email:    "default-balance@test.com",
 		Password: "strong-pass",
 	})
@@ -80,7 +80,7 @@ func TestAdminService_CreateUser_ExplicitZeroBalanceOverridesDefault(t *testing.
 	svc := &adminServiceImpl{userRepo: repo, settingService: settingService}
 	balance := 0.0
 
-	user, err := svc.CreateUser(context.Background(), &CreateUserInput{
+	user, err := svc.CreateUser(context.Background(), adminResourceUserTestActor(t), &CreateUserInput{
 		Email:    "zero-balance@test.com",
 		Password: "strong-pass",
 		Balance:  &balance,
@@ -97,7 +97,7 @@ func TestAdminService_CreateUser_EmailExists(t *testing.T) {
 	repo := &userRepoStub{createErr: ErrEmailExists}
 	svc := &adminServiceImpl{userRepo: repo}
 
-	_, err := svc.CreateUser(context.Background(), &CreateUserInput{
+	_, err := svc.CreateUser(context.Background(), adminResourceUserTestActor(t), &CreateUserInput{
 		Email:    "dup@test.com",
 		Password: "password",
 	})
@@ -110,7 +110,7 @@ func TestAdminService_CreateUser_CreateError(t *testing.T) {
 	repo := &userRepoStub{createErr: createErr}
 	svc := &adminServiceImpl{userRepo: repo}
 
-	_, err := svc.CreateUser(context.Background(), &CreateUserInput{
+	_, err := svc.CreateUser(context.Background(), adminResourceUserTestActor(t), &CreateUserInput{
 		Email:    "user@test.com",
 		Password: "password",
 	})
@@ -136,7 +136,7 @@ func TestAdminService_CreateUser_AssignsDefaultSubscriptions(t *testing.T) {
 		defaultSubAssigner: assigner,
 	}
 
-	_, err := svc.CreateUser(context.Background(), &CreateUserInput{
+	_, err := svc.CreateUser(context.Background(), adminResourceUserTestActor(t), &CreateUserInput{
 		Email:    "new-user@test.com",
 		Password: "password",
 	})

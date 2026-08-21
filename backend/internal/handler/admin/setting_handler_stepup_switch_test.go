@@ -37,6 +37,7 @@ func doUpdateSettings(t *testing.T, h *SettingHandler, body map[string]any, prep
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
 	c.Request.Header.Set("Content-Type", "application/json")
+	attachSettingAdminTestActor(t, c)
 	if prepare != nil {
 		prepare(c)
 	}
@@ -45,14 +46,13 @@ func doUpdateSettings(t *testing.T, h *SettingHandler, body map[string]any, prep
 	return rec
 }
 
-// 开启开关（false→true）：无认证上下文时拒绝，且带专用错误标记。
-func TestUpdateSettingsEnableStepUpRejectsWithoutSession(t *testing.T) {
+// 开启开关（false→true）：Actor 已解析但 step-up 依赖未装配时 fail-closed。
+func TestUpdateSettingsEnableStepUpFailsClosedWithoutDependencies(t *testing.T) {
 	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
 
 	rec := doUpdateSettings(t, h, map[string]any{"step_up_enabled": true}, nil)
 
-	require.Equal(t, http.StatusForbidden, rec.Code)
-	require.Contains(t, rec.Body.String(), "STEP_UP_ENABLE_REQUIRES_TOTP")
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
 	require.NotEqual(t, "true", repo.values[service.SettingKeyStepUpEnabled])
 }
 
@@ -80,15 +80,15 @@ func TestUpdateSettingsEnableStepUpFailsClosedWithoutUserService(t *testing.T) {
 	require.NotEqual(t, "true", repo.values[service.SettingKeyStepUpEnabled])
 }
 
-// 关闭开关（true→false）本身是敏感操作：无认证上下文时被 step-up 门控以 401 拦截。
-func TestUpdateSettingsDisableStepUpRequiresStepUp(t *testing.T) {
+// 关闭开关（true→false）本身是敏感操作：step-up 依赖未装配时 fail-closed。
+func TestUpdateSettingsDisableStepUpFailsClosedWithoutDependencies(t *testing.T) {
 	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
 		service.SettingKeyStepUpEnabled: "true",
 	})
 
 	rec := doUpdateSettings(t, h, map[string]any{"step_up_enabled": false}, nil)
 
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
 	require.Equal(t, "true", repo.values[service.SettingKeyStepUpEnabled])
 }
 

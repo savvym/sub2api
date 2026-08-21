@@ -52,7 +52,7 @@ func TestUpdateAccount_DisableOveragesClearsAICreditsKey(t *testing.T) {
 	}
 
 	svc := &adminServiceImpl{accountRepo: repo}
-	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	updated, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Extra: map[string]any{
 			"mixed_scheduling": true,
 			modelRateLimitsKey: map[string]any{
@@ -106,7 +106,7 @@ func TestUpdateAccount_EnableOveragesClearsModelRateLimitsBeforePersist(t *testi
 	}
 
 	svc := &adminServiceImpl{accountRepo: repo}
-	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	updated, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Extra: map[string]any{
 			"mixed_scheduling": true,
 			"allow_overages":   true,
@@ -139,8 +139,8 @@ func TestUpdateAccount_EmptyExtraPayloadCanClearQuotaLimits(t *testing.T) {
 	}
 
 	svc := &adminServiceImpl{accountRepo: repo}
-	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
-		// 显式空对象：语义是“清空 extra 中的可配置键”（例如关闭配额限制）
+	updated, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
+
 		Extra: map[string]any{},
 	})
 
@@ -175,7 +175,7 @@ func TestUpdateAccount_FixedWeeklyResetClearsLegacyRollingUsage(t *testing.T) {
 	}
 
 	svc := &adminServiceImpl{accountRepo: repo}
-	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	updated, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Extra: map[string]any{
 			"quota_weekly_limit":      40.0,
 			"quota_weekly_reset_mode": "fixed",

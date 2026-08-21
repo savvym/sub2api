@@ -39,7 +39,7 @@ func TestAdminService_UpdateUser_InvalidatesAuthCacheOnRPMLimitChange(t *testing
 	}
 
 	newRPM := 60
-	updated, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{
+	updated, err := svc.UpdateUser(context.Background(), adminResourceUserTestActor(t), 42, &UpdateUserInput{
 		RPMLimit: &newRPM,
 	})
 	require.NoError(t, err)
@@ -60,7 +60,7 @@ func TestAdminService_UpdateUser_NoInvalidateWhenRPMLimitUnchanged(t *testing.T)
 
 	newName := "new"
 	sameRPM := 10
-	_, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{
+	_, err := svc.UpdateUser(context.Background(), adminResourceUserTestActor(t), 42, &UpdateUserInput{
 		Username: &newName,
 		RPMLimit: &sameRPM,
 	})

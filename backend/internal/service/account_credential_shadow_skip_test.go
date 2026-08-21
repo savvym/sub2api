@@ -90,7 +90,7 @@ func TestEnsureOpenAIPrivacySkipsShadow(t *testing.T) {
 			return nil, errors.New("should not reach factory for shadow account")
 		},
 	}
-	got := svc.EnsureOpenAIPrivacy(context.Background(), shadow)
+	got := svc.EnsureOpenAIPrivacy(context.Background(), adminResourceUserTestActor(t), shadow)
 	require.Equal(t, "", got)
 	require.False(t, privacyCalled, "privacyClientFactory 不应被影子账号触发")
 }

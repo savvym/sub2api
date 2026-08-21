@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -28,7 +29,7 @@ func enrichShadowParentInfo(items []AccountWithConcurrency, parents map[int64]*s
 
 // enrichShadowParents 收集本批影子行的母账号 ID、一次批量解析（避免 N+1），再回填。
 // 解析失败时不报错（parent_* 留空，降级）。
-func (h *AccountHandler) enrichShadowParents(ctx context.Context, items []AccountWithConcurrency) {
+func (h *AccountHandler) enrichShadowParents(ctx context.Context, actor authz.Actor, items []AccountWithConcurrency) {
 	seen := make(map[int64]struct{})
 	for i := range items {
 		a := items[i].Account
@@ -44,7 +45,7 @@ func (h *AccountHandler) enrichShadowParents(ctx context.Context, items []Accoun
 	for pid := range seen {
 		parentIDs = append(parentIDs, pid)
 	}
-	parents, err := h.adminService.GetAccountsByIDs(ctx, parentIDs)
+	parents, err := h.adminService.GetAccountsByIDs(ctx, actor, parentIDs)
 	if err != nil {
 		return
 	}

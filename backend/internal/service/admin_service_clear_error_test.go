@@ -73,7 +73,7 @@ func TestAdminService_ClearAccountError_AlsoClearsRecoverableRuntimeState(t *tes
 	blocker := &runtimeBlockRecorder{}
 	svc := &adminServiceImpl{accountRepo: repo, runtimeBlocker: blocker}
 
-	updated, err := svc.ClearAccountError(context.Background(), 31)
+	updated, err := svc.ClearAccountError(context.Background(), adminResourceUserTestActor(t), 31)
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 	require.Equal(t, 1, repo.clearErrorCalls)

@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 )
 
 // GroupCapacitySummary holds aggregated capacity for a single group.
@@ -63,7 +65,10 @@ func NewGroupCapacityService(
 }
 
 // GetAllGroupCapacity returns capacity summary for all active groups.
-func (s *GroupCapacityService) GetAllGroupCapacity(ctx context.Context) ([]GroupCapacitySummary, error) {
+func (s *GroupCapacityService) GetAllGroupCapacity(ctx context.Context, actor authz.Actor) ([]GroupCapacitySummary, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	groupIDs, err := s.listActiveGroupIDs(ctx)
 	if err != nil {
 		return nil, err

@@ -278,12 +278,20 @@ func (h *PaymentHandler) QueryAndFinalizeRefund(c *gin.Context) {
 // ListPlans returns all subscription plans.
 // GET /api/v1/admin/payment/plans
 func (h *PaymentHandler) ListPlans(c *gin.Context) {
-	plans, err := h.configService.ListPlans(c.Request.Context())
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+	plans, err := h.configService.AdminListPlans(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	groupInfo := h.configService.GetGroupInfoMap(c.Request.Context(), plans)
+	groupInfo, err := h.configService.AdminGetGroupInfoMap(c.Request.Context(), actor, plans)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	response.Success(c, adminSubscriptionPlansForResponse(plans, groupInfo))
 }
 
@@ -350,12 +358,16 @@ func adminSubscriptionPlansForResponse(plans []*dbent.SubscriptionPlan, groupInf
 // CreatePlan creates a new subscription plan.
 // POST /api/v1/admin/payment/plans
 func (h *PaymentHandler) CreatePlan(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	var req service.CreatePlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	plan, err := h.configService.CreatePlan(c.Request.Context(), req)
+	plan, err := h.configService.AdminCreatePlan(c.Request.Context(), actor, req)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -366,6 +378,10 @@ func (h *PaymentHandler) CreatePlan(c *gin.Context) {
 // UpdatePlan updates an existing subscription plan.
 // PUT /api/v1/admin/payment/plans/:id
 func (h *PaymentHandler) UpdatePlan(c *gin.Context) {
+	actor, actorOK := adminResourceActor(c)
+	if !actorOK {
+		return
+	}
 	id, ok := parseIDParam(c, "id")
 	if !ok {
 		return
@@ -375,7 +391,7 @@ func (h *PaymentHandler) UpdatePlan(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	plan, err := h.configService.UpdatePlan(c.Request.Context(), id, req)
+	plan, err := h.configService.AdminUpdatePlan(c.Request.Context(), actor, id, req)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -386,11 +402,15 @@ func (h *PaymentHandler) UpdatePlan(c *gin.Context) {
 // DeletePlan deletes a subscription plan.
 // DELETE /api/v1/admin/payment/plans/:id
 func (h *PaymentHandler) DeletePlan(c *gin.Context) {
+	actor, actorOK := adminResourceActor(c)
+	if !actorOK {
+		return
+	}
 	id, ok := parseIDParam(c, "id")
 	if !ok {
 		return
 	}
-	if err := h.configService.DeletePlan(c.Request.Context(), id); err != nil {
+	if err := h.configService.AdminDeletePlan(c.Request.Context(), actor, id); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}

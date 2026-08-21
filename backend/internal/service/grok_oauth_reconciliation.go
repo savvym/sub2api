@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
@@ -54,6 +55,7 @@ var (
 // GrokOAuthReconciler is the narrow admin-facing reconciliation port.
 type GrokOAuthReconciler interface {
 	ReconcileGrokOAuth(ctx context.Context, input GrokOAuthReconcileInput) (*GrokOAuthReconcileResult, error)
+	AdminReconcileGrokOAuth(ctx context.Context, actor authz.Actor, input GrokOAuthReconcileInput) (*GrokOAuthReconcileResult, error)
 }
 
 // GrokOAuthConditionalErrorRepository is the narrow compare-and-set mutation

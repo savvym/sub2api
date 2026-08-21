@@ -14,7 +14,7 @@
 - Scoped Resource Reader 提交：`af49971aa`，已推送同一远程分支。
 - RoleService Core 提交：`4a1617e8d`，Guarded Role Mode API 提交：`0201ae488`，均已推送同一远程分支。
 - Trusted ActorResolver 提交：`34e43155c`，已推送同一远程分支。
-- 任务进度：17/49。当前切片 1.8 已完成 ActorResolver 生产接线、机器主体审计、幂等主体隔离和 system mutation 断线/restart 收口；下一开发切片为 1.9 帐号/分组管理员入口显式传 Actor。RBAC 未交付，Phase 0 尚未批准退出。
+- 任务进度：18/49。当前切片 1.9 已完成帐号/分组管理员入口及其直接资源引用的可信 Actor 显式传递；下一开发切片为 1.10 事务内收口安全关键写、durable audit 与双 Outbox。Policy/ACL/RBAC 未接入这些管理员 facade，Phase 0 尚未批准退出。
 - 当前权威行为：旧 `users.role` 与旧分组资格；不得启用任何新 ACL 放行。
 
 ## 已完成
@@ -61,13 +61,17 @@
 - restart 只在外层幂等成功落库、响应写出后且非 replay 时调度；前端明确 HTTP 失败会停止并显示错误，模糊断线才进入重启等待且消费 pending key。update/rollback/restart 的 system mutation 均携带 session-scoped 幂等 key。
 - 已补真实 `ActorResolver -> PolicyService -> AccessibleScope -> ResourceReadService` 贯通测试；主体版本陈旧时在 scoped reader 前 fail closed。本切片没有注册普通用户帐号/分组路由，也没有启用 ACL/RBAC。
 - 1.8 已通过完整 backend unit/vet/build、前端 lint/typecheck/build 与 237 files/1661 tests、OpenSpec strict validate、diff check；本机 PostgreSQL 18.6 动态覆盖 migration 234/235/236、续期/清理锁竞态和 AuthzPolicyStore snapshot，临时数据库残留为 0。
+- 帐号、分组及 Claude/OpenAI/Grok/Gemini/Antigravity OAuth、CN Provider 管理入口现在都在解析 path/query/body、检查依赖或执行副作用前取得可信 Actor，并显式传给 Actor-aware service facade；静态 capabilities、runtime sanity 和默认模型映射保持明确排除。
+- 为避免经关联入口绕过，User/API Key 的 Group 关系、Channel CRUD、Payment Plan、Redeem、Settings 默认订阅、Content Moderation 配置/API Key 测试、Channel Monitor CRUD/模板与 Ops alert rule/silence 也已接线。缺失或 JWT subject 不一致稳定返回 `503 AUTHORIZATION_UNAVAILABLE`，仓储与外部副作用为零。
+- service facade 首语句只验证当前管理员 Actor 是 JWT User 或 Admin API Key Service Principal，随后委托既有业务方法；旧管理员成功响应和全局资源行为保持不变，没有启用 Policy/ACL/RBAC，也没有新增普通用户路由。
+- 1.9 已通过完整 `make -C backend test-unit`、定向 race、相关包 vet、默认标签全仓编译、backend build、OpenSpec strict validate 与 diff check；注册路由 AST 门禁和 malformed-input 运行时测试共同锁定入口 fail closed 与 Actor 向后传递。
 
 ## 下一步
 
 1. 由平台/认证/安全负责人复核并批准 0.4 credentials/extra 清单和 0.5 自助平台/出站 allowlist。
 2. 对真实服务器只读数据运行 `data-preflight.sql`，记录异常角色、名称冲突、孤立关系和回填规模。
 3. 在 Docker/CI 环境执行 `CI=1 go test -tags=integration ./internal/repository` 严格门禁。
-4. 下一开发切片进入 1.9：帐号/分组管理员入口从请求上下文取得可信 Actor 并显式传入服务边界，保持现有全局管理员响应和行为不变。
+4. 下一开发切片进入 1.10：把安全关键资源写、durable audit、Auth Outbox 与 Scheduler Outbox 纳入同一事务，并在事务内重校验授权版本。
 
 ## 阻塞与风险
 
@@ -82,6 +86,8 @@
 - 通用管理员 settings PUT 跨多个服务不是单一数据库事务；`role_authorization_mode` 已从该路径移除，其余新开关当前没有 consumer，因此不阻塞 dark launch，但需在 1.10 收口。
 - 幂等升级 fence 允许新实例对新业务记录使用 Actor-qualified scope，并使仍写 raw scope 的旧实例 fail closed；混合版本期间旧请求可能收到冲突，因此发布仍应优先同版本切换或维护窗，不能宣称无感滚动升级。
 - 1.8 新增并发用例已通过定向 race；扩大到相关包的 race 命令仍会命中 `grok_import_probe_test.go` 和 `channel_monitor_checker_body_test.go` 两处不在本次 diff 的既有测试辅助代码竞态，不能宣称全量 race 已通过。
+- 1.9 只建立可信 Actor 的显式传递和 service 边界 fail closed，不执行资源 Policy 判定、SQL scope、事务内重授权或双 Outbox；现有 admin 中间件仍是成功请求的授权权威，不能把本切片解释为 ACL/RBAC 已交付。
+- Usage/Ops/Dashboard 等派生 scope、Channel Monitor Run/History/worker、Ops alert event/evaluator 与 Payment retry/refund 事务履约仍待后续切片；当前结构门禁覆盖既有 1.9 路径族，新增全新资源前缀时必须同步扩展分类器。
 
 ## 续作检查
 

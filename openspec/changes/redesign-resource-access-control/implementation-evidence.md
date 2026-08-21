@@ -349,3 +349,32 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 - raw-scope upgrade fence 会阻止旧实例与新实例对同一 key 双重执行，但混合版本期间旧实例可能收到 fingerprint conflict；生产发布应优先同版本切换或维护窗，并观察幂等 conflict/store-unavailable 指标。
 - 扩大到相关 handler/service 包的 race 命令仍会命中两处既有测试辅助代码竞态：`grok_import_probe_test.go` 与后台 slog 共用 `bytes.Buffer`，以及 `channel_monitor_checker_body_test.go` 并发写共享 capture handler；两处首因均不在 1.8 diff。新增 1.8 并发用例已单独通过 race，但不能把全量 race 记为通过。
 - Docker/Testcontainers repository integration suite 仍待 CI 或有 Docker 的机器执行；本机 PostgreSQL 隔离库验证不冒充 CI 等价门禁。
+
+## 2026-08-21 - Admin Resource Actor Propagation（1.9）
+
+### 实现范围
+
+- 新增统一 `adminResourceActor` 入口：只从认证 middleware 写入的 request context 读取可信 Actor，并要求 JWT User 与兼容 `AuthSubject` 同 ID；Admin API Key 必须解析为独立 Service Principal Actor，首管理员 subject 只保留为旧 Handler shim。
+- Account、Group、Claude/OpenAI/Grok/Gemini/Antigravity OAuth 与 CN Provider 的资源 Handler 在首个可执行逻辑 fail closed，先于 path/query/body 解析、依赖检查、仓储、网络调用和副作用；Actor 显式传入对应 Admin service facade 以及关联 usage、quota、scheduler、probe、import/export 和 OAuth 服务。
+- 直接资源引用入口同步接线：User/API Key 的 Group 关系、Channel CRUD、Payment Plan、Redeem、Settings 默认订阅、Content Moderation 配置/API Key 测试、Channel Monitor CRUD/模板，以及 Ops alert rule/silence。模板 response 的关联 monitor count 也经过 Actor-aware facade，`Apply` 的 `monitor_ids` 不会绕过服务边界。
+- `ValidateAdminResourceActor` 只接受 auth method 匹配的 JWT User 或 Admin API Key Service Principal；每个新 facade 首语句验证 Actor，再委托原业务方法。缺 Actor、subject 不一致或主体类型/认证方式错误返回 `503 AUTHORIZATION_UNAVAILABLE`，且输入解析、仓储和外部副作用为零。
+- 注册路由 AST 门禁现在对整个既有 1.9 路径族要求入口 guard 和 Actor 向后传递；Account 与 Group/OAuth/CN 另有 malformed-input 运行时矩阵，覆盖 JWT User、Admin API Key Service Principal 和缺 Actor fail closed。静态 capabilities、runtime sanity、默认模型映射通过显式排除断言固定边界。
+- 本切片保持 dark launch：service facade 尚未调用资源 Policy 或 SQL scope，没有启用 ACL/RBAC Feature Flag、没有新增普通用户路由，也没有改变可信旧管理员的成功响应和全局资源行为。
+
+### 自动化验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| `make -C backend test-unit` | 通过；包含完整 Handler/Service 回归 |
+| `go test -race ./internal/service ./internal/handler/admin ./internal/server -run 'Actor\|Resource\|GroupOAuthAndCN' -count=1` | 通过 |
+| `go vet ./internal/service ./internal/handler/admin ./internal/server` | 通过 |
+| `go test ./... -run '^$' -count=1` | 通过；默认标签全仓编译 |
+| `make -C backend build` | 通过 |
+| `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
+| `git diff --check` | 通过 |
+
+### 后续边界
+
+- 1.10 仍需把安全关键写、durable audit、Auth Outbox 与 Scheduler Outbox 纳入同一事务，并在事务内重校验主体/角色/资源版本；1.9 的 Actor 参数不是授权决定，不能替代 Policy。
+- Usage/Ops/Dashboard 等派生 scope、Channel Monitor Run/History/worker、Ops alert event/evaluator 和 Payment retry/refund 履约未在本切片宣称完成。
+- 中央门禁会自动覆盖当前已分类路径族内的新路由；未来新增全新资源前缀时，必须同步扩展 `isAdminResourceRoute` 分类和显式边界断言。

@@ -15,7 +15,7 @@ func TestAdminService_GetUserIncludeDeleted(t *testing.T) {
 	repo := &userRepoStub{user: &User{ID: 7, Email: "del@test.com", DeletedAt: &ts}}
 	svc := &adminServiceImpl{userRepo: repo}
 
-	got, err := svc.GetUserIncludeDeleted(context.Background(), 7)
+	got, err := svc.GetUserIncludeDeleted(context.Background(), adminResourceUserTestActor(t), 7)
 	require.NoError(t, err)
 	require.Equal(t, int64(7), got.ID)
 	require.NotNil(t, got.DeletedAt)

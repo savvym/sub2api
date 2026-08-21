@@ -44,6 +44,7 @@ func TestUserHandlerListIncludesActivityFieldsAndSortParams(t *testing.T) {
 		"/api/v1/admin/users?sort_by=last_used_at&sort_order=asc&search=activity",
 		nil,
 	)
+	attachAdminTestUserActorID(t, c, 1)
 
 	handler.List(c)
 
@@ -95,6 +96,7 @@ func TestUserHandlerGetByIDIncludesActivityFields(t *testing.T) {
 	c, _ := gin.CreateTestContext(recorder)
 	c.Params = gin.Params{{Key: "id", Value: "8"}}
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/users/8", nil)
+	attachAdminTestUserActorID(t, c, 1)
 
 	handler.GetByID(c)
 

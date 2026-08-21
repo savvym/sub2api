@@ -168,12 +168,16 @@ type AffiliateUserSummary struct {
 // LookupUsers searches users by email/username for the "add custom user" modal.
 // GET /api/v1/admin/affiliates/users/lookup?q=
 func (h *AffiliateHandler) LookupUsers(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	keyword := c.Query("q")
 	if keyword == "" {
 		response.Success(c, []AffiliateUserSummary{})
 		return
 	}
-	users, _, err := h.adminService.ListUsers(c.Request.Context(), 1, 20, service.UserListFilters{Search: keyword}, "email", "asc")
+	users, _, err := h.adminService.ListUsers(c.Request.Context(), actor, 1, 20, service.UserListFilters{Search: keyword}, "email", "asc")
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

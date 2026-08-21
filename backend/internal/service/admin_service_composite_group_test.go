@@ -41,7 +41,7 @@ func TestAdminService_CreateCompositeGroupCopiesAccountsFromConcreteGroups(t *te
 	}
 	svc := &adminServiceImpl{groupRepo: groupRepo}
 
-	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+	group, err := svc.CreateGroup(context.Background(), adminResourceUserTestActor(t), &CreateGroupInput{
 		Name:               "Composite",
 		Platform:           PlatformComposite,
 		RateMultiplier:     1,
@@ -92,7 +92,7 @@ func TestAdminService_UpdateCompositeGroupCopiesAccountsFromConcreteGroups(t *te
 	maxReasoningEffort := "low"
 	reasoningEffortMappings := []ReasoningEffortMapping{{From: "max", To: "high"}}
 
-	group, err := svc.UpdateGroup(context.Background(), 99, &UpdateGroupInput{
+	group, err := svc.UpdateGroup(context.Background(), adminResourceUserTestActor(t), 99, &UpdateGroupInput{
 		MaxReasoningEffort:       &maxReasoningEffort,
 		ReasoningEffortMappings:  &reasoningEffortMappings,
 		CopyAccountsFromGroupIDs: []int64{10, 20},
@@ -117,7 +117,7 @@ func TestAdminService_CreateAccountAllowsCompositeGroupAssignment(t *testing.T) 
 	}
 	svc := &adminServiceImpl{accountRepo: accountRepo, groupRepo: groupRepo}
 
-	account, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+	account, err := svc.CreateAccount(context.Background(), adminResourceUserTestActor(t), &CreateAccountInput{
 		Name:                  "OpenAI account",
 		Platform:              PlatformOpenAI,
 		Type:                  AccountTypeAPIKey,
@@ -147,7 +147,7 @@ func TestAdminService_UpdateAccountAllowsCompositeGroupAssignment(t *testing.T) 
 	svc := &adminServiceImpl{accountRepo: accountRepo, groupRepo: groupRepo}
 	groupIDs := []int64{99}
 
-	account, err := svc.UpdateAccount(context.Background(), 7, &UpdateAccountInput{
+	account, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), 7, &UpdateAccountInput{
 		GroupIDs:              &groupIDs,
 		SkipMixedChannelCheck: true,
 	})
@@ -191,7 +191,7 @@ func TestAdminService_CompositeModelsListCandidatesIncludeConcreteAccountMapping
 	}
 	svc := &adminServiceImpl{accountRepo: accountRepo, groupRepo: groupRepo}
 
-	candidates, err := svc.GetGroupModelsListCandidates(context.Background(), 99, PlatformComposite)
+	candidates, err := svc.GetGroupModelsListCandidates(context.Background(), adminResourceUserTestActor(t), 99, PlatformComposite)
 
 	require.NoError(t, err)
 	require.Contains(t, candidates, "gpt-custom")

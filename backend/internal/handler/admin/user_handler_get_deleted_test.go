@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -15,17 +16,18 @@ type getByIDAdminStub struct {
 	service.AdminService
 }
 
-func (s *getByIDAdminStub) GetUser(_ context.Context, _ int64) (*service.User, error) {
+func (s *getByIDAdminStub) GetUser(_ context.Context, _ authz.Actor, _ int64) (*service.User, error) {
 	return nil, service.ErrUserNotFound
 }
 
-func (s *getByIDAdminStub) GetUserIncludeDeleted(_ context.Context, id int64) (*service.User, error) {
+func (s *getByIDAdminStub) GetUserIncludeDeleted(_ context.Context, _ authz.Actor, id int64) (*service.User, error) {
 	return &service.User{ID: id, Email: "del@test.com"}, nil
 }
 
 func setupGetByIDRouter(svc service.AdminService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(withAdminTestUserActorID(1))
 	h := NewUserHandler(svc, nil, nil, nil, nil, nil, nil)
 	r.GET("/admin/users/:id", h.GetByID)
 	return r

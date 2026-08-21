@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -23,7 +24,7 @@ func TestRefreshSingleAccount_RejectsShadow(t *testing.T) {
 		QuotaDimension:  service.QuotaDimensionSpark,
 	}
 
-	_, _, err := h.refreshSingleAccount(context.Background(), shadow)
+	_, _, err := h.refreshSingleAccount(context.Background(), adminHandlerTestActor(t, authz.SubjectKindUser, 1), shadow)
 	require.Error(t, err, "影子刷新应被早拒")
 	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
 }

@@ -188,6 +188,7 @@ func TestSettingHandler_AuthSourcePlatformQuotas_PutGetRoundTrip(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
 	c.Request.Header.Set("Content-Type", "application/json")
+	attachSettingAdminTestActor(t, c)
 	handler.UpdateSettings(c)
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -199,6 +200,7 @@ func TestSettingHandler_AuthSourcePlatformQuotas_PutGetRoundTrip(t *testing.T) {
 	rec2 := httptest.NewRecorder()
 	c2, _ := gin.CreateTestContext(rec2)
 	c2.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/settings", nil)
+	attachSettingAdminTestActor(t, c2)
 	handler.GetSettings(c2)
 	require.Equal(t, http.StatusOK, rec2.Code)
 

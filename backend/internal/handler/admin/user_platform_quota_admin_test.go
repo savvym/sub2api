@@ -88,6 +88,7 @@ func putReq(t *testing.T, body string) (*gin.Context, *httptest.ResponseRecorder
 	req.Header.Set("Content-Type", "application/json")
 	c.Request = req
 	c.Params = []gin.Param{{Key: "id", Value: "42"}}
+	attachAdminTestUserActorID(t, c, 1)
 	return c, w
 }
 
@@ -195,6 +196,7 @@ func postReq(t *testing.T, body string) (*gin.Context, *httptest.ResponseRecorde
 	req.Header.Set("Content-Type", "application/json")
 	c.Request = req
 	c.Params = []gin.Param{{Key: "id", Value: "42"}}
+	attachAdminTestUserActorID(t, c, 1)
 	return c, w
 }
 

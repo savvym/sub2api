@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
@@ -145,7 +146,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 	source.Extra[UpstreamBillingProbeExtraKey] = map[string]any{"status": "ok"}
 	require.NoError(t, repo.Create(ctx, source))
 
-	duplicate, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
+	duplicate, err := svc.DuplicateAccount(ctx, adminResourceUserTestActor(t), source.ID, "")
 
 	require.NoError(t, err)
 	require.NotEqual(t, source.ID, duplicate.ID)
@@ -214,7 +215,7 @@ func TestDuplicateAccountRejectsCredentialShadow(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, shadow))
 
-	_, err := svc.DuplicateAccount(ctx, shadow.ID, "admin:1", "")
+	_, err := svc.DuplicateAccount(ctx, adminResourceUserTestActor(t), shadow.ID, "")
 
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
@@ -236,7 +237,7 @@ func TestDuplicateAccountRejectsRotatingOrUnknownCredentialTypes(t *testing.T) {
 			}
 			require.NoError(t, repo.Create(ctx, source))
 
-			_, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
+			_, err := svc.DuplicateAccount(ctx, adminResourceUserTestActor(t), source.ID, "")
 
 			require.Error(t, err)
 			require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
@@ -259,7 +260,7 @@ func TestDuplicateAccountPreservesUngroupedState(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, source))
 
-	duplicate, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
+	duplicate, err := svc.DuplicateAccount(ctx, adminResourceUserTestActor(t), source.ID, "")
 
 	require.NoError(t, err)
 	require.Empty(t, duplicate.GroupIDs)
@@ -281,7 +282,7 @@ func TestDuplicateAccountAtomicCreateFailureLeavesNoOrphan(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, source))
 	repo.atomicCreateErr = errors.New("group binding failed")
 
-	_, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
+	_, err := svc.DuplicateAccount(ctx, adminResourceUserTestActor(t), source.ID, "")
 
 	require.ErrorContains(t, err, "group binding failed")
 	require.Len(t, repo.accounts, 1)
@@ -306,15 +307,17 @@ func TestDuplicateAccountReturnsExistingCopyForSameOperationKey(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, source))
 
-	first, err := svc.DuplicateAccount(ctx, source.ID, "admin:7", "stable-operation-key")
+	actor7 := adminResourceTestActor(t, authz.SubjectKindUser, 7)
+	actor8 := adminResourceTestActor(t, authz.SubjectKindUser, 8)
+	first, err := svc.DuplicateAccount(ctx, actor7, source.ID, "stable-operation-key")
 	require.NoError(t, err)
-	second, err := svc.DuplicateAccount(ctx, source.ID, "admin:7", "stable-operation-key")
+	second, err := svc.DuplicateAccount(ctx, actor7, source.ID, "stable-operation-key")
 	require.NoError(t, err)
-	recovered, err := svc.RecoverDuplicateAccount(ctx, source.ID, "admin:7", "stable-operation-key")
+	recovered, err := svc.RecoverDuplicateAccount(ctx, actor7, source.ID, "stable-operation-key")
 	require.NoError(t, err)
-	otherAdminRecovery, err := svc.RecoverDuplicateAccount(ctx, source.ID, "admin:8", "stable-operation-key")
+	otherAdminRecovery, err := svc.RecoverDuplicateAccount(ctx, actor8, source.ID, "stable-operation-key")
 	require.NoError(t, err)
-	otherAdminCopy, err := svc.DuplicateAccount(ctx, source.ID, "admin:8", "stable-operation-key")
+	otherAdminCopy, err := svc.DuplicateAccount(ctx, actor8, source.ID, "stable-operation-key")
 	require.NoError(t, err)
 
 	require.Equal(t, first.ID, second.ID)

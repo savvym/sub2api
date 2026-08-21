@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -18,6 +19,7 @@ import (
 type grokImportProbeStub struct {
 	mu           sync.Mutex
 	calls        map[int64]int
+	actors       map[int64]authz.Actor
 	failures     map[int64]error
 	active       int
 	maxActive    int
@@ -30,16 +32,21 @@ type grokImportProbeStub struct {
 func newGrokImportProbeStub(buffer int) *grokImportProbeStub {
 	return &grokImportProbeStub{
 		calls:    make(map[int64]int),
+		actors:   make(map[int64]authz.Actor),
 		failures: make(map[int64]error),
 		started:  make(chan int64, buffer),
 		done:     make(chan int64, buffer),
 	}
 }
 
-func (s *grokImportProbeStub) QueryQuota(ctx context.Context, accountID int64) (*service.GrokQuotaProbeResult, error) {
+func (s *grokImportProbeStub) AdminQueryQuota(ctx context.Context, actor authz.Actor, accountID int64) (*service.GrokQuotaProbeResult, error) {
+	if err := service.ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	_, deadlineSeen := ctx.Deadline()
 	s.mu.Lock()
 	s.calls[accountID]++
+	s.actors[accountID] = actor
 	s.active++
 	if s.active > s.maxActive {
 		s.maxActive = s.active
@@ -74,6 +81,12 @@ func (s *grokImportProbeStub) QueryQuota(ctx context.Context, accountID int64) (
 		StatusCode:     200,
 		ResetSupported: false,
 	}, nil
+}
+
+func (s *grokImportProbeStub) actorFor(accountID int64) authz.Actor {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.actors[accountID]
 }
 
 func (s *grokImportProbeStub) snapshot() (map[int64]int, int, bool) {
@@ -113,6 +126,11 @@ func newGrokOAuthImportAccount(id int64) *service.Account {
 	}
 }
 
+func grokImportProbeActor(t testing.TB) authz.Actor {
+	t.Helper()
+	return adminHandlerTestActor(t, authz.SubjectKindUser, 1)
+}
+
 func awaitGrokProbeSignal(t *testing.T, signals <-chan int64) int64 {
 	t.Helper()
 	select {
@@ -128,7 +146,7 @@ func TestGrokImportProbeSchedulerProbesSingleAccountOnce(t *testing.T) {
 	scheduler := newGrokImportProbeScheduler(1, time.Second)
 	prober := newGrokImportProbeStub(1)
 
-	scheduler.schedule(prober, newGrokOAuthImportAccount(101))
+	scheduler.schedule(prober, grokImportProbeActor(t), newGrokOAuthImportAccount(101))
 	require.Equal(t, int64(101), awaitGrokProbeSignal(t, prober.done))
 
 	calls, maxActive, deadlineSeen := prober.snapshot()
@@ -141,6 +159,19 @@ func TestGrokImportProbeSchedulerProbesSingleAccountOnce(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestGrokImportProbeSchedulerPreservesServicePrincipalActor(t *testing.T) {
+	scheduler := newGrokImportProbeScheduler(1, time.Second)
+	prober := newGrokImportProbeStub(1)
+	actor := adminHandlerTestActor(t, authz.SubjectKindServicePrincipal, 73)
+
+	scheduler.schedule(prober, actor, newGrokOAuthImportAccount(102))
+	require.Equal(t, int64(102), awaitGrokProbeSignal(t, prober.done))
+
+	servicePrincipalID, ok := prober.actorFor(102).ServicePrincipalID()
+	require.True(t, ok)
+	require.Equal(t, int64(73), servicePrincipalID)
+}
+
 func TestGrokImportProbeSchedulerQueuesBatchWithoutPerTaskGoroutines(t *testing.T) {
 	const taskCount = 50
 	release := make(chan struct{})
@@ -150,7 +181,7 @@ func TestGrokImportProbeSchedulerQueuesBatchWithoutPerTaskGoroutines(t *testing.
 	prober.failures[150] = infraerrors.New(502, "GROK_TEST_PROBE_FAILED", "sensitive-upstream-body")
 
 	for id := int64(101); id < 101+taskCount; id++ {
-		scheduler.schedule(prober, newGrokOAuthImportAccount(id))
+		scheduler.schedule(prober, grokImportProbeActor(t), newGrokOAuthImportAccount(id))
 	}
 	for i := 0; i < 3; i++ {
 		awaitGrokProbeSignal(t, prober.started)
@@ -190,11 +221,11 @@ func TestGrokImportProbeSchedulerDeduplicatesPendingAndInFlightAccounts(t *testi
 	account := newGrokOAuthImportAccount(501)
 	queued := newGrokOAuthImportAccount(502)
 
-	scheduler.schedule(prober, account)
+	scheduler.schedule(prober, grokImportProbeActor(t), account)
 	require.Equal(t, int64(501), awaitGrokProbeSignal(t, prober.started))
-	scheduler.schedule(prober, account)
-	scheduler.schedule(prober, queued)
-	scheduler.schedule(prober, queued)
+	scheduler.schedule(prober, grokImportProbeActor(t), account)
+	scheduler.schedule(prober, grokImportProbeActor(t), queued)
+	scheduler.schedule(prober, grokImportProbeActor(t), queued)
 
 	scheduler.mu.Lock()
 	require.Len(t, scheduler.queue, 1)
@@ -215,10 +246,10 @@ func TestGrokImportProbeSchedulerBoundsPendingQueue(t *testing.T) {
 	prober := newGrokImportProbeStub(grokImportProbeQueueLimit + 1)
 	release := make(chan struct{})
 	prober.block = release
-	scheduler.schedule(prober, newGrokOAuthImportAccount(600))
+	scheduler.schedule(prober, grokImportProbeActor(t), newGrokOAuthImportAccount(600))
 	require.Equal(t, int64(600), awaitGrokProbeSignal(t, prober.started))
 	for id := int64(601); id < 601+grokImportProbeQueueLimit+10; id++ {
-		scheduler.schedule(prober, newGrokOAuthImportAccount(id))
+		scheduler.schedule(prober, grokImportProbeActor(t), newGrokOAuthImportAccount(id))
 	}
 
 	scheduler.mu.Lock()
@@ -237,7 +268,7 @@ func TestGrokImportProbeSchedulerTimeoutCancelsProbe(t *testing.T) {
 	prober := newGrokImportProbeStub(1)
 	prober.block = neverRelease
 
-	scheduler.schedule(prober, newGrokOAuthImportAccount(201))
+	scheduler.schedule(prober, grokImportProbeActor(t), newGrokOAuthImportAccount(201))
 	require.Equal(t, int64(201), awaitGrokProbeSignal(t, prober.done))
 
 	calls, _, _ := prober.snapshot()
@@ -248,9 +279,9 @@ func TestGrokImportProbeSchedulerSkipsMissingServiceAndNonGrokAccounts(t *testin
 	scheduler := newGrokImportProbeScheduler(1, time.Second)
 	prober := newGrokImportProbeStub(1)
 
-	scheduler.schedule(nil, newGrokOAuthImportAccount(301))
-	scheduler.schedule(prober, &service.Account{ID: 302, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth})
-	scheduler.schedule(prober, &service.Account{ID: 303, Platform: service.PlatformGrok, Type: service.AccountTypeAPIKey})
+	scheduler.schedule(nil, grokImportProbeActor(t), newGrokOAuthImportAccount(301))
+	scheduler.schedule(prober, grokImportProbeActor(t), &service.Account{ID: 302, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth})
+	scheduler.schedule(prober, grokImportProbeActor(t), &service.Account{ID: 303, Platform: service.PlatformGrok, Type: service.AccountTypeAPIKey})
 
 	select {
 	case id := <-prober.started:
@@ -270,7 +301,7 @@ func TestGrokImportProbeFailureLogDoesNotIncludeErrorMessage(t *testing.T) {
 	scheduler := newGrokImportProbeScheduler(1, time.Second)
 	prober := newGrokImportProbeStub(1)
 	prober.failures[401] = infraerrors.New(502, "GROK_TEST_PROBE_FAILED", "refresh-token-secret")
-	scheduler.schedule(prober, newGrokOAuthImportAccount(401))
+	scheduler.schedule(prober, grokImportProbeActor(t), newGrokOAuthImportAccount(401))
 	awaitGrokProbeSignal(t, prober.done)
 
 	require.Eventually(t, func() bool {
