@@ -1,6 +1,6 @@
 # Permission Coverage
 
-状态：Phase 0 覆盖基线已建立。此表是后续 Actor/Policy 接线的覆盖基线；`待接入` 不表示当前接口不安全，而表示它仍依赖现有 admin 中间件或旧用户所有权逻辑。
+状态：Phase 0 覆盖基线已建立，1.9 已完成管理员帐号/分组入口及直接资源引用的 Actor 显式接线。`Actor 已接线；Policy 待接入` 表示可信身份已进入 service 边界，但成功请求仍依赖现有 admin 中间件，尚未执行新资源 Policy、SQL scope 或 ACL/RBAC 判定。
 
 ## 动作约定
 
@@ -17,30 +17,42 @@
 
 | 入口族 | 代表路由/操作 | 资源/引用 ID | 目标检查 | 事务与失效 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| 列表与详情 | list、get、models、stats、usage、today stats | account、group filter | scoped list / `account.view` + 字段投影 | 无写入 | 待接入 |
-| 创建 | create、batch create | proxy、groups、parent account、routing refs | `account.create`；引用分别授权；Owner 强制绑定 | create + group links + audit + Scheduler | 待接入 |
-| 复制 | duplicate、Spark shadow | source account、parent、groups | source `account.view`；新资源 create；禁止复制不可见凭证 | 同创建；凭证复制需 durable audit | 待接入 |
-| 更新 | update、bulk update、batch credentials | account、proxy、groups、routing refs | `account.edit`；凭证替换额外审计 | resource/version + audit + Scheduler | 待接入 |
-| 删除 | delete、batch delete | accounts、account_groups | `account.delete`；批量原子 IDOR | delete/soft-delete + Auth/Scheduler | 待接入 |
-| 运维 | test、recover、refresh、clear error/rate limit/temp state、schedulable、refresh tier/quota | account | `account.operate` | 状态写 + Scheduler；敏感刷新审计 | 待接入 |
-| OAuth | auth URL、exchange、cookie auth、apply credentials、OpenAI/Grok refresh | account、flow state、proxy | 创建资格或 `account.edit`；Owner 来自服务端 flow | 凭证写 + audit + Scheduler/cache | 待接入 |
-| 导入导出 | generic data、Codex session、CRS sync | accounts、groups、proxies | 每项 scoped；导出凭证走 break-glass | 批次原子策略、逐项归因 | 待接入 |
-| 上游探测 | billing probe、models sync、Ollama usage | account | `account.operate`；平台设置仍管理员 | extra/status + Scheduler（如相关） | 待接入 |
-| 代理反向引用 | proxy accounts、proxy fallback | proxy、accounts | proxy 权限 + 每个 account scope | bulk account event | 待接入 |
-| 定时测试 | scheduled test plans/results | account | `account.view` / `operate` | 计划写与结果投影 | 待接入 |
+| 列表与详情 | list、get、models、stats、usage、today stats | account、group filter | scoped list / `account.view` + 字段投影 | 无写入 | Actor 已接线；Policy 待接入 |
+| 创建 | create、batch create | proxy、groups、parent account、routing refs | `account.create`；引用分别授权；Owner 强制绑定 | create + group links + audit + Scheduler | Actor 已接线；Policy 待接入 |
+| 复制 | duplicate、Spark shadow | source account、parent、groups | source `account.view`；新资源 create；禁止复制不可见凭证 | 同创建；凭证复制需 durable audit | Actor 已接线；Policy 待接入 |
+| 更新 | update、bulk update、batch credentials | account、proxy、groups、routing refs | `account.edit`；凭证替换额外审计 | resource/version + audit + Scheduler | Actor 已接线；Policy 待接入 |
+| 删除 | delete、batch delete | accounts、account_groups | `account.delete`；批量原子 IDOR | delete/soft-delete + Auth/Scheduler | Actor 已接线；Policy 待接入 |
+| 运维 | test、recover、refresh、clear error/rate limit/temp state、schedulable、refresh tier/quota | account | `account.operate` | 状态写 + Scheduler；敏感刷新审计 | Actor 已接线；Policy 待接入 |
+| OAuth | auth URL、exchange、cookie auth、apply credentials、OpenAI/Grok refresh | account、flow state、proxy | 创建资格或 `account.edit`；Owner 来自服务端 flow | 凭证写 + audit + Scheduler/cache | Actor 已接线；Policy 待接入 |
+| 导入导出 | generic data、Codex session、CRS sync | accounts、groups、proxies | 每项 scoped；导出凭证走 break-glass | 批次原子策略、逐项归因 | Actor 已接线；Policy 待接入 |
+| 上游探测 | billing probe、models sync、Ollama usage | account | `account.operate`；平台设置仍管理员 | extra/status + Scheduler（如相关） | Actor 已接线；Policy 待接入 |
+| 代理反向引用 | proxy accounts、proxy fallback | proxy、accounts | proxy 权限 + 每个 account scope | bulk account event | Actor 已接线；Policy 待接入 |
+| 定时测试 | scheduled test plans/results | account | `account.view` / `operate` | 计划写与结果投影 | Actor 已接线；Policy 待接入 |
 
 ## 分组 HTTP 入口
 
 | 入口族 | 代表路由/操作 | 资源/引用 ID | 目标检查 | 事务与失效 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| 列表与详情 | list、all、get、usage/capacity/stats | group | scoped list / `group.view`；聚合按 Actor 过滤 | 无写入 | 待接入 |
-| 创建/复制 | create、duplicate | source group、accounts、fallback、routing | `group.create`；源 view；引用逐项校验 | create + links + audit + Scheduler/Auth | 待接入 |
-| 更新 | update、sort order | group、accounts、fallback groups、model routes | `group.edit`；平台策略字段另行限制 | version + audit + 双 Outbox | 待接入 |
-| 删除 | delete | group、API Keys、subscriptions、routes、links | `group.delete`；级联影响显式确认 | 原子级联 + 双 Outbox | 待接入 |
-| Composite | list/create/update/delete/preview routes | source group、target groups/models | source `group.edit`；所有目标 `group.use/view` | route + version + Auth/Scheduler | 待接入 |
-| 用户覆盖 | rate multipliers、RPM overrides | group、users | 平台治理能力；不下放给普通 manager | durable audit + auth invalidation | 保持管理员 |
-| API Key 反向读 | group API Keys | group、users/keys | 平台治理；Owner 不得看到消费者 Key 原文 | 字段投影 | 保持管理员 |
-| 订阅反向读 | group subscriptions | group、users/subscriptions | 平台治理或严格聚合投影 | scoped aggregate | 待设计 |
+| 列表与详情 | list、all、get、usage/capacity/stats | group | scoped list / `group.view`；聚合按 Actor 过滤 | 无写入 | Actor 已接线；Policy 待接入 |
+| 创建/复制 | create、duplicate | source group、accounts、fallback、routing | `group.create`；源 view；引用逐项校验 | create + links + audit + Scheduler/Auth | Actor 已接线；Policy 待接入 |
+| 更新 | update、sort order | group、accounts、fallback groups、model routes | `group.edit`；平台策略字段另行限制 | version + audit + 双 Outbox | Actor 已接线；Policy 待接入 |
+| 删除 | delete | group、API Keys、subscriptions、routes、links | `group.delete`；级联影响显式确认 | 原子级联 + 双 Outbox | Actor 已接线；Policy 待接入 |
+| Composite | list/create/update/delete/preview routes | source group、target groups/models | source `group.edit`；所有目标 `group.use/view` | route + version + Auth/Scheduler | Actor 已接线；Policy 待接入 |
+| 用户覆盖 | rate multipliers、RPM overrides | group、users | 平台治理能力；不下放给普通 manager | durable audit + auth invalidation | Actor 已接线；平台 Policy 待接入 |
+| API Key 反向读 | group API Keys | group、users/keys | 平台治理；Owner 不得看到消费者 Key 原文 | 字段投影 | Actor 已接线；字段 Policy 待设计 |
+| 订阅反向读 | group subscriptions | group、users/subscriptions | 平台治理或严格聚合投影 | scoped aggregate | Actor 已接线；Scope/投影待设计 |
+
+## 关联管理员直接入口
+
+| 入口族 | 直接资源引用 | 1.9 状态 | 后续责任 |
+| --- | --- | --- | --- |
+| User / Admin API Key | user、group、API Key | Actor 已接线 | 用户/Key/Group Policy 与事务内重授权 |
+| Channel CRUD | channel | Actor 已接线 | 平台能力 Policy |
+| Payment Plan / Redeem | plan、redeem code、user、subscription | Actor 已接线 | 履约事务、retry/refund 与审计 |
+| Settings 默认订阅 | group、subscription plan | Actor 已接线 | 平台 Policy 与原子配置写 |
+| Content Moderation | groups、proxy、API Key 测试 | Actor 已接线 | 引用 Policy 与出站审计 |
+| Channel Monitor / Template | monitor、template、account、`monitor_ids` | Actor 已接线（Run/History 延期） | Policy、worker System Actor 与历史投影 |
+| Ops alert rule / silence | rule、group、account、platform | Actor 已接线（events/evaluator 延期） | Policy、派生 scope 与 System Actor |
 
 ## 普通用户与数据面
 

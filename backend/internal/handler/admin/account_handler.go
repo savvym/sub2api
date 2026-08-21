@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -223,7 +224,7 @@ func (h *AccountHandler) accountResponseFromService(account *service.Account) *d
 	return out
 }
 
-func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, account *service.Account) AccountWithConcurrency {
+func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, actor authz.Actor, account *service.Account) AccountWithConcurrency {
 	item := AccountWithConcurrency{
 		Account:            h.accountResponseFromService(account),
 		CurrentConcurrency: 0,
@@ -241,7 +242,7 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	if account.IsAnthropicOAuthOrSetupToken() {
 		if h.accountUsageService != nil && account.GetWindowCostLimit() > 0 {
 			startTime := account.GetCurrentWindowStartTime()
-			if stats, err := h.accountUsageService.GetAccountWindowStats(ctx, account.ID, startTime); err == nil && stats != nil {
+			if stats, err := h.accountUsageService.AdminGetAccountWindowStats(ctx, actor, account.ID, startTime); err == nil && stats != nil {
 				cost := stats.StandardCost
 				item.CurrentWindowCost = &cost
 			}
@@ -264,14 +265,14 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 		}
 	}
 
-	h.enrichShadowParents(ctx, []AccountWithConcurrency{item})
+	h.enrichShadowParents(ctx, actor, []AccountWithConcurrency{item})
 
 	return item
 }
 
 // scoreOpenAIAccountSchedulerPool 对池内 OpenAI 账号计算调度分数快照。
 // loadMap 为共享的账号负载数据（含池内全部账号即可，多余条目无害）；传 nil 时自行批查。
-func (h *AccountHandler) scoreOpenAIAccountSchedulerPool(ctx context.Context, accounts []service.Account, loadMap map[int64]*service.AccountLoadInfo) map[int64]AccountSchedulerScore {
+func (h *AccountHandler) scoreOpenAIAccountSchedulerPool(ctx context.Context, actor authz.Actor, accounts []service.Account, loadMap map[int64]*service.AccountLoadInfo) map[int64]AccountSchedulerScore {
 	if len(accounts) == 0 {
 		return nil
 	}
@@ -294,7 +295,7 @@ func (h *AccountHandler) scoreOpenAIAccountSchedulerPool(ctx context.Context, ac
 
 	var scores map[int64]service.OpenAIAccountSchedulerScoreSnapshot
 	if h.rateLimitService != nil {
-		scores = h.rateLimitService.BuildOpenAIAccountSchedulerScoreSnapshot(ctx, openAIAccounts, loadMap)
+		scores, _ = h.rateLimitService.AdminBuildOpenAIAccountSchedulerScoreSnapshot(ctx, actor, openAIAccounts, loadMap)
 	} else {
 		scores = service.BuildOpenAIAccountSchedulerScoreSnapshot(openAIAccounts, loadMap)
 	}
@@ -342,6 +343,7 @@ func (h *AccountHandler) fetchOpenAIAccountLoadMap(ctx context.Context, openAIAc
 
 func (h *AccountHandler) buildOpenAIAccountSchedulerScores(
 	ctx context.Context,
+	actor authz.Actor,
 	accounts []service.Account,
 	filterPool []service.Account,
 ) (map[int64]*AccountSchedulerScore, map[int64][]AccountSchedulerGroupScore) {
@@ -390,7 +392,7 @@ func (h *AccountHandler) buildOpenAIAccountSchedulerScores(
 	if h.adminService != nil {
 		for _, groupID := range groupIDList {
 			gid := groupID
-			pool, err := h.adminService.ListOpenAISchedulableAccountsForSchedulerScore(ctx, &gid)
+			pool, err := h.adminService.ListOpenAISchedulableAccountsForSchedulerScore(ctx, actor, &gid)
 			if err != nil {
 				slog.Warn("openai_scheduler_group_score_pool_failed", "group_id", gid, "error", err)
 				continue
@@ -414,7 +416,7 @@ func (h *AccountHandler) buildOpenAIAccountSchedulerScores(
 	loadMap := h.fetchOpenAIAccountLoadMap(ctx, loadUnion)
 
 	baseScores := make(map[int64]*AccountSchedulerScore)
-	for accountID, score := range h.scoreOpenAIAccountSchedulerPool(ctx, filterPool, loadMap) {
+	for accountID, score := range h.scoreOpenAIAccountSchedulerPool(ctx, actor, filterPool, loadMap) {
 		copiedScore := score
 		baseScores[accountID] = &copiedScore
 	}
@@ -424,7 +426,7 @@ func (h *AccountHandler) buildOpenAIAccountSchedulerScores(
 		if len(pool) == 0 {
 			return
 		}
-		scores := h.scoreOpenAIAccountSchedulerPool(ctx, pool, loadMap)
+		scores := h.scoreOpenAIAccountSchedulerPool(ctx, actor, pool, loadMap)
 		for accountID, schedulerScore := range scores {
 			if _, ok := pageOpenAIAccountIDs[accountID]; !ok {
 				continue
@@ -478,6 +480,7 @@ func (h *AccountHandler) buildOpenAIAccountSchedulerScores(
 
 func (h *AccountHandler) listAccountSchedulerScoreFilterPool(
 	ctx context.Context,
+	actor authz.Actor,
 	platform, accountType, status, search string,
 	groupID int64,
 	privacyMode string,
@@ -487,7 +490,7 @@ func (h *AccountHandler) listAccountSchedulerScoreFilterPool(
 	}
 	// 池只用于 OpenAI 分数计算（非 OpenAI 账号会在打分时被丢弃），
 	// 无论列表页平台过滤为何，查询一律限定 openai，避免无过滤时全表扫描。
-	accounts, err := h.adminService.ListAccountsForSchedulerScoreFilter(ctx, service.PlatformOpenAI, accountType, status, search, groupID, privacyMode)
+	accounts, err := h.adminService.ListAccountsForSchedulerScoreFilter(ctx, actor, service.PlatformOpenAI, accountType, status, search, groupID, privacyMode)
 	if err != nil {
 		slog.Warn("openai_scheduler_filter_score_pool_failed", "error", err)
 		return nil
@@ -498,6 +501,11 @@ func (h *AccountHandler) listAccountSchedulerScoreFilterPool(
 // List handles listing all accounts with pagination
 // GET /api/v1/admin/accounts
 func (h *AccountHandler) List(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	page, pageSize := response.ParsePagination(c)
 	platform := c.Query("platform")
 	accountType := c.Query("type")
@@ -532,8 +540,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 			groupID = parsedGroupID
 		}
 	}
-
-	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
+	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), actor, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -543,7 +550,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		for index := range accounts {
 			accountPointers[index] = &accounts[index]
 		}
-		if err := h.ollamaCloudUsage.ResolveAccounts(c.Request.Context(), accountPointers); err != nil {
+		if err := h.ollamaCloudUsage.AdminResolveAccounts(c.Request.Context(), actor, accountPointers); err != nil {
 			response.ErrorFrom(c, err)
 			return
 		}
@@ -570,8 +577,8 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 	if includeSchedulerScore && pageHasOpenAIAccounts {
-		schedulerFilterPool := h.listAccountSchedulerScoreFilterPool(c.Request.Context(), platform, accountType, status, search, groupID, privacyMode)
-		schedulerScores, schedulerGroupScores = h.buildOpenAIAccountSchedulerScores(c.Request.Context(), accounts, schedulerFilterPool)
+		schedulerFilterPool := h.listAccountSchedulerScoreFilterPool(c.Request.Context(), actor, platform, accountType, status, search, groupID, privacyMode)
+		schedulerScores, schedulerGroupScores = h.buildOpenAIAccountSchedulerScores(c.Request.Context(), actor, accounts, schedulerFilterPool)
 	}
 
 	// 始终获取并发数（Redis ZCARD，极低开销）
@@ -634,7 +641,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 			g.Go(func() error {
 				// 使用统一的窗口开始时间计算逻辑（考虑窗口过期情况）
 				startTime := accCopy.GetCurrentWindowStartTime()
-				stats, err := h.accountUsageService.GetAccountWindowStats(gctx, accCopy.ID, startTime)
+				stats, err := h.accountUsageService.AdminGetAccountWindowStats(gctx, actor, accCopy.ID, startTime)
 				if err == nil && stats != nil {
 					mu.Lock()
 					windowCosts[accCopy.ID] = stats.StandardCost // 使用标准费用
@@ -681,7 +688,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		result[i] = item
 	}
 
-	h.enrichShadowParents(c.Request.Context(), result)
+	h.enrichShadowParents(c.Request.Context(), actor, result)
 
 	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, lite)
 	if etag != "" {
@@ -754,36 +761,44 @@ func ifNoneMatchMatched(ifNoneMatch, etag string) bool {
 // GetByID handles getting an account by ID
 // GET /api/v1/admin/accounts/:id
 func (h *AccountHandler) GetByID(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-
-	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	account, err := h.adminService.GetAccount(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 	if h.ollamaCloudUsage != nil {
-		if err := h.ollamaCloudUsage.ResolveAccounts(c.Request.Context(), []*service.Account{account}); err != nil {
+		if err := h.ollamaCloudUsage.AdminResolveAccounts(c.Request.Context(), actor, []*service.Account{account}); err != nil {
 			response.ErrorFrom(c, err)
 			return
 		}
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), actor, account))
 }
 
 // CheckMixedChannel handles checking mixed channel risk for account-group binding.
 // POST /api/v1/admin/accounts/check-mixed-channel
 func (h *AccountHandler) CheckMixedChannel(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req CheckMixedChannelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
 	if len(req.GroupIDs) == 0 {
 		response.Success(c, gin.H{"has_risk": false})
 		return
@@ -794,7 +809,7 @@ func (h *AccountHandler) CheckMixedChannel(c *gin.Context) {
 		accountID = *req.AccountID
 	}
 
-	err := h.adminService.CheckMixedChannelRisk(c.Request.Context(), accountID, req.Platform, req.GroupIDs)
+	err := h.adminService.CheckMixedChannelRisk(c.Request.Context(), actor, accountID, req.Platform, req.GroupIDs)
 	if err != nil {
 		var mixedErr *service.MixedChannelError
 		if errors.As(err, &mixedErr) {
@@ -822,6 +837,11 @@ func (h *AccountHandler) CheckMixedChannel(c *gin.Context) {
 // Create handles creating a new account
 // POST /api/v1/admin/accounts
 func (h *AccountHandler) Create(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req CreateAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -846,7 +866,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	var createdAccount *service.Account
 
 	result, err := executeAdminIdempotent(c, "admin.accounts.create", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
-		account, execErr := h.adminService.CreateAccount(ctx, &service.CreateAccountInput{
+		account, execErr := h.adminService.CreateAccount(ctx, actor, &service.CreateAccountInput{
 			Name:                  req.Name,
 			Notes:                 req.Notes,
 			Platform:              req.Platform,
@@ -869,10 +889,10 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		}
 		createdAccount = account
 		// Antigravity OAuth: 新账号直接设置隐私
-		h.adminService.ForceAntigravityPrivacy(ctx, account)
+		h.adminService.ForceAntigravityPrivacy(ctx, actor, account)
 		// OpenAI OAuth: 新账号直接设置隐私
-		h.adminService.ForceOpenAIPrivacy(ctx, account)
-		return h.buildAccountResponseWithRuntime(ctx, account), nil
+		h.adminService.ForceOpenAIPrivacy(ctx, actor, account)
+		return h.buildAccountResponseWithRuntime(ctx, actor, account), nil
 	})
 	if err != nil {
 		// 检查是否为混合渠道错误
@@ -898,20 +918,25 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	}
 	// OpenAI APIKey 账号创建后异步探测上游 /v1/responses 能力。
 	// 探测失败不影响账号创建响应。
-	h.scheduleOpenAIResponsesProbe(createdAccount)
-	h.scheduleGrokImportProbe(createdAccount)
+	h.scheduleOpenAIResponsesProbe(c.Request.Context(), actor, createdAccount)
+	h.scheduleGrokImportProbe(actor, createdAccount)
 	response.Success(c, result.Data)
 }
 
 // Duplicate handles creating an independent account from an existing account's configuration.
 // POST /api/v1/admin/accounts/:id/duplicate
 func (h *AccountHandler) Duplicate(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-	actorScope := adminActorScope(c)
+	actorScope, _ := actor.SubjectKey()
 
 	result, err := executeAdminIdempotent(
 		c,
@@ -921,22 +946,22 @@ func (h *AccountHandler) Duplicate(c *gin.Context) {
 		}{AccountID: accountID},
 		service.DefaultWriteIdempotencyTTL(),
 		func(ctx context.Context) (any, error) {
-			account, execErr := h.adminService.DuplicateAccount(ctx, accountID, actorScope, c.GetHeader("Idempotency-Key"))
+			account, execErr := h.adminService.DuplicateAccount(ctx, actor, accountID, c.GetHeader("Idempotency-Key"))
 			if execErr != nil {
 				return nil, execErr
 			}
-			return h.buildAccountResponseWithRuntime(ctx, account), nil
+			return h.buildAccountResponseWithRuntime(ctx, actor, account), nil
 		},
 	)
 	if err != nil {
 		reason := infraerrors.Reason(err)
 		if reason == infraerrors.Reason(service.ErrIdempotencyInProgress) || reason == infraerrors.Reason(service.ErrIdempotencyStoreUnavail) {
-			recovered, recoverErr := h.adminService.RecoverDuplicateAccount(c.Request.Context(), accountID, actorScope, c.GetHeader("Idempotency-Key"))
+			recovered, recoverErr := h.adminService.RecoverDuplicateAccount(c.Request.Context(), actor, accountID, c.GetHeader("Idempotency-Key"))
 			if recoverErr != nil {
 				slog.Warn("account_duplicate_recovery_failed", "account_id", accountID, "actor_scope", actorScope, "reason", reason, "error", recoverErr)
 			} else if recovered != nil {
 				c.Header("X-Idempotency-Recovered", "true")
-				response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), recovered))
+				response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), actor, recovered))
 				return
 			}
 		}
@@ -953,6 +978,11 @@ func (h *AccountHandler) Duplicate(c *gin.Context) {
 // Update handles updating an account
 // PUT /api/v1/admin/accounts/:id
 func (h *AccountHandler) Update(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
@@ -974,7 +1004,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	// 确定是否跳过混合渠道检查
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
 
-	account, err := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{
+	account, err := h.adminService.UpdateAccount(c.Request.Context(), actor, accountID, &service.UpdateAccountInput{
 		Name:                  req.Name,
 		Notes:                 req.Notes,
 		Type:                  req.Type,
@@ -1012,10 +1042,10 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	// OpenAI APIKey: credentials 修改后重新探测上游能力（base_url/api_key 可能变更）。
 	// 异步执行，探测失败不影响账号更新响应。
 	if len(req.Credentials) > 0 {
-		h.scheduleOpenAIResponsesProbe(account)
+		h.scheduleOpenAIResponsesProbe(c.Request.Context(), actor, account)
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), actor, account))
 }
 
 // scheduleOpenAIResponsesProbe 异步触发 OpenAI APIKey 账号的 Responses API 能力探测。
@@ -1024,7 +1054,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 // 探测本身在 goroutine 中执行（会发一次 HTTP 请求到上游），不会阻塞
 // 当前请求。探测错误仅记录日志，不向上下文传播：探测失败时标记保持缺失，
 // 网关会按"现状即证据"默认走 Responses。
-func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) {
+func (h *AccountHandler) scheduleOpenAIResponsesProbe(ctx context.Context, actor authz.Actor, account *service.Account) {
 	if account == nil || account.Type != service.AccountTypeAPIKey ||
 		(account.Platform != service.PlatformOpenAI && !service.IsCNProvider(account.Platform)) {
 		return
@@ -1033,26 +1063,31 @@ func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) 
 		return
 	}
 	accountID := account.ID
+	probeCtx := context.WithoutCancel(ctx)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("openai_responses_probe_panic", "account_id", accountID, "recover", r)
 			}
 		}()
-		h.accountTestService.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), accountID)
+		_ = h.accountTestService.AdminProbeOpenAIAPIKeyResponsesSupport(probeCtx, actor, accountID)
 	}()
 }
 
 // Delete handles deleting an account
 // DELETE /api/v1/admin/accounts/:id
 func (h *AccountHandler) Delete(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-
-	err = h.adminService.DeleteAccount(c.Request.Context(), accountID)
+	err = h.adminService.DeleteAccount(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -1089,6 +1124,11 @@ type PreviewFromCRSRequest struct {
 // Test handles testing account connectivity with SSE streaming
 // POST /api/v1/admin/accounts/:id/test
 func (h *AccountHandler) Test(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
@@ -1098,20 +1138,19 @@ func (h *AccountHandler) Test(c *gin.Context) {
 	var req TestAccountRequest
 	// Allow empty body, model_id is optional
 	_ = c.ShouldBindJSON(&req)
-
 	opts := service.AccountTestOptions{
 		ImageDataURL: req.ImageDataURL,
 		AudioDataURL: req.AudioDataURL,
 	}
 
 	// Use AccountTestService to test the account with SSE streaming
-	if err := h.accountTestService.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode, opts); err != nil {
+	if err := h.accountTestService.AdminTestAccountConnection(c, actor, accountID, req.ModelID, req.Prompt, req.Mode, opts); err != nil {
 		// Error already sent via SSE, just log
 		return
 	}
 
 	if h.rateLimitService != nil {
-		if _, err := h.rateLimitService.RecoverAccountAfterSuccessfulTest(c.Request.Context(), accountID); err != nil {
+		if _, err := h.rateLimitService.AdminRecoverAccountAfterSuccessfulTest(c.Request.Context(), actor, accountID); err != nil {
 			_ = c.Error(err)
 		}
 	}
@@ -1120,6 +1159,11 @@ func (h *AccountHandler) Test(c *gin.Context) {
 // RecoverState handles unified recovery of recoverable account runtime state.
 // POST /api/v1/admin/accounts/:id/recover-state
 func (h *AccountHandler) RecoverState(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
@@ -1130,39 +1174,42 @@ func (h *AccountHandler) RecoverState(c *gin.Context) {
 		response.Error(c, http.StatusServiceUnavailable, "Rate limit service unavailable")
 		return
 	}
-
-	if _, err := h.rateLimitService.RecoverAccountState(c.Request.Context(), accountID, service.AccountRecoveryOptions{
+	if _, err := h.rateLimitService.AdminRecoverAccountState(c.Request.Context(), actor, accountID, service.AccountRecoveryOptions{
 		InvalidateToken: true,
 	}); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	account, err := h.adminService.GetAccount(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), actor, account))
 }
 
 // SyncFromCRS handles syncing accounts from claude-relay-service (CRS)
 // POST /api/v1/admin/accounts/sync/crs
 func (h *AccountHandler) SyncFromCRS(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req SyncFromCRSRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
 	// Default to syncing proxies (can be disabled by explicitly setting false)
 	syncProxies := true
 	if req.SyncProxies != nil {
 		syncProxies = *req.SyncProxies
 	}
 
-	result, err := h.crsSyncService.SyncFromCRS(c.Request.Context(), service.SyncFromCRSInput{
+	result, err := h.crsSyncService.AdminSyncFromCRS(c.Request.Context(), actor, service.SyncFromCRSInput{
 		BaseURL:            req.BaseURL,
 		Username:           req.Username,
 		Password:           req.Password,
@@ -1181,13 +1228,17 @@ func (h *AccountHandler) SyncFromCRS(c *gin.Context) {
 // PreviewFromCRS handles previewing accounts from CRS before sync
 // POST /api/v1/admin/accounts/sync/crs/preview
 func (h *AccountHandler) PreviewFromCRS(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req PreviewFromCRSRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
-	result, err := h.crsSyncService.PreviewFromCRS(c.Request.Context(), service.SyncFromCRSInput{
+	result, err := h.crsSyncService.AdminPreviewFromCRS(c.Request.Context(), actor, service.SyncFromCRSInput{
 		BaseURL:  req.BaseURL,
 		Username: req.Username,
 		Password: req.Password,
@@ -1202,7 +1253,7 @@ func (h *AccountHandler) PreviewFromCRS(c *gin.Context) {
 
 // refreshSingleAccount refreshes credentials for a single OAuth account.
 // Returns (updatedAccount, warning, error) where warning is used for Antigravity ProjectIDMissing scenario.
-func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *service.Account) (*service.Account, string, error) {
+func (h *AccountHandler) refreshSingleAccount(ctx context.Context, actor authz.Actor, account *service.Account) (*service.Account, string, error) {
 	if !account.IsOAuth() {
 		return nil, "", infraerrors.BadRequest("NOT_OAUTH", "cannot refresh non-OAuth account")
 	}
@@ -1216,10 +1267,10 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 	var newCredentials map[string]any
 
 	if account.IsOpenAI() {
-		tokenInfo, err := h.openaiOAuthService.RefreshAccountToken(ctx, account)
+		tokenInfo, err := h.openaiOAuthService.AdminRefreshAccountToken(ctx, actor, account)
 		if err != nil {
 			// 刷新失败但 access_token 可能仍有效，尝试设置隐私
-			h.adminService.EnsureOpenAIPrivacy(ctx, account)
+			h.adminService.EnsureOpenAIPrivacy(ctx, actor, account)
 			return nil, "", err
 		}
 
@@ -1231,7 +1282,7 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 		}
 		newCredentials = service.NormalizeOpenAIPersonalAccessTokenCredentials(account, tokenInfo, newCredentials)
 	} else if account.Platform == service.PlatformGemini {
-		tokenInfo, err := h.geminiOAuthService.RefreshAccountToken(ctx, account)
+		tokenInfo, err := h.geminiOAuthService.AdminRefreshAccountToken(ctx, actor, account)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to refresh credentials: %w", err)
 		}
@@ -1243,7 +1294,7 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 			}
 		}
 	} else if account.Platform == service.PlatformAntigravity {
-		tokenInfo, err := h.antigravityOAuthService.RefreshAccountToken(ctx, account)
+		tokenInfo, err := h.antigravityOAuthService.AdminRefreshAccountToken(ctx, actor, account)
 		if err != nil {
 			return nil, "", err
 		}
@@ -1265,19 +1316,19 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 
 		// 如果 project_id 获取失败，更新凭证但不标记为 error
 		if tokenInfo.ProjectIDMissing {
-			updatedAccount, updateErr := h.adminService.UpdateAccount(ctx, account.ID, &service.UpdateAccountInput{
+			updatedAccount, updateErr := h.adminService.UpdateAccount(ctx, actor, account.ID, &service.UpdateAccountInput{
 				Credentials: newCredentials,
 			})
 			if updateErr != nil {
 				return nil, "", fmt.Errorf("failed to update credentials: %w", updateErr)
 			}
-			h.adminService.EnsureAntigravityPrivacy(ctx, updatedAccount)
+			h.adminService.EnsureAntigravityPrivacy(ctx, actor, updatedAccount)
 			return updatedAccount, "missing_project_id_temporary", nil
 		}
 
 		// 成功获取到 project_id，如果之前是 missing_project_id 错误则清除
 		if account.Status == service.StatusError && strings.Contains(account.ErrorMessage, "missing_project_id:") {
-			if _, clearErr := h.adminService.ClearAccountError(ctx, account.ID); clearErr != nil {
+			if _, clearErr := h.adminService.ClearAccountError(ctx, actor, account.ID); clearErr != nil {
 				return nil, "", fmt.Errorf("failed to clear account error: %w", clearErr)
 			}
 		}
@@ -1285,7 +1336,7 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 		if h.grokOAuthService == nil {
 			return nil, "", fmt.Errorf("grok oauth service is not configured")
 		}
-		tokenInfo, err := h.grokOAuthService.RefreshAccountToken(ctx, account)
+		tokenInfo, err := h.grokOAuthService.AdminRefreshAccountToken(ctx, actor, account)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to refresh Grok credentials: %w", err)
 		}
@@ -1296,7 +1347,7 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 		}
 	} else {
 		// Use Anthropic/Claude OAuth service to refresh token
-		tokenInfo, err := h.oauthService.RefreshAccountToken(ctx, account)
+		tokenInfo, err := h.oauthService.AdminRefreshAccountToken(ctx, actor, account)
 		if err != nil {
 			return nil, "", err
 		}
@@ -1320,7 +1371,7 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 		}
 	}
 
-	updatedAccount, err := h.adminService.UpdateAccount(ctx, account.ID, &service.UpdateAccountInput{
+	updatedAccount, err := h.adminService.UpdateAccount(ctx, actor, account.ID, &service.UpdateAccountInput{
 		Credentials: newCredentials,
 	})
 	if err != nil {
@@ -1335,9 +1386,9 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 	}
 
 	// OpenAI OAuth: 刷新成功后检查并设置 privacy_mode
-	h.adminService.EnsureOpenAIPrivacy(ctx, updatedAccount)
+	h.adminService.EnsureOpenAIPrivacy(ctx, actor, updatedAccount)
 	// Antigravity OAuth: 刷新成功后检查并设置 privacy_mode
-	h.adminService.EnsureAntigravityPrivacy(ctx, updatedAccount)
+	h.adminService.EnsureAntigravityPrivacy(ctx, actor, updatedAccount)
 
 	return updatedAccount, "", nil
 }
@@ -1345,20 +1396,24 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 // Refresh handles refreshing account credentials
 // POST /api/v1/admin/accounts/:id/refresh
 func (h *AccountHandler) Refresh(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-
 	// Get account
-	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	account, err := h.adminService.GetAccount(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.NotFound(c, "Account not found")
 		return
 	}
 
-	updatedAccount, warning, err := h.refreshSingleAccount(c.Request.Context(), account)
+	updatedAccount, warning, err := h.refreshSingleAccount(c.Request.Context(), actor, account)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -1372,7 +1427,7 @@ func (h *AccountHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), updatedAccount))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), actor, updatedAccount))
 }
 
 // ApplyOAuthCredentialsRequest is the payload for persisting re-authorized OAuth credentials.
@@ -1396,6 +1451,11 @@ type ApplyOAuthCredentialsRequest struct {
 // 与 /refresh 的区别：/refresh 用现有 refresh_token 换 access_token（无用户交互），
 // 本接口承接前端完成完整 OAuth 流程后的落库步骤。
 func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
@@ -1407,11 +1467,10 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
 	ctx := c.Request.Context()
 
 	// 预检查账号存在 + OAuth 类型（与 Refresh handler 语义一致，提供更友好的错误信息）。
-	existing, err := h.adminService.GetAccount(ctx, accountID)
+	existing, err := h.adminService.GetAccount(ctx, actor, accountID)
 	if err != nil {
 		response.NotFound(c, "Account not found")
 		return
@@ -1428,7 +1487,7 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 	// Drop SSO/password residue; re-auth must leave only OAuth tokens on disk.
 	req.Credentials = service.SanitizeStoredCredentials(existing.Platform, req.Credentials)
 
-	updatedAccount, err := h.adminService.UpdateAccount(ctx, accountID, &service.UpdateAccountInput{
+	updatedAccount, err := h.adminService.UpdateAccount(ctx, actor, accountID, &service.UpdateAccountInput{
 		Type:        req.Type,
 		Credentials: req.Credentials,
 	})
@@ -1442,7 +1501,7 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 	// best-effort：失败仅记日志；下方 ClearAccountError 会从 DB 重新读取最新 account，
 	// 因此响应里的 extra 始终以 DB 为准——这里不需要手动维护内存快照。
 	if len(req.Extra) > 0 {
-		if extraErr := h.adminService.UpdateAccountExtra(ctx, accountID, req.Extra); extraErr != nil {
+		if extraErr := h.adminService.UpdateAccountExtra(ctx, actor, accountID, req.Extra); extraErr != nil {
 			extraKeys := make([]string, 0, len(req.Extra))
 			for k := range req.Extra {
 				extraKeys = append(extraKeys, k)
@@ -1457,7 +1516,7 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 
 	// Successful re-auth clears the soft spending-limit reauth flag for Grok.
 	if existing.Platform == service.PlatformGrok {
-		if clearErr := h.adminService.UpdateAccountExtra(ctx, accountID, map[string]any{
+		if clearErr := h.adminService.UpdateAccountExtra(ctx, actor, accountID, map[string]any{
 			"grok_needs_reauth":        false,
 			"grok_needs_reauth_reason": "",
 			"grok_needs_reauth_at":     "",
@@ -1469,7 +1528,7 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 		}
 	}
 
-	if cleared, clearErr := h.adminService.ClearAccountError(ctx, accountID); clearErr != nil {
+	if cleared, clearErr := h.adminService.ClearAccountError(ctx, actor, accountID); clearErr != nil {
 		slog.Warn("apply_oauth_credentials.clear_error_failed",
 			"account_id", accountID,
 			"err", clearErr,
@@ -1487,12 +1546,17 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(ctx, updatedAccount))
+	response.Success(c, h.buildAccountResponseWithRuntime(ctx, actor, updatedAccount))
 }
 
 // GetStats handles getting account statistics
 // GET /api/v1/admin/accounts/:id/stats
 func (h *AccountHandler) GetStats(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
@@ -1506,13 +1570,12 @@ func (h *AccountHandler) GetStats(c *gin.Context) {
 			days = d
 		}
 	}
-
 	// Calculate time range
 	now := timezone.Now()
 	endTime := timezone.StartOfDay(now.AddDate(0, 0, 1))
 	startTime := timezone.StartOfDay(now.AddDate(0, 0, -days+1))
 
-	stats, err := h.accountUsageService.GetAccountUsageStats(c.Request.Context(), accountID, startTime, endTime)
+	stats, err := h.accountUsageService.AdminGetAccountUsageStats(c.Request.Context(), actor, accountID, startTime, endTime)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -1524,13 +1587,17 @@ func (h *AccountHandler) GetStats(c *gin.Context) {
 // ClearError handles clearing account error
 // POST /api/v1/admin/accounts/:id/clear-error
 func (h *AccountHandler) ClearError(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-
-	account, err := h.adminService.ClearAccountError(c.Request.Context(), accountID)
+	account, err := h.adminService.ClearAccountError(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -1544,18 +1611,23 @@ func (h *AccountHandler) ClearError(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), actor, account))
 }
 
 // RevertProxyFallback handles reverting account proxy to original before fallback.
 // POST /api/v1/admin/accounts/:id/revert-proxy-fallback
 func (h *AccountHandler) RevertProxyFallback(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-	if err := h.adminService.RevertAccountProxyFallback(c.Request.Context(), id); err != nil {
+	if err := h.adminService.RevertAccountProxyFallback(c.Request.Context(), actor, id); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -1565,6 +1637,11 @@ func (h *AccountHandler) RevertProxyFallback(c *gin.Context) {
 // BatchDelete handles deleting multiple accounts with bounded concurrency.
 // POST /api/v1/admin/accounts/batch-delete
 func (h *AccountHandler) BatchDelete(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req struct {
 		AccountIDs []int64 `json:"account_ids"`
 	}
@@ -1578,8 +1655,7 @@ func (h *AccountHandler) BatchDelete(c *gin.Context) {
 		response.BadRequest(c, "account_ids is required")
 		return
 	}
-
-	accounts, err := h.adminService.GetAccountsByIDs(c.Request.Context(), accountIDs)
+	accounts, err := h.adminService.GetAccountsByIDs(c.Request.Context(), actor, accountIDs)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -1656,7 +1732,7 @@ func (h *AccountHandler) BatchDelete(c *gin.Context) {
 	for _, id := range rootIDs {
 		accountID := id
 		g.Go(func() error {
-			err := h.adminService.DeleteAccount(gctx, accountID)
+			err := h.adminService.DeleteAccount(gctx, actor, accountID)
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -1700,6 +1776,11 @@ func (h *AccountHandler) BatchDelete(c *gin.Context) {
 // BatchClearError handles batch clearing account errors
 // POST /api/v1/admin/accounts/batch-clear-error
 func (h *AccountHandler) BatchClearError(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req struct {
 		AccountIDs []int64 `json:"account_ids"`
 	}
@@ -1711,7 +1792,6 @@ func (h *AccountHandler) BatchClearError(c *gin.Context) {
 		response.BadRequest(c, "account_ids is required")
 		return
 	}
-
 	ctx := c.Request.Context()
 
 	const maxConcurrency = 10
@@ -1726,7 +1806,7 @@ func (h *AccountHandler) BatchClearError(c *gin.Context) {
 	for _, id := range req.AccountIDs {
 		accountID := id // 闭包捕获
 		g.Go(func() error {
-			account, err := h.adminService.ClearAccountError(gctx, accountID)
+			account, err := h.adminService.ClearAccountError(gctx, actor, accountID)
 			if err != nil {
 				mu.Lock()
 				failedCount++
@@ -1768,6 +1848,11 @@ func (h *AccountHandler) BatchClearError(c *gin.Context) {
 // BatchRefresh handles batch refreshing account credentials
 // POST /api/v1/admin/accounts/batch-refresh
 func (h *AccountHandler) BatchRefresh(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req struct {
 		AccountIDs []int64 `json:"account_ids"`
 	}
@@ -1779,10 +1864,9 @@ func (h *AccountHandler) BatchRefresh(c *gin.Context) {
 		response.BadRequest(c, "account_ids is required")
 		return
 	}
-
 	ctx := c.Request.Context()
 
-	accounts, err := h.adminService.GetAccountsByIDs(ctx, req.AccountIDs)
+	accounts, err := h.adminService.GetAccountsByIDs(ctx, actor, req.AccountIDs)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -1823,7 +1907,7 @@ func (h *AccountHandler) BatchRefresh(c *gin.Context) {
 			continue
 		}
 		g.Go(func() error {
-			_, warning, err := h.refreshSingleAccount(gctx, acc)
+			_, warning, err := h.refreshSingleAccount(gctx, actor, acc)
 			mu.Lock()
 			if err != nil {
 				failedCount++
@@ -1862,6 +1946,11 @@ func (h *AccountHandler) BatchRefresh(c *gin.Context) {
 // BatchCreate handles batch creating accounts
 // POST /api/v1/admin/accounts/batch
 func (h *AccountHandler) BatchCreate(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req struct {
 		Accounts []CreateAccountRequest `json:"accounts" binding:"required,min=1"`
 	}
@@ -1875,7 +1964,6 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 			return
 		}
 	}
-
 	executeAdminIdempotentJSON(c, "admin.accounts.batch_create", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
 		success := 0
 		failed := 0
@@ -1900,7 +1988,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 
 			skipCheck := item.ConfirmMixedChannelRisk != nil && *item.ConfirmMixedChannelRisk
 
-			account, err := h.adminService.CreateAccount(ctx, &service.CreateAccountInput{
+			account, err := h.adminService.CreateAccount(ctx, actor, &service.CreateAccountInput{
 				Name:                  item.Name,
 				Notes:                 item.Notes,
 				Platform:              item.Platform,
@@ -1935,8 +2023,8 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				}
 			}
 			// OpenAI APIKey 账号异步探测 /v1/responses 能力。
-			h.scheduleOpenAIResponsesProbe(account)
-			h.scheduleGrokImportProbe(account)
+			h.scheduleOpenAIResponsesProbe(ctx, actor, account)
+			h.scheduleGrokImportProbe(actor, account)
 			success++
 			results = append(results, gin.H{
 				"name":    item.Name,
@@ -1957,7 +2045,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				}()
 				bgCtx := context.Background()
 				for _, acc := range accounts {
-					adminSvc.ForceAntigravityPrivacy(bgCtx, acc)
+					adminSvc.ForceAntigravityPrivacy(bgCtx, actor, acc)
 				}
 			}()
 		}
@@ -1971,7 +2059,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				}()
 				bgCtx := context.Background()
 				for _, acc := range accounts {
-					adminSvc.ForceOpenAIPrivacy(bgCtx, acc)
+					adminSvc.ForceOpenAIPrivacy(bgCtx, actor, acc)
 				}
 			}()
 		}
@@ -1994,6 +2082,11 @@ type BatchUpdateCredentialsRequest struct {
 // BatchUpdateCredentials handles batch updating credentials fields
 // POST /api/v1/admin/accounts/batch-update-credentials
 func (h *AccountHandler) BatchUpdateCredentials(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req BatchUpdateCredentialsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -2016,7 +2109,6 @@ func (h *AccountHandler) BatchUpdateCredentials(c *gin.Context) {
 			}
 		}
 	}
-
 	ctx := c.Request.Context()
 
 	// 阶段一：预验证所有账号存在，收集 credentials
@@ -2026,7 +2118,7 @@ func (h *AccountHandler) BatchUpdateCredentials(c *gin.Context) {
 	}
 	updates := make([]accountUpdate, 0, len(req.AccountIDs))
 	for _, accountID := range req.AccountIDs {
-		account, err := h.adminService.GetAccount(ctx, accountID)
+		account, err := h.adminService.GetAccount(ctx, actor, accountID)
 		if err != nil {
 			response.Error(c, 404, fmt.Sprintf("Account %d not found", accountID))
 			return
@@ -2046,7 +2138,7 @@ func (h *AccountHandler) BatchUpdateCredentials(c *gin.Context) {
 	results := make([]gin.H, 0, len(updates))
 	for _, u := range updates {
 		updateInput := &service.UpdateAccountInput{Credentials: u.Credentials}
-		if _, err := h.adminService.UpdateAccount(ctx, u.ID, updateInput); err != nil {
+		if _, err := h.adminService.UpdateAccount(ctx, actor, u.ID, updateInput); err != nil {
 			failed++
 			failedIDs = append(failedIDs, u.ID)
 			results = append(results, gin.H{
@@ -2076,6 +2168,11 @@ func (h *AccountHandler) BatchUpdateCredentials(c *gin.Context) {
 // BulkUpdate handles bulk updating accounts with selected fields/credentials.
 // POST /api/v1/admin/accounts/bulk-update
 func (h *AccountHandler) BulkUpdate(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req BulkUpdateAccountsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -2112,8 +2209,7 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		response.BadRequest(c, "No updates provided")
 		return
 	}
-
-	result, err := h.adminService.BulkUpdateAccounts(c.Request.Context(), &service.BulkUpdateAccountsInput{
+	result, err := h.adminService.BulkUpdateAccounts(c.Request.Context(), actor, &service.BulkUpdateAccountsInput{
 		AccountIDs:            req.AccountIDs,
 		Filters:               toServiceBulkUpdateAccountFilters(req.Filters),
 		Name:                  req.Name,
@@ -2176,13 +2272,17 @@ type GenerateAuthURLRequest struct {
 // GenerateAuthURL generates OAuth authorization URL with full scope
 // POST /api/v1/admin/accounts/generate-auth-url
 func (h *OAuthHandler) GenerateAuthURL(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req GenerateAuthURLRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		// Allow empty body
 		req = GenerateAuthURLRequest{}
 	}
-
-	result, err := h.oauthService.GenerateAuthURL(c.Request.Context(), req.ProxyID)
+	result, err := h.oauthService.AdminGenerateAuthURL(c.Request.Context(), actor, req.ProxyID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -2194,13 +2294,17 @@ func (h *OAuthHandler) GenerateAuthURL(c *gin.Context) {
 // GenerateSetupTokenURL generates OAuth authorization URL for setup token (inference only)
 // POST /api/v1/admin/accounts/generate-setup-token-url
 func (h *OAuthHandler) GenerateSetupTokenURL(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req GenerateAuthURLRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		// Allow empty body
 		req = GenerateAuthURLRequest{}
 	}
-
-	result, err := h.oauthService.GenerateSetupTokenURL(c.Request.Context(), req.ProxyID)
+	result, err := h.oauthService.AdminGenerateSetupTokenURL(c.Request.Context(), actor, req.ProxyID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -2219,13 +2323,17 @@ type ExchangeCodeRequest struct {
 // ExchangeCode exchanges authorization code for tokens
 // POST /api/v1/admin/accounts/exchange-code
 func (h *OAuthHandler) ExchangeCode(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req ExchangeCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
-	tokenInfo, err := h.oauthService.ExchangeCode(c.Request.Context(), &service.ExchangeCodeInput{
+	tokenInfo, err := h.oauthService.AdminExchangeCode(c.Request.Context(), actor, &service.ExchangeCodeInput{
 		SessionID: req.SessionID,
 		Code:      req.Code,
 		ProxyID:   req.ProxyID,
@@ -2241,13 +2349,17 @@ func (h *OAuthHandler) ExchangeCode(c *gin.Context) {
 // ExchangeSetupTokenCode exchanges authorization code for setup token
 // POST /api/v1/admin/accounts/exchange-setup-token-code
 func (h *OAuthHandler) ExchangeSetupTokenCode(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req ExchangeCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
-	tokenInfo, err := h.oauthService.ExchangeCode(c.Request.Context(), &service.ExchangeCodeInput{
+	tokenInfo, err := h.oauthService.AdminExchangeCode(c.Request.Context(), actor, &service.ExchangeCodeInput{
 		SessionID: req.SessionID,
 		Code:      req.Code,
 		ProxyID:   req.ProxyID,
@@ -2269,13 +2381,17 @@ type CookieAuthRequest struct {
 // CookieAuth performs OAuth using sessionKey (cookie-based auto-auth)
 // POST /api/v1/admin/accounts/cookie-auth
 func (h *OAuthHandler) CookieAuth(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req CookieAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
-	tokenInfo, err := h.oauthService.CookieAuth(c.Request.Context(), &service.CookieAuthInput{
+	tokenInfo, err := h.oauthService.AdminCookieAuth(c.Request.Context(), actor, &service.CookieAuthInput{
 		SessionKey: req.SessionKey,
 		ProxyID:    req.ProxyID,
 		Scope:      "full",
@@ -2291,13 +2407,17 @@ func (h *OAuthHandler) CookieAuth(c *gin.Context) {
 // SetupTokenCookieAuth performs OAuth using sessionKey for setup token (inference only)
 // POST /api/v1/admin/accounts/setup-token-cookie-auth
 func (h *OAuthHandler) SetupTokenCookieAuth(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req CookieAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
-	tokenInfo, err := h.oauthService.CookieAuth(c.Request.Context(), &service.CookieAuthInput{
+	tokenInfo, err := h.oauthService.AdminCookieAuth(c.Request.Context(), actor, &service.CookieAuthInput{
 		SessionKey: req.SessionKey,
 		ProxyID:    req.ProxyID,
 		Scope:      "inference",
@@ -2313,6 +2433,11 @@ func (h *OAuthHandler) SetupTokenCookieAuth(c *gin.Context) {
 // GetUsage handles getting account usage information
 // GET /api/v1/admin/accounts/:id/usage?source=passive|active&force=true
 func (h *AccountHandler) GetUsage(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
@@ -2321,12 +2446,11 @@ func (h *AccountHandler) GetUsage(c *gin.Context) {
 
 	source := c.DefaultQuery("source", "active")
 	force := c.Query("force") == "true"
-
 	var usage *service.UsageInfo
 	if source == "passive" {
-		usage, err = h.accountUsageService.GetPassiveUsage(c.Request.Context(), accountID)
+		usage, err = h.accountUsageService.AdminGetPassiveUsage(c.Request.Context(), actor, accountID)
 	} else {
-		usage, err = h.accountUsageService.GetUsage(c.Request.Context(), accountID, force)
+		usage, err = h.accountUsageService.AdminGetUsage(c.Request.Context(), actor, accountID, force)
 	}
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -2339,60 +2463,72 @@ func (h *AccountHandler) GetUsage(c *gin.Context) {
 // ClearRateLimit handles clearing account rate limit status
 // POST /api/v1/admin/accounts/:id/clear-rate-limit
 func (h *AccountHandler) ClearRateLimit(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-
-	err = h.rateLimitService.ClearRateLimit(c.Request.Context(), accountID)
+	err = h.rateLimitService.AdminClearRateLimit(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	account, err := h.adminService.GetAccount(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), actor, account))
 }
 
 // ResetQuota handles resetting account quota usage
 // POST /api/v1/admin/accounts/:id/reset-quota
 func (h *AccountHandler) ResetQuota(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-
-	if err := h.adminService.ResetAccountQuota(c.Request.Context(), accountID); err != nil {
+	if err := h.adminService.ResetAccountQuota(c.Request.Context(), actor, accountID); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	account, err := h.adminService.GetAccount(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), actor, account))
 }
 
 // GetTempUnschedulable handles getting temporary unschedulable status
 // GET /api/v1/admin/accounts/:id/temp-unschedulable
 func (h *AccountHandler) GetTempUnschedulable(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-
-	state, err := h.rateLimitService.GetTempUnschedStatus(c.Request.Context(), accountID)
+	state, err := h.rateLimitService.AdminGetTempUnschedStatus(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -2412,13 +2548,17 @@ func (h *AccountHandler) GetTempUnschedulable(c *gin.Context) {
 // ClearTempUnschedulable handles clearing temporary unschedulable status
 // DELETE /api/v1/admin/accounts/:id/temp-unschedulable
 func (h *AccountHandler) ClearTempUnschedulable(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-
-	if err := h.rateLimitService.ClearTempUnschedulable(c.Request.Context(), accountID); err != nil {
+	if err := h.rateLimitService.AdminClearTempUnschedulable(c.Request.Context(), actor, accountID); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -2429,13 +2569,17 @@ func (h *AccountHandler) ClearTempUnschedulable(c *gin.Context) {
 // GetTodayStats handles getting account today statistics
 // GET /api/v1/admin/accounts/:id/today-stats
 func (h *AccountHandler) GetTodayStats(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-
-	stats, err := h.accountUsageService.GetTodayStats(c.Request.Context(), accountID)
+	stats, err := h.accountUsageService.AdminGetTodayStats(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -2457,6 +2601,11 @@ type BatchUsageRequest struct {
 // GetBatchTodayStats 批量获取多个账号的今日统计。
 // POST /api/v1/admin/accounts/today-stats/batch
 func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req BatchTodayStatsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -2484,7 +2633,7 @@ func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.accountUsageService.GetTodayStatsBatch(c.Request.Context(), accountIDs)
+	stats, err := h.accountUsageService.AdminGetTodayStatsBatch(c.Request.Context(), actor, accountIDs)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -2503,6 +2652,11 @@ func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
 // GetBatchUsage 批量获取多个账号的 current usage。
 // POST /api/v1/admin/accounts/usage/batch
 func (h *AccountHandler) GetBatchUsage(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req BatchUsageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -2518,7 +2672,7 @@ func (h *AccountHandler) GetBatchUsage(c *gin.Context) {
 		return
 	}
 
-	usageByAccount, errorsByAccount, err := h.accountUsageService.GetUsageBatch(c.Request.Context(), accountIDs, req.Force)
+	usageByAccount, errorsByAccount, err := h.accountUsageService.AdminGetUsageBatch(c.Request.Context(), actor, accountIDs, req.Force)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -2538,6 +2692,11 @@ type SetSchedulableRequest struct {
 // SetSchedulable handles toggling account schedulable status
 // POST /api/v1/admin/accounts/:id/schedulable
 func (h *AccountHandler) SetSchedulable(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
@@ -2549,26 +2708,29 @@ func (h *AccountHandler) SetSchedulable(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
-	account, err := h.adminService.SetAccountSchedulable(c.Request.Context(), accountID, req.Schedulable)
+	account, err := h.adminService.SetAccountSchedulable(c.Request.Context(), actor, accountID, req.Schedulable)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), actor, account))
 }
 
 // GetAvailableModels handles getting available models for an account
 // GET /api/v1/admin/accounts/:id/models
 func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-
-	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	account, err := h.adminService.GetAccount(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.NotFound(c, "Account not found")
 		return
@@ -2751,13 +2913,17 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 // SyncUpstreamModels handles syncing live supported models from an account's upstream.
 // POST /api/v1/admin/accounts/:id/models/sync-upstream
 func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-
-	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	account, err := h.adminService.GetAccount(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.NotFound(c, "Account not found")
 		return
@@ -2768,7 +2934,7 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 		return
 	}
 
-	models, err := h.accountTestService.FetchUpstreamSupportedModels(c.Request.Context(), account)
+	models, err := h.accountTestService.AdminFetchUpstreamSupportedModels(c.Request.Context(), actor, account)
 	if err != nil {
 		var syncErr *service.UpstreamModelSyncError
 		if errors.As(err, &syncErr) {
@@ -2793,6 +2959,11 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 // SyncUpstreamModelsPreview handles syncing live supported models using provided credentials (no account ID needed).
 // POST /api/v1/admin/accounts/models/sync-upstream-preview
 func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req struct {
 		Platform string `json:"platform" binding:"required"`
 		Type     string `json:"type" binding:"required"`
@@ -2803,7 +2974,6 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
 	tempAccount := &service.Account{
 		Platform: req.Platform,
 		Type:     req.Type,
@@ -2818,7 +2988,7 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		return
 	}
 
-	models, err := h.accountTestService.FetchUpstreamSupportedModels(c.Request.Context(), tempAccount)
+	models, err := h.accountTestService.AdminFetchUpstreamSupportedModels(c.Request.Context(), actor, tempAccount)
 	if err != nil {
 		var syncErr *service.UpstreamModelSyncError
 		if errors.As(err, &syncErr) {
@@ -2843,12 +3013,17 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 // SetPrivacy handles setting privacy for a single OpenAI/Antigravity OAuth account
 // POST /api/v1/admin/accounts/:id/set-privacy
 func (h *AccountHandler) SetPrivacy(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	account, err := h.adminService.GetAccount(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.NotFound(c, "Account not found")
 		return
@@ -2860,9 +3035,9 @@ func (h *AccountHandler) SetPrivacy(c *gin.Context) {
 	var mode string
 	switch account.Platform {
 	case service.PlatformOpenAI:
-		mode = h.adminService.ForceOpenAIPrivacy(c.Request.Context(), account)
+		mode = h.adminService.ForceOpenAIPrivacy(c.Request.Context(), actor, account)
 	case service.PlatformAntigravity:
-		mode = h.adminService.ForceAntigravityPrivacy(c.Request.Context(), account)
+		mode = h.adminService.ForceAntigravityPrivacy(c.Request.Context(), actor, account)
 	default:
 		response.BadRequest(c, "Only OpenAI and Antigravity OAuth accounts support privacy setting")
 		return
@@ -2872,30 +3047,34 @@ func (h *AccountHandler) SetPrivacy(c *gin.Context) {
 		return
 	}
 	// 从 DB 重新读取以确保返回最新状态
-	updated, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	updated, err := h.adminService.GetAccount(c.Request.Context(), actor, accountID)
 	if err != nil {
 		// 隐私已设置成功但读取失败，回退到内存更新
 		if account.Extra == nil {
 			account.Extra = make(map[string]any)
 		}
 		account.Extra["privacy_mode"] = mode
-		response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+		response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), actor, account))
 		return
 	}
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), updated))
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), actor, updated))
 }
 
 // RefreshTier handles refreshing Google One tier for a single account
 // POST /api/v1/admin/accounts/:id/refresh-tier
 func (h *AccountHandler) RefreshTier(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-
 	ctx := c.Request.Context()
-	account, err := h.adminService.GetAccount(ctx, accountID)
+	account, err := h.adminService.GetAccount(ctx, actor, accountID)
 	if err != nil {
 		response.NotFound(c, "Account not found")
 		return
@@ -2912,13 +3091,13 @@ func (h *AccountHandler) RefreshTier(c *gin.Context) {
 		return
 	}
 
-	tierID, extra, creds, err := h.geminiOAuthService.RefreshAccountGoogleOneTier(ctx, account)
+	tierID, extra, creds, err := h.geminiOAuthService.AdminRefreshAccountGoogleOneTier(ctx, actor, account)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	_, updateErr := h.adminService.UpdateAccount(ctx, accountID, &service.UpdateAccountInput{
+	_, updateErr := h.adminService.UpdateAccount(ctx, actor, accountID, &service.UpdateAccountInput{
 		Credentials: creds,
 		Extra:       extra,
 	})
@@ -2944,16 +3123,20 @@ type BatchRefreshTierRequest struct {
 // BatchRefreshTier handles batch refreshing Google One tier
 // POST /api/v1/admin/accounts/batch-refresh-tier
 func (h *AccountHandler) BatchRefreshTier(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req BatchRefreshTierRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		req = BatchRefreshTierRequest{}
 	}
-
 	ctx := c.Request.Context()
 	accounts := make([]*service.Account, 0)
 
 	if len(req.AccountIDs) == 0 {
-		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, "gemini", "oauth", "", "", 0, "", "name", "asc")
+		allAccounts, _, err := h.adminService.ListAccounts(ctx, actor, 1, 10000, "gemini", "oauth", "", "", 0, "", "name", "asc")
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return
@@ -2966,7 +3149,7 @@ func (h *AccountHandler) BatchRefreshTier(c *gin.Context) {
 			}
 		}
 	} else {
-		fetched, err := h.adminService.GetAccountsByIDs(ctx, req.AccountIDs)
+		fetched, err := h.adminService.GetAccountsByIDs(ctx, actor, req.AccountIDs)
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return
@@ -2998,7 +3181,7 @@ func (h *AccountHandler) BatchRefreshTier(c *gin.Context) {
 	for _, account := range accounts {
 		acc := account // 闭包捕获
 		g.Go(func() error {
-			_, extra, creds, err := h.geminiOAuthService.RefreshAccountGoogleOneTier(gctx, acc)
+			_, extra, creds, err := h.geminiOAuthService.AdminRefreshAccountGoogleOneTier(gctx, actor, acc)
 			if err != nil {
 				mu.Lock()
 				failedCount++
@@ -3010,7 +3193,7 @@ func (h *AccountHandler) BatchRefreshTier(c *gin.Context) {
 				return nil
 			}
 
-			_, updateErr := h.adminService.UpdateAccount(gctx, acc.ID, &service.UpdateAccountInput{
+			_, updateErr := h.adminService.UpdateAccount(gctx, actor, acc.ID, &service.UpdateAccountInput{
 				Credentials: creds,
 				Extra:       extra,
 			})

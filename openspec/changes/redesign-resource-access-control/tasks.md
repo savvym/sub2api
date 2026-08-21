@@ -23,7 +23,7 @@
 - [x] 1.7a 实现 RoleService core：在 legacy/shadow 阶段原子维护 `users.role`、`system_bootstrap` 兼容 `user_roles`、`users.authz_version` 和 durable cache invalidation；补齐角色约束、readiness、RBAC 硬拒绝、通用 settings 写保护与生产 DI。
 - [x] 1.7b 新增专用 GET read-only status/readiness 与 POST CAS transition 管理入口；POST 无条件要求 session-bound JWT TOTP step-up，拒绝 sid-less/未知 auth/Admin API Key，以固定事务内 durable audit 记录成功；失败仅进入现有异步 best-effort 尝试审计，RBAC 仍硬拒绝。
 - [x] 1.8 管理员 JWT 接入 User Actor，Admin API Key 接入独立 Service Principal Actor。
-- [ ] 1.9 帐号/分组管理员入口显式传 Actor，保持响应和行为不变。
+- [x] 1.9 帐号/分组管理员入口显式传 Actor，保持响应和行为不变。
 - [ ] 1.10 把安全关键资源写、durable audit、Auth Outbox、Scheduler Outbox 纳入同一事务。
 - [ ] 1.11 实现授权/角色到期协调器、同步到期拒绝、5 秒/30 秒指标与降级门。
 - [ ] 1.12 完成跨租户、TOCTOU、SQL scope、模式组合和迁移测试；批准 Phase 1 退出。

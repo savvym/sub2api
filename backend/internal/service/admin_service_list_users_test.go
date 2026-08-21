@@ -140,7 +140,7 @@ func TestAdminService_ListUsers_BatchRateFallbackToSingle(t *testing.T) {
 		userGroupRateRepo: rateRepo,
 	}
 
-	users, total, err := svc.ListUsers(context.Background(), 1, 20, UserListFilters{}, "", "")
+	users, total, err := svc.ListUsers(context.Background(), adminResourceUserTestActor(t), 1, 20, UserListFilters{}, "", "")
 	require.NoError(t, err)
 	require.Equal(t, int64(2), total)
 	require.Len(t, users, 2)
@@ -156,7 +156,7 @@ func TestAdminService_ListUsers_PassesSortParams(t *testing.T) {
 	}
 	svc := &adminServiceImpl{userRepo: userRepo}
 
-	_, _, err := svc.ListUsers(context.Background(), 2, 50, UserListFilters{}, "email", "ASC")
+	_, _, err := svc.ListUsers(context.Background(), adminResourceUserTestActor(t), 2, 50, UserListFilters{}, "email", "ASC")
 	require.NoError(t, err)
 	require.Equal(t, pagination.PaginationParams{
 		Page:      2,
@@ -176,7 +176,7 @@ func TestAdminService_ListUsers_PopulatesLastUsedAt(t *testing.T) {
 	}
 	svc := &adminServiceImpl{userRepo: userRepo}
 
-	users, total, err := svc.ListUsers(context.Background(), 1, 20, UserListFilters{}, "", "")
+	users, total, err := svc.ListUsers(context.Background(), adminResourceUserTestActor(t), 1, 20, UserListFilters{}, "", "")
 	require.NoError(t, err)
 	require.Equal(t, int64(1), total)
 	require.Len(t, users, 1)

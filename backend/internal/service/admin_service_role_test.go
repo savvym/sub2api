@@ -43,7 +43,7 @@ func TestAdminService_UpdateUser_RoleAndAdjacentFieldKeepRepositoryTimestamp(t *
 	)
 	username := "renamed"
 
-	updated, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{
+	updated, err := svc.UpdateUser(context.Background(), adminResourceUserTestActor(t), 42, &UpdateUserInput{
 		Role:         RoleAdmin,
 		Username:     &username,
 		ActorAdminID: 1,
@@ -67,7 +67,7 @@ func TestAdminService_CreateUser_WithAdminRole(t *testing.T) {
 	repo := &userRepoStub{nextID: 30}
 	svc := &adminServiceImpl{userRepo: repo}
 
-	user, err := svc.CreateUser(context.Background(), &CreateUserInput{
+	user, err := svc.CreateUser(context.Background(), adminResourceUserTestActor(t), &CreateUserInput{
 		Email:    "admin@test.com",
 		Password: "strong-pass",
 		Role:     RoleAdmin,
@@ -80,7 +80,7 @@ func TestAdminService_CreateUser_DefaultsToUserRole(t *testing.T) {
 	repo := &userRepoStub{nextID: 31}
 	svc := &adminServiceImpl{userRepo: repo}
 
-	user, err := svc.CreateUser(context.Background(), &CreateUserInput{
+	user, err := svc.CreateUser(context.Background(), adminResourceUserTestActor(t), &CreateUserInput{
 		Email:    "plain@test.com",
 		Password: "strong-pass",
 	})
@@ -92,7 +92,7 @@ func TestAdminService_CreateUser_InvalidRoleRejected(t *testing.T) {
 	repo := &userRepoStub{nextID: 32}
 	svc := &adminServiceImpl{userRepo: repo}
 
-	_, err := svc.CreateUser(context.Background(), &CreateUserInput{
+	_, err := svc.CreateUser(context.Background(), adminResourceUserTestActor(t), &CreateUserInput{
 		Email:    "bad@test.com",
 		Password: "strong-pass",
 		Role:     "superuser",
@@ -113,7 +113,7 @@ func TestAdminService_UpdateUser_PromoteToAdmin(t *testing.T) {
 		invalidator,
 	)
 
-	updated, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{
+	updated, err := svc.UpdateUser(context.Background(), adminResourceUserTestActor(t), 42, &UpdateUserInput{
 		Role:         RoleAdmin,
 		ActorAdminID: 1,
 	})
@@ -134,7 +134,7 @@ func TestAdminService_UpdateUser_DisabledUserCannotBePromotedWithoutReactivation
 		nil,
 	)
 
-	_, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{
+	_, err := svc.UpdateUser(context.Background(), adminResourceUserTestActor(t), 42, &UpdateUserInput{
 		Role:         RoleAdmin,
 		ActorAdminID: 1,
 	})
@@ -153,7 +153,7 @@ func TestAdminService_UpdateUser_RoleOmittedKeepsExisting(t *testing.T) {
 	)
 
 	newName := "renamed"
-	updated, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{Username: &newName})
+	updated, err := svc.UpdateUser(context.Background(), adminResourceUserTestActor(t), 42, &UpdateUserInput{Username: &newName})
 	require.NoError(t, err)
 	require.Equal(t, RoleAdmin, updated.Role, "未提供 role 时不应改变现有角色")
 	require.Zero(t, roleRepo.txCalls, "omitting role must bypass RoleService")
@@ -168,7 +168,7 @@ func TestAdminService_UpdateUser_InvalidRoleRejected(t *testing.T) {
 		nil,
 	)
 
-	_, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{Role: "root", ActorAdminID: 1})
+	_, err := svc.UpdateUser(context.Background(), adminResourceUserTestActor(t), 42, &UpdateUserInput{Role: "root", ActorAdminID: 1})
 	require.Error(t, err)
 	require.Nil(t, userRepo.lastUpdated, "非法角色不应触发持久化")
 	require.Zero(t, roleRepo.txCalls)
@@ -184,7 +184,7 @@ func TestAdminService_UpdateUser_DemoteLastAdminRejected(t *testing.T) {
 		nil,
 	)
 
-	_, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{
+	_, err := svc.UpdateUser(context.Background(), adminResourceUserTestActor(t), 42, &UpdateUserInput{
 		Role:         RoleUser,
 		ActorAdminID: 1,
 	})
@@ -205,7 +205,7 @@ func TestAdminService_UpdateUser_DemoteAdminAllowedWhenOthersExist(t *testing.T)
 		invalidator,
 	)
 
-	updated, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{
+	updated, err := svc.UpdateUser(context.Background(), adminResourceUserTestActor(t), 42, &UpdateUserInput{
 		Role:         RoleUser,
 		ActorAdminID: 1,
 	})
@@ -228,7 +228,7 @@ func TestAdminService_UpdateUser_PromoteDoesNotCountAdmins(t *testing.T) {
 		&authCacheInvalidatorStub{},
 	)
 
-	updated, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{
+	updated, err := svc.UpdateUser(context.Background(), adminResourceUserTestActor(t), 42, &UpdateUserInput{
 		Role:         RoleAdmin,
 		ActorAdminID: 1,
 	})

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/stretchr/testify/require"
 )
 
@@ -127,7 +128,7 @@ func TestGetAllGroupCapacityBatchAggregatesRuntimeAndLimits(t *testing.T) {
 		rpmCache,
 	)
 
-	results, err := svc.GetAllGroupCapacity(context.Background())
+	results, err := svc.GetAllGroupCapacity(context.Background(), adminResourceUserTestActor(t))
 	require.NoError(t, err)
 
 	require.Equal(t, 1, groupRepo.listCalls)
@@ -169,11 +170,22 @@ func TestGetAllGroupCapacityBatchKeepsEmptyGroupRows(t *testing.T) {
 	groupRepo := &groupCapacityGroupRepoStub{groupIDs: []int64{10, 20}}
 	svc := NewGroupCapacityService(accountRepo, groupRepo, nil, nil, nil)
 
-	results, err := svc.GetAllGroupCapacity(context.Background())
+	results, err := svc.GetAllGroupCapacity(context.Background(), adminResourceUserTestActor(t))
 	require.NoError(t, err)
 
 	require.Equal(t, []GroupCapacitySummary{
 		{GroupID: 10},
 		{GroupID: 20, ConcurrencyMax: 4},
 	}, results)
+}
+
+func TestGetAllGroupCapacityRejectsMissingActorBeforeRepositoryAccess(t *testing.T) {
+	groupRepo := &groupCapacityGroupRepoStub{groupIDs: []int64{10}}
+	svc := NewGroupCapacityService(&groupCapacityAccountRepoStub{}, groupRepo, nil, nil, nil)
+
+	results, err := svc.GetAllGroupCapacity(context.Background(), authz.Actor{})
+
+	require.ErrorIs(t, err, ErrAdminResourceActorUnavailable)
+	require.Nil(t, results)
+	require.Zero(t, groupRepo.listCalls)
 }

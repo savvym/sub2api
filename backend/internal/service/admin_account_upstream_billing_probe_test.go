@@ -91,7 +91,7 @@ func TestUpdateAccountRoutesRateIntentThroughAtomicBillingUpdater(t *testing.T) 
 	}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{Name: "after"})
+	updated, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{Name: "after"})
 	require.NoError(t, err)
 	require.Equal(t, 1, repo.updateCalls)
 	require.Nil(t, repo.lastExplicitRate)
@@ -101,10 +101,11 @@ func TestUpdateAccountRoutesRateIntentThroughAtomicBillingUpdater(t *testing.T) 
 	// （同步仍开启时的手工倍率由 TestUpdateAccountRejectsManualRateWhileRateSyncEnabled 覆盖）。
 	zero := 0.0
 	syncDisabled := false
-	updated, err = svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	updated, err = svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		RateSyncEnabled: &syncDisabled,
 		RateMultiplier:  &zero,
 	})
+
 	require.NoError(t, err)
 	require.Equal(t, 2, repo.updateCalls)
 	require.NotNil(t, repo.lastExplicitRate)
@@ -116,7 +117,7 @@ func TestCreateAccountDropsManagedUpstreamBillingProbeState(t *testing.T) {
 	repo := &upstreamBillingProbeAccountRepo{}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	created, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+	created, err := svc.CreateAccount(context.Background(), adminResourceUserTestActor(t), &CreateAccountInput{
 		Name:                 "upstream",
 		Platform:             PlatformOpenAI,
 		Type:                 AccountTypeAPIKey,
@@ -138,7 +139,7 @@ func TestCreateAccountDropsManagedUpstreamBillingProbeState(t *testing.T) {
 func TestCreateAccountAcceptsDedicatedUpstreamBillingProbeSetting(t *testing.T) {
 	enabled := true
 	repo := &upstreamBillingProbeAccountRepo{}
-	created, err := (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), &CreateAccountInput{
+	created, err := (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), adminResourceUserTestActor(t), &CreateAccountInput{
 		Name:                 "upstream",
 		Platform:             PlatformOpenAI,
 		Type:                 AccountTypeAPIKey,
@@ -150,7 +151,7 @@ func TestCreateAccountAcceptsDedicatedUpstreamBillingProbeSetting(t *testing.T) 
 	require.NoError(t, err)
 	require.Equal(t, true, created.Extra[UpstreamBillingProbeEnabledExtraKey])
 
-	_, err = (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), &CreateAccountInput{
+	_, err = (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), adminResourceUserTestActor(t), &CreateAccountInput{
 		Name:                 "oauth",
 		Platform:             PlatformOpenAI,
 		Type:                 AccountTypeOAuth,
@@ -158,6 +159,7 @@ func TestCreateAccountAcceptsDedicatedUpstreamBillingProbeSetting(t *testing.T) 
 		ProbeEnabled:         &enabled,
 		SkipDefaultGroupBind: true,
 	})
+
 	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
 }
 
@@ -178,7 +180,7 @@ func TestUpdateAccountPreservesManagedUpstreamBillingProbeStateForUnrelatedEdit(
 	}}
 
 	svc := &adminServiceImpl{accountRepo: repo}
-	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	updated, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Extra: map[string]any{"custom": "value"},
 	})
 
@@ -205,7 +207,7 @@ func TestUpdateAccountPreservesGrokBillingSnapshotForUnrelatedEdit(t *testing.T)
 		},
 	}}
 
-	updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Extra: map[string]any{"custom": "value"},
 	})
 
@@ -238,7 +240,7 @@ func TestUpdateAccountPreservesProbeSnapshotWhenIdentityValuesAreUnchanged(t *te
 		},
 	}}
 
-	updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Credentials: map[string]any{
 			"base_url":                   "https://upstream.example",
 			credKeyHeaderOverrideEnabled: true,
@@ -302,7 +304,7 @@ func TestUpdateAccountInvalidatesProbeSnapshotWhenUpstreamIdentityChanges(t *tes
 				},
 			}}
 
-			updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, tt.input)
+			updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, tt.input)
 
 			require.NoError(t, err)
 			require.NotContains(t, updated.Extra, UpstreamBillingProbeExtraKey)
@@ -336,10 +338,10 @@ func TestUpdateAccountInvalidatesProbeSnapshotWhenProxyChanges(t *testing.T) {
 	}}
 
 	updated, err := (&adminServiceImpl{accountRepo: &upstreamBillingProbeAdminRepo{baseRepo}}).UpdateAccount(
-		context.Background(),
+		context.Background(), adminResourceUserTestActor(t),
+
 		accountID,
-		&UpdateAccountInput{ProxyID: &newProxyID},
-	)
+		&UpdateAccountInput{ProxyID: &newProxyID})
 
 	require.NoError(t, err)
 	require.Equal(t, newProxyID, *updated.ProxyID)
@@ -366,10 +368,10 @@ func TestUpdateAccountPreservesProbeSnapshotWhenProxyIsUnchanged(t *testing.T) {
 	}}
 
 	updated, err := (&adminServiceImpl{accountRepo: &upstreamBillingProbeAdminRepo{baseRepo}}).UpdateAccount(
-		context.Background(),
+		context.Background(), adminResourceUserTestActor(t),
+
 		accountID,
-		&UpdateAccountInput{ProxyID: &unchangedProxyID},
-	)
+		&UpdateAccountInput{ProxyID: &unchangedProxyID})
 
 	require.NoError(t, err)
 	require.Contains(t, updated.Extra, UpstreamBillingProbeExtraKey)
@@ -388,7 +390,7 @@ func TestUpdateAccountAcceptsProbeEnabledAndRejectsInjectedSnapshot(t *testing.T
 	}}
 
 	svc := &adminServiceImpl{accountRepo: repo}
-	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	updated, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Extra: map[string]any{
 			UpstreamBillingProbeEnabledExtraKey:    true,
 			UpstreamBillingRateSyncEnabledExtraKey: true,
@@ -416,17 +418,19 @@ func TestUpdateAccountRateSyncControlsProbeAndManualMode(t *testing.T) {
 	svc := &adminServiceImpl{accountRepo: repo}
 
 	syncEnabled := true
-	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	updated, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		RateSyncEnabled: &syncEnabled,
 	})
+
 	require.NoError(t, err)
 	require.Equal(t, true, updated.Extra[UpstreamBillingProbeEnabledExtraKey])
 	require.Equal(t, true, updated.Extra[UpstreamBillingRateSyncEnabledExtraKey])
 
 	syncEnabled = false
-	updated, err = svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	updated, err = svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		RateSyncEnabled: &syncEnabled,
 	})
+
 	require.NoError(t, err)
 	require.Equal(t, true, updated.Extra[UpstreamBillingProbeEnabledExtraKey])
 	require.Equal(t, false, updated.Extra[UpstreamBillingRateSyncEnabledExtraKey])
@@ -458,7 +462,7 @@ func TestUpdateAccountRejectsManualRateWhileRateSyncEnabled(t *testing.T) {
 		accountID := int64(153)
 		repo := newRepo(accountID, mergeMap(nil, syncEnabled))
 
-		_, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+		_, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 			RateMultiplier: &manualRate,
 		})
 
@@ -471,7 +475,7 @@ func TestUpdateAccountRejectsManualRateWhileRateSyncEnabled(t *testing.T) {
 		repo := newRepo(accountID, map[string]any{})
 		enable := true
 
-		_, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+		_, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 			RateSyncEnabled: &enable,
 			RateMultiplier:  &manualRate,
 		})
@@ -486,7 +490,7 @@ func TestUpdateAccountRejectsManualRateWhileRateSyncEnabled(t *testing.T) {
 		repo := newRepo(accountID, mergeMap(nil, syncEnabled))
 		disable := false
 
-		updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+		updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 			RateSyncEnabled: &disable,
 			RateMultiplier:  &manualRate,
 		})
@@ -501,7 +505,7 @@ func TestUpdateAccountRejectsManualRateWhileRateSyncEnabled(t *testing.T) {
 		accountID := int64(156)
 		repo := newRepo(accountID, map[string]any{UpstreamBillingProbeEnabledExtraKey: true})
 
-		updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+		updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 			RateMultiplier: &manualRate,
 		})
 
@@ -524,7 +528,7 @@ func TestUpdateAccountRejectsSyncWithExplicitlyDisabledProbe(t *testing.T) {
 	probeEnabled := false
 	syncEnabled := true
 
-	_, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	_, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		ProbeEnabled:    &probeEnabled,
 		RateSyncEnabled: &syncEnabled,
 	})
@@ -548,7 +552,7 @@ func TestUpdateAccountExplicitProbeDisableUsesDedicatedExtraUpdate(t *testing.T)
 		},
 	}}
 
-	_, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	_, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Extra: map[string]any{UpstreamBillingProbeEnabledExtraKey: false},
 	})
 
@@ -570,7 +574,7 @@ func TestUpdateAccountExplicitUnchangedProbeEnabledStillUsesDedicatedExtraUpdate
 		},
 	}}
 
-	_, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	_, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Extra: map[string]any{UpstreamBillingProbeEnabledExtraKey: true},
 	})
 
@@ -592,7 +596,7 @@ func TestUpdateAccountRejectsInvalidProbeEnabled(t *testing.T) {
 	}}
 
 	svc := &adminServiceImpl{accountRepo: repo}
-	_, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	_, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Extra: map[string]any{UpstreamBillingProbeEnabledExtraKey: "true"},
 	})
 
@@ -605,7 +609,7 @@ func TestUpdateAccountExtraDropsManagedBillingProbeFields(t *testing.T) {
 		accountID: {ID: accountID, Platform: PlatformOpenAI, Type: AccountTypeAPIKey},
 	}}
 
-	err := (&adminServiceImpl{accountRepo: repo}).UpdateAccountExtra(context.Background(), accountID, map[string]any{
+	err := (&adminServiceImpl{accountRepo: repo}).UpdateAccountExtra(context.Background(), adminResourceUserTestActor(t), accountID, map[string]any{
 		"custom":                               "value",
 		UpstreamBillingProbeEnabledExtraKey:    true,
 		UpstreamBillingRateSyncEnabledExtraKey: true,
@@ -632,7 +636,7 @@ func TestBulkUpdateAccountsDropsManagedUpstreamBillingProbeState(t *testing.T) {
 		},
 	}
 
-	result, err := svc.BulkUpdateAccounts(context.Background(), input)
+	result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), input)
 
 	require.NoError(t, err)
 	require.Equal(t, 1, result.Success)
@@ -651,7 +655,7 @@ func TestBulkUpdateAccountsAcceptsDedicatedUpstreamBillingProbeSetting(t *testin
 				2: {ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey},
 			}}
 
-			result, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+			result, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 				AccountIDs:   []int64{1, 2},
 				ProbeEnabled: &enabled,
 			})
@@ -677,7 +681,7 @@ func TestBulkUpdateAccountsRejectsProbeSettingForIneligibleTargetBeforeWrite(t *
 				2: {ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth},
 			}}
 
-			_, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+			_, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 				AccountIDs:   []int64{1, 2},
 				ProbeEnabled: &enabled,
 			})
@@ -694,7 +698,7 @@ func TestBulkUpdateAccountsRejectsProbeSettingWhenTargetIsMissing(t *testing.T) 
 		1: {ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey},
 	}}
 
-	_, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+	_, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 		AccountIDs:   []int64{1, 2},
 		ProbeEnabled: &enabled,
 	})
@@ -710,7 +714,7 @@ func TestBulkUpdateAccountsInvalidatesProbeSnapshotForIdentityCredentials(t *tes
 		Credentials: map[string]any{"api_key": "sk-new"},
 	}
 
-	result, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), input)
+	result, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), input)
 
 	require.NoError(t, err)
 	require.Equal(t, 1, result.Success)
@@ -727,7 +731,7 @@ func TestBulkUpdateAccountsInvalidatesProbeSnapshotForProxyUpdate(t *testing.T) 
 		ProxyID:    &proxyID,
 	}
 
-	result, err := (&adminServiceImpl{accountRepo: &upstreamBillingProbeAdminRepo{baseRepo}}).BulkUpdateAccounts(context.Background(), input)
+	result, err := (&adminServiceImpl{accountRepo: &upstreamBillingProbeAdminRepo{baseRepo}}).BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), input)
 
 	require.NoError(t, err)
 	require.Equal(t, 1, result.Success)
@@ -743,7 +747,7 @@ func TestBulkUpdateAccountsKeepsProbeSnapshotForUnrelatedCredentials(t *testing.
 		Credentials: map[string]any{"model_mapping": map[string]any{"gpt-old": "gpt-new"}},
 	}
 
-	_, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), input)
+	_, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), input)
 
 	require.NoError(t, err)
 	require.Len(t, repo.bulkUpdates, 1)

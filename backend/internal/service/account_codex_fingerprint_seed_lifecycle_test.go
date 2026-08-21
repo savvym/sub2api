@@ -20,7 +20,7 @@ func TestAdminCreateAccountStripsUserSeedAndCreatesFreshSeedWhenEnabled(t *testi
 	repo := &upstreamBillingProbeAccountRepo{}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	created, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+	created, err := svc.CreateAccount(context.Background(), adminResourceUserTestActor(t), &CreateAccountInput{
 		Name:                 "codex-oauth",
 		Platform:             PlatformOpenAI,
 		Type:                 AccountTypeOAuth,
@@ -54,7 +54,7 @@ func TestAdminUpdateAccountPreservesExistingSeedAndStripsUserSeed(t *testing.T) 
 	}}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	updated, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Extra: map[string]any{
 			codexFingerprintModeExtraKey: "full",
 			codexFingerprintSeedExtraKey: userSuppliedCodexFingerprintSeed,
@@ -84,7 +84,7 @@ func TestAdminUpdateAccountInitializesSeedWhenFullEditEnables(t *testing.T) {
 		},
 	}}
 
-	updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Extra: map[string]any{codexFingerprintModeExtraKey: "device"},
 	})
 
@@ -109,15 +109,17 @@ func TestAdminUpdateAccountDisableReenablePreservesValidSeed(t *testing.T) {
 	}}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	disabled, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	disabled, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Extra: map[string]any{codexFingerprintModeExtraKey: "off"},
 	})
+
 	require.NoError(t, err)
 	require.Equal(t, testCodexFingerprintSeed, requireValidCodexFingerprintSeed(t, disabled.Extra))
 
-	reenabled, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	reenabled, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Extra: map[string]any{codexFingerprintModeExtraKey: "session"},
 	})
+
 	require.NoError(t, err)
 	require.Equal(t, testCodexFingerprintSeed, requireValidCodexFingerprintSeed(t, reenabled.Extra))
 }
@@ -133,7 +135,7 @@ func TestAdminUpdateAccountExtraStripsSeedAndLeavesAtomicEnsureToRepository(t *t
 		},
 	}}
 
-	err := (&adminServiceImpl{accountRepo: repo}).UpdateAccountExtra(context.Background(), accountID, map[string]any{
+	err := (&adminServiceImpl{accountRepo: repo}).UpdateAccountExtra(context.Background(), adminResourceUserTestActor(t), accountID, map[string]any{
 		codexFingerprintModeExtraKey: "device",
 		codexFingerprintSeedExtraKey: userSuppliedCodexFingerprintSeed,
 	})
@@ -147,7 +149,7 @@ func TestAdminUpdateAccountExtraStripsSeedAndLeavesAtomicEnsureToRepository(t *t
 func TestBulkUpdateAccountsDoesNotPrewriteCodexSeed(t *testing.T) {
 	repo := &upstreamBillingProbeAccountRepo{}
 
-	result, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+	result, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 		AccountIDs: []int64{301, 302},
 		Extra: map[string]any{
 			codexFingerprintModeExtraKey: "session",
@@ -187,7 +189,7 @@ func TestDuplicateAccountDoesNotCopyCodexFingerprintSeed(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, source))
 
-	duplicate, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
+	duplicate, err := svc.DuplicateAccount(ctx, adminResourceUserTestActor(t), source.ID, "")
 
 	require.NoError(t, err)
 	require.NotEqual(t, source.ID, duplicate.ID)

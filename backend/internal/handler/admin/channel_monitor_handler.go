@@ -248,6 +248,10 @@ func parseListEnabled(raw string) *bool {
 
 // List GET /api/v1/admin/channel-monitors
 func (h *ChannelMonitorHandler) List(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	page, pageSize := response.ParsePagination(c)
 	if pageSize > monitorMaxPageSize {
 		pageSize = monitorMaxPageSize
@@ -261,7 +265,7 @@ func (h *ChannelMonitorHandler) List(c *gin.Context) {
 		Search:   strings.TrimSpace(c.Query("search")),
 	}
 
-	items, total, err := h.monitorService.List(c.Request.Context(), params)
+	items, total, err := h.monitorService.AdminListChannelMonitors(c.Request.Context(), actor, params)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -308,11 +312,15 @@ func buildListItemResponse(m *service.ChannelMonitor, summary service.MonitorSta
 
 // Get GET /api/v1/admin/channel-monitors/:id
 func (h *ChannelMonitorHandler) Get(c *gin.Context) {
+	actor, actorOK := adminResourceActor(c)
+	if !actorOK {
+		return
+	}
 	id, ok := ParseChannelMonitorID(c)
 	if !ok {
 		return
 	}
-	m, err := h.monitorService.Get(c.Request.Context(), id)
+	m, err := h.monitorService.AdminGetChannelMonitor(c.Request.Context(), actor, id)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -322,6 +330,10 @@ func (h *ChannelMonitorHandler) Get(c *gin.Context) {
 
 // Create POST /api/v1/admin/channel-monitors
 func (h *ChannelMonitorHandler) Create(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	var req channelMonitorCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
@@ -335,7 +347,7 @@ func (h *ChannelMonitorHandler) Create(c *gin.Context) {
 		enabled = *req.Enabled
 	}
 
-	m, err := h.monitorService.Create(c.Request.Context(), service.ChannelMonitorCreateParams{
+	m, err := h.monitorService.AdminCreateChannelMonitor(c.Request.Context(), actor, service.ChannelMonitorCreateParams{
 		Name:             req.Name,
 		Provider:         req.Provider,
 		APIMode:          req.APIMode,
@@ -364,6 +376,10 @@ func (h *ChannelMonitorHandler) Create(c *gin.Context) {
 
 // Duplicate POST /api/v1/admin/channel-monitors/:id/duplicate
 func (h *ChannelMonitorHandler) Duplicate(c *gin.Context) {
+	actor, actorOK := adminResourceActor(c)
+	if !actorOK {
+		return
+	}
 	id, ok := ParseChannelMonitorID(c)
 	if !ok {
 		return
@@ -379,8 +395,9 @@ func (h *ChannelMonitorHandler) Duplicate(c *gin.Context) {
 		}{MonitorID: id},
 		service.DefaultWriteIdempotencyTTL(),
 		func(ctx context.Context) (any, error) {
-			monitor, err := h.monitorService.Duplicate(
+			monitor, err := h.monitorService.AdminDuplicateChannelMonitor(
 				ctx,
+				actor,
 				id,
 				subject.UserID,
 				actorScope,
@@ -395,8 +412,9 @@ func (h *ChannelMonitorHandler) Duplicate(c *gin.Context) {
 	if err != nil {
 		reason := infraerrors.Reason(err)
 		if reason == infraerrors.Reason(service.ErrIdempotencyInProgress) || reason == infraerrors.Reason(service.ErrIdempotencyStoreUnavail) {
-			recovered, recoverErr := h.monitorService.RecoverDuplicate(
+			recovered, recoverErr := h.monitorService.AdminRecoverDuplicateChannelMonitor(
 				c.Request.Context(),
+				actor,
 				id,
 				actorScope,
 				c.GetHeader("Idempotency-Key"),
@@ -421,6 +439,10 @@ func (h *ChannelMonitorHandler) Duplicate(c *gin.Context) {
 
 // Update PUT /api/v1/admin/channel-monitors/:id
 func (h *ChannelMonitorHandler) Update(c *gin.Context) {
+	actor, actorOK := adminResourceActor(c)
+	if !actorOK {
+		return
+	}
 	id, ok := ParseChannelMonitorID(c)
 	if !ok {
 		return
@@ -431,7 +453,7 @@ func (h *ChannelMonitorHandler) Update(c *gin.Context) {
 		return
 	}
 
-	m, err := h.monitorService.Update(c.Request.Context(), id, service.ChannelMonitorUpdateParams{
+	m, err := h.monitorService.AdminUpdateChannelMonitor(c.Request.Context(), actor, id, service.ChannelMonitorUpdateParams{
 		Name:             req.Name,
 		Provider:         req.Provider,
 		APIMode:          req.APIMode,
@@ -460,11 +482,15 @@ func (h *ChannelMonitorHandler) Update(c *gin.Context) {
 
 // Delete DELETE /api/v1/admin/channel-monitors/:id
 func (h *ChannelMonitorHandler) Delete(c *gin.Context) {
+	actor, actorOK := adminResourceActor(c)
+	if !actorOK {
+		return
+	}
 	id, ok := ParseChannelMonitorID(c)
 	if !ok {
 		return
 	}
-	if err := h.monitorService.Delete(c.Request.Context(), id); err != nil {
+	if err := h.monitorService.AdminDeleteChannelMonitor(c.Request.Context(), actor, id); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}

@@ -99,7 +99,7 @@ func TestAdminService_GetUserRPMStatus_AggregatesUserAndGroupLimits(t *testing.T
 		},
 	}
 
-	status, err := svc.GetUserRPMStatus(context.Background(), 42)
+	status, err := svc.GetUserRPMStatus(context.Background(), adminResourceUserTestActor(t), 42)
 	require.NoError(t, err)
 	require.Equal(t, &UserRPMStatus{
 		UserRPMUsed:  5,

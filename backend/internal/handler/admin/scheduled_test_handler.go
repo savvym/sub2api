@@ -38,13 +38,18 @@ type updateScheduledTestPlanRequest struct {
 
 // ListByAccount GET /admin/accounts/:id/scheduled-test-plans
 func (h *ScheduledTestHandler) ListByAccount(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "invalid account id")
 		return
 	}
 
-	plans, err := h.scheduledTestSvc.ListPlansByAccount(c.Request.Context(), accountID)
+	plans, err := h.scheduledTestSvc.AdminListPlansByAccount(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -54,6 +59,11 @@ func (h *ScheduledTestHandler) ListByAccount(c *gin.Context) {
 
 // Create POST /admin/scheduled-test-plans
 func (h *ScheduledTestHandler) Create(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req createScheduledTestPlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
@@ -74,7 +84,7 @@ func (h *ScheduledTestHandler) Create(c *gin.Context) {
 		plan.AutoRecover = *req.AutoRecover
 	}
 
-	created, err := h.scheduledTestSvc.CreatePlan(c.Request.Context(), plan)
+	created, err := h.scheduledTestSvc.AdminCreatePlan(c.Request.Context(), actor, plan)
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -84,13 +94,18 @@ func (h *ScheduledTestHandler) Create(c *gin.Context) {
 
 // Update PUT /admin/scheduled-test-plans/:id
 func (h *ScheduledTestHandler) Update(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	planID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "invalid plan id")
 		return
 	}
 
-	existing, err := h.scheduledTestSvc.GetPlan(c.Request.Context(), planID)
+	existing, err := h.scheduledTestSvc.AdminGetPlan(c.Request.Context(), actor, planID)
 	if err != nil {
 		response.NotFound(c, "plan not found")
 		return
@@ -118,7 +133,7 @@ func (h *ScheduledTestHandler) Update(c *gin.Context) {
 		existing.AutoRecover = *req.AutoRecover
 	}
 
-	updated, err := h.scheduledTestSvc.UpdatePlan(c.Request.Context(), existing)
+	updated, err := h.scheduledTestSvc.AdminUpdatePlan(c.Request.Context(), actor, existing)
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -128,13 +143,18 @@ func (h *ScheduledTestHandler) Update(c *gin.Context) {
 
 // Delete DELETE /admin/scheduled-test-plans/:id
 func (h *ScheduledTestHandler) Delete(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	planID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "invalid plan id")
 		return
 	}
 
-	if err := h.scheduledTestSvc.DeletePlan(c.Request.Context(), planID); err != nil {
+	if err := h.scheduledTestSvc.AdminDeletePlan(c.Request.Context(), actor, planID); err != nil {
 		response.InternalError(c, err.Error())
 		return
 	}
@@ -143,6 +163,11 @@ func (h *ScheduledTestHandler) Delete(c *gin.Context) {
 
 // ListResults GET /admin/scheduled-test-plans/:id/results
 func (h *ScheduledTestHandler) ListResults(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	planID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "invalid plan id")
@@ -154,7 +179,7 @@ func (h *ScheduledTestHandler) ListResults(c *gin.Context) {
 		limit = l
 	}
 
-	results, err := h.scheduledTestSvc.ListResults(c.Request.Context(), planID, limit)
+	results, err := h.scheduledTestSvc.AdminListResults(c.Request.Context(), actor, planID, limit)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

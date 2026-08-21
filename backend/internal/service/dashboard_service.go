@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
@@ -213,7 +214,10 @@ func (s *DashboardService) GetGroupStatsWithUsageFilters(ctx context.Context, st
 }
 
 // GetGroupUsageSummary returns today's, yesterday's, and cumulative cost for all groups.
-func (s *DashboardService) GetGroupUsageSummary(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, error) {
+func (s *DashboardService) GetGroupUsageSummary(ctx context.Context, actor authz.Actor, todayStart time.Time) ([]usagestats.GroupUsageSummary, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	results, err := s.usageRepo.GetAllGroupUsageSummary(ctx, todayStart)
 	if err != nil {
 		return nil, fmt.Errorf("get group usage summary: %w", err)

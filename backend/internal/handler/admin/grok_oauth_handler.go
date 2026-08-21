@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -52,11 +53,16 @@ func (h *GrokOAuthHandler) GetCapabilities(c *gin.Context) {
 }
 
 func (h *GrokOAuthHandler) GenerateAuthURL(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req GrokGenerateAuthURLRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		req = GrokGenerateAuthURLRequest{}
 	}
-	result, err := h.grokOAuthService.GenerateAuthURL(c.Request.Context(), req.ProxyID, req.RedirectURI)
+	result, err := h.grokOAuthService.AdminGenerateAuthURL(c.Request.Context(), actor, req.ProxyID, req.RedirectURI)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -73,12 +79,17 @@ type GrokExchangeCodeRequest struct {
 }
 
 func (h *GrokOAuthHandler) ExchangeCode(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req GrokExchangeCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	tokenInfo, err := h.grokOAuthService.ExchangeCode(c.Request.Context(), &service.GrokExchangeCodeInput{
+	tokenInfo, err := h.grokOAuthService.AdminExchangeCode(c.Request.Context(), actor, &service.GrokExchangeCodeInput{
 		SessionID:   req.SessionID,
 		Code:        req.Code,
 		State:       req.State,
@@ -111,6 +122,11 @@ type GrokPasswordAuthorizeRequest struct {
 }
 
 func (h *GrokOAuthHandler) RefreshToken(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req GrokRefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -124,7 +140,6 @@ func (h *GrokOAuthHandler) RefreshToken(c *gin.Context) {
 		response.BadRequest(c, "refresh_token is required")
 		return
 	}
-
 	var proxyURL string
 	if req.ProxyID != nil {
 		proxy, err := h.adminService.GetProxy(c.Request.Context(), *req.ProxyID)
@@ -138,7 +153,7 @@ func (h *GrokOAuthHandler) RefreshToken(c *gin.Context) {
 		}
 		proxyURL = proxy.URL()
 	}
-	tokenInfo, err := h.grokOAuthService.RefreshToken(c.Request.Context(), refreshToken, proxyURL, req.ClientID)
+	tokenInfo, err := h.grokOAuthService.AdminRefreshToken(c.Request.Context(), actor, refreshToken, proxyURL, req.ClientID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -149,12 +164,17 @@ func (h *GrokOAuthHandler) RefreshToken(c *gin.Context) {
 // ValidateSSOToken converts a Web SSO cookie into Build OAuth tokens.
 // Response contains OAuth token info only — never echoes sso_token.
 func (h *GrokOAuthHandler) ValidateSSOToken(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req GrokSSOTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	tokenInfo, err := h.grokOAuthService.ValidateSSOToken(c.Request.Context(), req.SSOToken, req.ProxyID)
+	tokenInfo, err := h.grokOAuthService.AdminValidateSSOToken(c.Request.Context(), actor, req.SSOToken, req.ProxyID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -165,12 +185,17 @@ func (h *GrokOAuthHandler) ValidateSSOToken(c *gin.Context) {
 // AuthorizePassword exchanges email/password for Build OAuth tokens via SSO conversion.
 // Response never includes password or raw sso_token.
 func (h *GrokOAuthHandler) AuthorizePassword(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req GrokPasswordAuthorizeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	tokenInfo, err := h.grokOAuthService.AuthorizePassword(c.Request.Context(), req.Email, req.Password, req.ProxyID)
+	tokenInfo, err := h.grokOAuthService.AdminAuthorizePassword(c.Request.Context(), actor, req.Email, req.Password, req.ProxyID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -179,12 +204,17 @@ func (h *GrokOAuthHandler) AuthorizePassword(c *gin.Context) {
 }
 
 func (h *GrokOAuthHandler) RefreshAccountToken(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	account, err := h.adminService.GetAccount(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -197,7 +227,7 @@ func (h *GrokOAuthHandler) RefreshAccountToken(c *gin.Context) {
 		response.BadRequest(c, "Cannot refresh non-OAuth account credentials")
 		return
 	}
-	tokenInfo, err := h.grokOAuthService.RefreshAccountToken(c.Request.Context(), account)
+	tokenInfo, err := h.grokOAuthService.AdminRefreshAccountToken(c.Request.Context(), actor, account)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -207,7 +237,7 @@ func (h *GrokOAuthHandler) RefreshAccountToken(c *gin.Context) {
 	if baseURL := strings.TrimSpace(account.GetCredential("base_url")); baseURL != "" {
 		newCredentials["base_url"] = baseURL
 	}
-	updatedAccount, err := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{
+	updatedAccount, err := h.adminService.UpdateAccount(c.Request.Context(), actor, accountID, &service.UpdateAccountInput{
 		Credentials: newCredentials,
 	})
 	if err != nil {
@@ -226,6 +256,11 @@ type GrokOAuthReconcileRequest struct {
 }
 
 func (h *GrokOAuthHandler) ReconcileOAuthAccounts(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req GrokOAuthReconcileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request")
@@ -247,7 +282,7 @@ func (h *GrokOAuthHandler) ReconcileOAuthAccounts(c *gin.Context) {
 		response.InternalError(c, "Grok OAuth reconciliation service is unavailable")
 		return
 	}
-	result, err := h.reconciler.ReconcileGrokOAuth(c.Request.Context(), service.GrokOAuthReconcileInput{
+	result, err := h.reconciler.AdminReconcileGrokOAuth(c.Request.Context(), actor, service.GrokOAuthReconcileInput{
 		DryRun:        dryRun,
 		Apply:         req.Apply,
 		AfterID:       req.AfterID,
@@ -262,6 +297,11 @@ func (h *GrokOAuthHandler) ReconcileOAuthAccounts(c *gin.Context) {
 }
 
 func (h *GrokOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req struct {
 		SessionID   string  `json:"session_id" binding:"required"`
 		Code        string  `json:"code" binding:"required"`
@@ -277,7 +317,7 @@ func (h *GrokOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	tokenInfo, err := h.grokOAuthService.ExchangeCode(c.Request.Context(), &service.GrokExchangeCodeInput{
+	tokenInfo, err := h.grokOAuthService.AdminExchangeCode(c.Request.Context(), actor, &service.GrokExchangeCodeInput{
 		SessionID:   req.SessionID,
 		Code:        req.Code,
 		State:       req.State,
@@ -298,7 +338,7 @@ func (h *GrokOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 		name = "Grok OAuth Account"
 	}
 
-	account, err := h.adminService.CreateAccount(c.Request.Context(), &service.CreateAccountInput{
+	account, err := h.adminService.CreateAccount(c.Request.Context(), actor, &service.CreateAccountInput{
 		Name:        name,
 		Platform:    service.PlatformGrok,
 		Type:        service.AccountTypeOAuth,
@@ -312,7 +352,7 @@ func (h *GrokOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	h.scheduleGrokImportProbe(account)
+	h.scheduleGrokImportProbe(actor, account)
 	response.Success(c, dto.AccountFromService(account))
 }
 
@@ -357,6 +397,11 @@ type grokSSOImportWorkerResult struct {
 }
 
 func (h *GrokOAuthHandler) CreateAccountsFromSSO(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req GrokSSOToOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -367,7 +412,6 @@ func (h *GrokOAuthHandler) CreateAccountsFromSSO(c *gin.Context) {
 		response.BadRequest(c, "sso_tokens is required")
 		return
 	}
-
 	ctx := c.Request.Context()
 	workerCount := grokSSOImportConcurrency
 	if len(tokens) < workerCount {
@@ -381,7 +425,7 @@ func (h *GrokOAuthHandler) CreateAccountsFromSSO(c *gin.Context) {
 		go func() {
 			defer wg.Done()
 			for job := range jobs {
-				items[job.index] = h.safeCreateAccountFromSSOToken(ctx, req, job.token, job.index+1, len(tokens))
+				items[job.index] = h.safeCreateAccountFromSSOToken(ctx, actor, req, job.token, job.index+1, len(tokens))
 			}
 		}()
 	}
@@ -405,7 +449,7 @@ func (h *GrokOAuthHandler) CreateAccountsFromSSO(c *gin.Context) {
 	response.Success(c, result)
 }
 
-func (h *GrokOAuthHandler) safeCreateAccountFromSSOToken(ctx context.Context, req GrokSSOToOAuthRequest, token string, index, total int) (result grokSSOImportWorkerResult) {
+func (h *GrokOAuthHandler) safeCreateAccountFromSSOToken(ctx context.Context, actor authz.Actor, req GrokSSOToOAuthRequest, token string, index, total int) (result grokSSOImportWorkerResult) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			slog.Error("grok_sso_import_worker_panic", "index", index, "recover", recovered)
@@ -417,11 +461,11 @@ func (h *GrokOAuthHandler) safeCreateAccountFromSSOToken(ctx context.Context, re
 			}
 		}
 	}()
-	return h.createAccountFromSSOToken(ctx, req, token, index, total)
+	return h.createAccountFromSSOToken(ctx, actor, req, token, index, total)
 }
 
-func (h *GrokOAuthHandler) createAccountFromSSOToken(ctx context.Context, req GrokSSOToOAuthRequest, token string, index, total int) grokSSOImportWorkerResult {
-	tokenInfo, err := h.grokOAuthService.ConvertFromSSO(ctx, token, req.ProxyID)
+func (h *GrokOAuthHandler) createAccountFromSSOToken(ctx context.Context, actor authz.Actor, req GrokSSOToOAuthRequest, token string, index, total int) grokSSOImportWorkerResult {
+	tokenInfo, err := h.grokOAuthService.AdminConvertFromSSO(ctx, actor, token, req.ProxyID)
 	if err != nil {
 		return grokSSOImportWorkerResult{item: GrokSSOToOAuthItemResult{Index: index, Error: grokSSOImportErrorMessage(err)}}
 	}
@@ -429,7 +473,7 @@ func (h *GrokOAuthHandler) createAccountFromSSOToken(ctx context.Context, req Gr
 	credentials := grokSSOImportCredentials(h.grokOAuthService.BuildAccountCredentials(tokenInfo), req.Credentials)
 	name := grokSSOImportAccountName(req.Name, tokenInfo, index, total)
 	expiresAt, autoPauseOnExpired := grokSSOImportExpiry(req.ExpiresAt, req.AutoPauseOnExpired, tokenInfo)
-	account, err := h.adminService.CreateAccount(ctx, &service.CreateAccountInput{
+	account, err := h.adminService.CreateAccount(ctx, actor, &service.CreateAccountInput{
 		Name:               name,
 		Notes:              req.Notes,
 		Platform:           service.PlatformGrok,
@@ -448,7 +492,7 @@ func (h *GrokOAuthHandler) createAccountFromSSOToken(ctx context.Context, req Gr
 	if err != nil {
 		return grokSSOImportWorkerResult{item: GrokSSOToOAuthItemResult{Index: index, Name: name, Email: tokenInfo.Email, Error: grokSSOImportErrorMessage(err)}}
 	}
-	h.scheduleGrokImportProbe(account)
+	h.scheduleGrokImportProbe(actor, account)
 	return grokSSOImportWorkerResult{
 		created: true,
 		item: GrokSSOToOAuthItemResult{
@@ -588,6 +632,11 @@ func grokSSOImportErrorMessage(err error) string {
 }
 
 func (h *GrokOAuthHandler) QueryQuota(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
@@ -597,7 +646,7 @@ func (h *GrokOAuthHandler) QueryQuota(c *gin.Context) {
 		response.BadRequest(c, "grok quota service is not enabled")
 		return
 	}
-	result, err := h.quotaService.QueryQuota(c.Request.Context(), accountID)
+	result, err := h.quotaService.AdminQueryQuota(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -606,6 +655,11 @@ func (h *GrokOAuthHandler) QueryQuota(c *gin.Context) {
 }
 
 func (h *GrokOAuthHandler) ResetQuota(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid account ID")
@@ -615,7 +669,7 @@ func (h *GrokOAuthHandler) ResetQuota(c *gin.Context) {
 		response.BadRequest(c, "grok quota service is not enabled")
 		return
 	}
-	result, err := h.quotaService.ResetQuota(c.Request.Context(), accountID)
+	result, err := h.quotaService.AdminResetQuota(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

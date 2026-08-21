@@ -6,24 +6,25 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
 // AdminService interface defines admin management operations
 type AdminService interface {
 	// User management
-	ListUsers(ctx context.Context, page, pageSize int, filters UserListFilters, sortBy, sortOrder string) ([]User, int64, error)
-	GetUser(ctx context.Context, id int64) (*User, error)
-	GetUserIncludeDeleted(ctx context.Context, id int64) (*User, error)
-	CreateUser(ctx context.Context, input *CreateUserInput) (*User, error)
-	UpdateUser(ctx context.Context, id int64, input *UpdateUserInput) (*User, error)
-	DeleteUser(ctx context.Context, id int64) error
+	ListUsers(ctx context.Context, actor authz.Actor, page, pageSize int, filters UserListFilters, sortBy, sortOrder string) ([]User, int64, error)
+	GetUser(ctx context.Context, actor authz.Actor, id int64) (*User, error)
+	GetUserIncludeDeleted(ctx context.Context, actor authz.Actor, id int64) (*User, error)
+	CreateUser(ctx context.Context, actor authz.Actor, input *CreateUserInput) (*User, error)
+	UpdateUser(ctx context.Context, actor authz.Actor, id int64, input *UpdateUserInput) (*User, error)
+	DeleteUser(ctx context.Context, actor authz.Actor, id int64) error
 	UpdateUserBalance(ctx context.Context, userID int64, balance float64, operation string, notes string) (*User, error)
 	BatchUpdateConcurrency(ctx context.Context, userIDs []int64, value int, mode string) (int, error)
 	BatchUpdateLimits(ctx context.Context, userIDs []int64, concurrency, rpmLimit *int) (int, error)
-	GetUserAPIKeys(ctx context.Context, userID int64, page, pageSize int, sortBy, sortOrder string) ([]APIKey, int64, error)
+	GetUserAPIKeys(ctx context.Context, actor authz.Actor, userID int64, page, pageSize int, sortBy, sortOrder string) ([]APIKey, int64, error)
 	GetUserUsageStats(ctx context.Context, userID int64, period string) (any, error)
-	GetUserRPMStatus(ctx context.Context, userID int64) (*UserRPMStatus, error)
+	GetUserRPMStatus(ctx context.Context, actor authz.Actor, userID int64) (*UserRPMStatus, error)
 	// GetUserBalanceHistory returns paginated balance/concurrency change records for a user.
 	// codeType is optional - pass empty string to return all types.
 	// Also returns totalRecharged (sum of all positive balance top-ups).
@@ -31,85 +32,85 @@ type AdminService interface {
 	BindUserAuthIdentity(ctx context.Context, userID int64, input AdminBindAuthIdentityInput) (*AdminBoundAuthIdentity, error)
 
 	// Group management
-	ListGroups(ctx context.Context, page, pageSize int, platform, status, search string, isExclusive *bool, sortBy, sortOrder string) ([]Group, int64, error)
-	GetAllGroups(ctx context.Context) ([]Group, error)
-	GetAllGroupsByPlatform(ctx context.Context, platform string) ([]Group, error)
+	ListGroups(ctx context.Context, actor authz.Actor, page, pageSize int, platform, status, search string, isExclusive *bool, sortBy, sortOrder string) ([]Group, int64, error)
+	GetAllGroups(ctx context.Context, actor authz.Actor) ([]Group, error)
+	GetAllGroupsByPlatform(ctx context.Context, actor authz.Actor, platform string) ([]Group, error)
 	// GetAllGroupsIncludingInactive returns all groups regardless of status (active + disabled),
 	// ordered by sort_order then id. Used by the API Key group filter dropdown.
-	GetAllGroupsIncludingInactive(ctx context.Context) ([]Group, error)
-	GetGroup(ctx context.Context, id int64) (*Group, error)
-	GetGroupModelsListCandidates(ctx context.Context, id int64, platform string) ([]string, error)
-	CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error)
+	GetAllGroupsIncludingInactive(ctx context.Context, actor authz.Actor) ([]Group, error)
+	GetGroup(ctx context.Context, actor authz.Actor, id int64) (*Group, error)
+	GetGroupModelsListCandidates(ctx context.Context, actor authz.Actor, id int64, platform string) ([]string, error)
+	CreateGroup(ctx context.Context, actor authz.Actor, input *CreateGroupInput) (*Group, error)
 	// DuplicateGroup creates an inactive independent copy of a group's configuration
 	// and account bindings while preserving each binding's priority.
-	DuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*Group, error)
+	DuplicateGroup(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Group, error)
 	// RecoverDuplicateGroup returns a previously committed copy for an ambiguous retry.
 	// It never creates a group.
-	RecoverDuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*Group, error)
-	UpdateGroup(ctx context.Context, id int64, input *UpdateGroupInput) (*Group, error)
-	DeleteGroup(ctx context.Context, id int64) error
-	ListCompositeRoutes(ctx context.Context, groupID int64) ([]CompositeModelRoute, error)
-	CreateCompositeRoute(ctx context.Context, groupID int64, input CompositeRouteInput) (*CompositeModelRoute, error)
-	UpdateCompositeRoute(ctx context.Context, groupID, routeID int64, input CompositeRouteInput) (*CompositeModelRoute, error)
-	DeleteCompositeRoute(ctx context.Context, groupID, routeID int64) error
-	PreviewCompositeRoute(ctx context.Context, groupID int64, input CompositeRoutePreviewRequest) (*CompositeRouteDecision, error)
-	GetGroupAPIKeys(ctx context.Context, groupID int64, page, pageSize int) ([]APIKey, int64, error)
-	GetGroupRateMultipliers(ctx context.Context, groupID int64) ([]UserGroupRateEntry, error)
-	ClearGroupRateMultipliers(ctx context.Context, groupID int64) error
-	BatchSetGroupRateMultipliers(ctx context.Context, groupID int64, entries []GroupRateMultiplierInput) error
-	ClearGroupRPMOverrides(ctx context.Context, groupID int64) error
-	BatchSetGroupRPMOverrides(ctx context.Context, groupID int64, entries []GroupRPMOverrideInput) error
-	UpdateGroupSortOrders(ctx context.Context, updates []GroupSortOrderUpdate) error
+	RecoverDuplicateGroup(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Group, error)
+	UpdateGroup(ctx context.Context, actor authz.Actor, id int64, input *UpdateGroupInput) (*Group, error)
+	DeleteGroup(ctx context.Context, actor authz.Actor, id int64) error
+	ListCompositeRoutes(ctx context.Context, actor authz.Actor, groupID int64) ([]CompositeModelRoute, error)
+	CreateCompositeRoute(ctx context.Context, actor authz.Actor, groupID int64, input CompositeRouteInput) (*CompositeModelRoute, error)
+	UpdateCompositeRoute(ctx context.Context, actor authz.Actor, groupID, routeID int64, input CompositeRouteInput) (*CompositeModelRoute, error)
+	DeleteCompositeRoute(ctx context.Context, actor authz.Actor, groupID, routeID int64) error
+	PreviewCompositeRoute(ctx context.Context, actor authz.Actor, groupID int64, input CompositeRoutePreviewRequest) (*CompositeRouteDecision, error)
+	GetGroupAPIKeys(ctx context.Context, actor authz.Actor, groupID int64, page, pageSize int) ([]APIKey, int64, error)
+	GetGroupRateMultipliers(ctx context.Context, actor authz.Actor, groupID int64) ([]UserGroupRateEntry, error)
+	ClearGroupRateMultipliers(ctx context.Context, actor authz.Actor, groupID int64) error
+	BatchSetGroupRateMultipliers(ctx context.Context, actor authz.Actor, groupID int64, entries []GroupRateMultiplierInput) error
+	ClearGroupRPMOverrides(ctx context.Context, actor authz.Actor, groupID int64) error
+	BatchSetGroupRPMOverrides(ctx context.Context, actor authz.Actor, groupID int64, entries []GroupRPMOverrideInput) error
+	UpdateGroupSortOrders(ctx context.Context, actor authz.Actor, updates []GroupSortOrderUpdate) error
 
 	// API Key management (admin)
-	AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error)
-	AdminResetAPIKeyRateLimitUsage(ctx context.Context, keyID int64) (*APIKey, error)
+	AdminUpdateAPIKeyGroupID(ctx context.Context, actor authz.Actor, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error)
+	AdminResetAPIKeyRateLimitUsage(ctx context.Context, actor authz.Actor, keyID int64) (*APIKey, error)
 
 	// ReplaceUserGroup 替换用户的专属分组：授予新分组权限、迁移 Key、移除旧分组权限
-	ReplaceUserGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (*ReplaceUserGroupResult, error)
+	ReplaceUserGroup(ctx context.Context, actor authz.Actor, userID, oldGroupID, newGroupID int64) (*ReplaceUserGroupResult, error)
 
 	// Account management
-	ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]Account, int64, error)
+	ListAccounts(ctx context.Context, actor authz.Actor, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]Account, int64, error)
 	// ListAccountsForSchedulerScoreFilter 返回符合过滤条件的全部账号（不分页），
 	// 作为账号列表页计算 OpenAI 调度分数的过滤范围池。
-	ListAccountsForSchedulerScoreFilter(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error)
+	ListAccountsForSchedulerScoreFilter(ctx context.Context, actor authz.Actor, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error)
 	// ListOpenAISchedulableAccountsForSchedulerScore 返回指定分组（nil 为未分组）内
 	// 可调度的 OpenAI 账号，用于按组计算调度分数。
-	ListOpenAISchedulableAccountsForSchedulerScore(ctx context.Context, groupID *int64) ([]Account, error)
-	GetAccount(ctx context.Context, id int64) (*Account, error)
-	GetAccountsByIDs(ctx context.Context, ids []int64) ([]*Account, error)
-	CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error)
+	ListOpenAISchedulableAccountsForSchedulerScore(ctx context.Context, actor authz.Actor, groupID *int64) ([]Account, error)
+	GetAccount(ctx context.Context, actor authz.Actor, id int64) (*Account, error)
+	GetAccountsByIDs(ctx context.Context, actor authz.Actor, ids []int64) ([]*Account, error)
+	CreateAccount(ctx context.Context, actor authz.Actor, input *CreateAccountInput) (*Account, error)
 	// DuplicateAccount creates an independent account from an existing account's configuration.
 	// First-class runtime columns are intentionally reset by the normal account creation path.
-	DuplicateAccount(ctx context.Context, id int64, actorScope, operationKey string) (*Account, error)
+	DuplicateAccount(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Account, error)
 	// RecoverDuplicateAccount returns a previously committed duplicate for an ambiguous retry.
 	// It never creates an account.
-	RecoverDuplicateAccount(ctx context.Context, id int64, actorScope, operationKey string) (*Account, error)
-	UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error)
+	RecoverDuplicateAccount(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Account, error)
+	UpdateAccount(ctx context.Context, actor authz.Actor, id int64, input *UpdateAccountInput) (*Account, error)
 	// UpdateAccountExtra 仅对 Extra 做 JSONB 增量合并（key 级覆盖），不会影响其它字段或运行态键。
 	// 用于刷新流程持久化 account_uuid / org_uuid 等少量键，避免被全量快照覆盖。
-	UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error
-	DeleteAccount(ctx context.Context, id int64) error
-	RefreshAccountCredentials(ctx context.Context, id int64) (*Account, error)
-	ClearAccountError(ctx context.Context, id int64) (*Account, error)
-	SetAccountError(ctx context.Context, id int64, errorMsg string) error
+	UpdateAccountExtra(ctx context.Context, actor authz.Actor, id int64, updates map[string]any) error
+	DeleteAccount(ctx context.Context, actor authz.Actor, id int64) error
+	RefreshAccountCredentials(ctx context.Context, actor authz.Actor, id int64) (*Account, error)
+	ClearAccountError(ctx context.Context, actor authz.Actor, id int64) (*Account, error)
+	SetAccountError(ctx context.Context, actor authz.Actor, id int64, errorMsg string) error
 	// EnsureOpenAIPrivacy 检查 OpenAI OAuth 账号 privacy_mode，未设置则尝试关闭训练数据共享并持久化。
-	EnsureOpenAIPrivacy(ctx context.Context, account *Account) string
+	EnsureOpenAIPrivacy(ctx context.Context, actor authz.Actor, account *Account) string
 	// EnsureAntigravityPrivacy 检查 Antigravity OAuth 账号 privacy_mode，未设置则调用 setUserSettings 并持久化。
-	EnsureAntigravityPrivacy(ctx context.Context, account *Account) string
+	EnsureAntigravityPrivacy(ctx context.Context, actor authz.Actor, account *Account) string
 	// ForceOpenAIPrivacy 强制重新设置 OpenAI OAuth 账号隐私，无论当前状态。
-	ForceOpenAIPrivacy(ctx context.Context, account *Account) string
+	ForceOpenAIPrivacy(ctx context.Context, actor authz.Actor, account *Account) string
 	// ForceAntigravityPrivacy 强制重新设置 Antigravity OAuth 账号隐私，无论当前状态。
-	ForceAntigravityPrivacy(ctx context.Context, account *Account) string
-	SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error)
-	BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error)
-	CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error
+	ForceAntigravityPrivacy(ctx context.Context, actor authz.Actor, account *Account) string
+	SetAccountSchedulable(ctx context.Context, actor authz.Actor, id int64, schedulable bool) (*Account, error)
+	BulkUpdateAccounts(ctx context.Context, actor authz.Actor, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error)
+	CheckMixedChannelRisk(ctx context.Context, actor authz.Actor, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error
 	// RevertAccountProxyFallback 将账号的 proxy_id 切回 proxy_fallback_origin_id，并清空 origin 字段。
 	// 若账号不存在返回 ErrAccountNotFound；若账号存在但不在 fallback 状态，返回 ErrAccountNotInFallback。
-	RevertAccountProxyFallback(ctx context.Context, id int64) error
+	RevertAccountProxyFallback(ctx context.Context, actor authz.Actor, id int64) error
 	// CreateShadow 为指定 OpenAI OAuth 母账号创建 spark 维度影子账号（一母一影）。
 	// 影子账号不持凭据（Credentials 恒为空），透传母账号凭据；继承母账号的 ProxyID。
-	CreateShadow(ctx context.Context, parentID int64, opts ShadowOptions) (*Account, error)
+	CreateShadow(ctx context.Context, actor authz.Actor, parentID int64, opts ShadowOptions) (*Account, error)
 
 	// Proxy management
 	ListProxies(ctx context.Context, page, pageSize int, protocol, status, search string, sortBy, sortOrder string) ([]Proxy, int64, error)
@@ -122,19 +123,24 @@ type AdminService interface {
 	UpdateProxy(ctx context.Context, id int64, input *UpdateProxyInput) (*Proxy, error)
 	DeleteProxy(ctx context.Context, id int64) error
 	BatchDeleteProxies(ctx context.Context, ids []int64) (*ProxyBatchDeleteResult, error)
-	GetProxyAccounts(ctx context.Context, proxyID int64) ([]ProxyAccountSummary, error)
+	AdminGetProxyAccounts(ctx context.Context, actor authz.Actor, proxyID int64) ([]ProxyAccountSummary, error)
 	CheckProxyExists(ctx context.Context, host string, port int, username, password string) (bool, error)
 	TestProxy(ctx context.Context, id int64) (*ProxyTestResult, error)
 	CheckProxyQuality(ctx context.Context, id int64) (*ProxyQualityCheckResult, error)
 
 	// Redeem code management
 	ListRedeemCodes(ctx context.Context, page, pageSize int, codeType, status, search string, sortBy, sortOrder string) ([]RedeemCode, int64, error)
+	AdminListRedeemCodes(ctx context.Context, actor authz.Actor, page, pageSize int, codeType, status, search string, sortBy, sortOrder string) ([]RedeemCode, int64, error)
 	GetRedeemCode(ctx context.Context, id int64) (*RedeemCode, error)
-	GenerateRedeemCodes(ctx context.Context, input *GenerateRedeemCodesInput) ([]RedeemCode, error)
+	AdminGetRedeemCode(ctx context.Context, actor authz.Actor, id int64) (*RedeemCode, error)
+	GenerateRedeemCodes(ctx context.Context, actor authz.Actor, input *GenerateRedeemCodesInput) ([]RedeemCode, error)
 	DeleteRedeemCode(ctx context.Context, id int64) error
+	AdminDeleteRedeemCode(ctx context.Context, actor authz.Actor, id int64) error
 	BatchDeleteRedeemCodes(ctx context.Context, ids []int64) (int64, error)
+	AdminBatchDeleteRedeemCodes(ctx context.Context, actor authz.Actor, ids []int64) (int64, error)
 	ExpireRedeemCode(ctx context.Context, id int64) (*RedeemCode, error)
-	ResetAccountQuota(ctx context.Context, id int64) error
+	AdminExpireRedeemCode(ctx context.Context, actor authz.Actor, id int64) (*RedeemCode, error)
+	ResetAccountQuota(ctx context.Context, actor authz.Actor, id int64) error
 }
 
 // CreateUserInput represents input for creating a new user via admin operations.

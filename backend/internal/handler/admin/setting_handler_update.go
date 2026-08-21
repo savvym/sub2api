@@ -484,6 +484,10 @@ func settingsAuditRequest(req UpdateSettingsRequest) UpdateSettingsRequest {
 }
 
 func (h *SettingHandler) UpdateSettings(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	var sentFields map[string]json.RawMessage
 	if err := c.ShouldBindBodyWith(&sentFields, binding.JSON); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -497,7 +501,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	auditReq := settingsAuditRequest(req)
 	omitted := omittedSettingKeys(sentFields)
 
-	previousSettings, err := h.settingService.GetAllSettings(c.Request.Context())
+	previousSettings, err := h.settingService.AdminGetAllSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -507,7 +511,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		response.ErrorFrom(c, service.ErrRoleAuthorizationModeTransitionRequired)
 		return
 	}
-	previousAuthSourceDefaults, err := h.settingService.GetAuthSourceDefaultSettings(c.Request.Context())
+	previousAuthSourceDefaults, err := h.settingService.AdminGetAuthSourceDefaultSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -555,6 +559,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	// previousSettings 已证实开关处于开启状态，使用无条件门控变体，
 	// 避免门控内部二次读取开关时因存储故障 fail-open（前端捕获 STEP_UP_REQUIRED 弹码重试）。
 	if !stepUpEnabled && previousSettings.StepUpEnabled {
+		if c.GetString("auth_method") != service.AuditAuthMethodAdminAPIKey && (h.totpService == nil || h.userService == nil) {
+			response.InternalError(c, "Step-up verification unavailable")
+			return
+		}
 		if !middleware.EnforceStepUpAlways(c, h.totpService, h.userService) {
 			return
 		}
@@ -2044,7 +2052,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		},
 		ForceEmailOnThirdPartySignup: boolValueOrDefault(req.ForceEmailOnThirdPartySignup, previousAuthSourceDefaults.ForceEmailOnThirdPartySignup),
 	}
-	if err := h.settingService.UpdateSettingsWithAuthSourceDefaultsOmitting(c.Request.Context(), settings, authSourceDefaults, omitted); err != nil {
+	if err := h.settingService.AdminUpdateSettingsWithAuthSourceDefaultsOmitting(c.Request.Context(), actor, settings, authSourceDefaults, omitted); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -2099,13 +2107,13 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 
 	// 重新获取设置返回
-	updatedSettings, err := h.settingService.GetAllSettings(c.Request.Context())
+	updatedSettings, err := h.settingService.AdminGetAllSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 	h.ensureDingTalkSyncAttributes(c.Request.Context(), updatedSettings)
-	updatedAuthSourceDefaults, err := h.settingService.GetAuthSourceDefaultSettings(c.Request.Context())
+	updatedAuthSourceDefaults, err := h.settingService.AdminGetAuthSourceDefaultSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

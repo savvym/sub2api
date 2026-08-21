@@ -121,6 +121,10 @@ type BindUserAuthIdentityChannelRequest struct {
 //   - group_name: fuzzy filter by allowed group name
 //   - api_key_group_id: filter by the exact group bound to the user's API keys
 func (h *UserHandler) List(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	page, pageSize := response.ParsePagination(c)
 
 	search := c.Query("search")
@@ -149,7 +153,7 @@ func (h *UserHandler) List(c *gin.Context) {
 		filters.IncludeSubscriptions = &includeSubscriptions
 	}
 
-	users, total, err := h.adminService.ListUsers(c.Request.Context(), page, pageSize, filters, sortBy, sortOrder)
+	users, total, err := h.adminService.ListUsers(c.Request.Context(), actor, page, pageSize, filters, sortBy, sortOrder)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -208,6 +212,10 @@ func parseAttributeFilters(c *gin.Context) map[int64]string {
 // GetByID handles getting a user by ID
 // GET /api/v1/admin/users/:id
 func (h *UserHandler) GetByID(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid user ID")
@@ -216,9 +224,9 @@ func (h *UserHandler) GetByID(c *gin.Context) {
 
 	var user *service.User
 	if c.Query("include_deleted") == "true" {
-		user, err = h.adminService.GetUserIncludeDeleted(c.Request.Context(), userID)
+		user, err = h.adminService.GetUserIncludeDeleted(c.Request.Context(), actor, userID)
 	} else {
-		user, err = h.adminService.GetUser(c.Request.Context(), userID)
+		user, err = h.adminService.GetUser(c.Request.Context(), actor, userID)
 	}
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -270,12 +278,15 @@ func (h *UserHandler) BindAuthIdentity(c *gin.Context) {
 // Create handles creating a new user
 // POST /api/v1/admin/users
 func (h *UserHandler) Create(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	var req CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
 	// 创建管理员账号属权限敏感操作：需最近完成 step-up 2FA 验证。
 	if req.Role == service.RoleAdmin {
 		if !middleware.EnforceStepUp(c, h.totpService, h.userService, h.settingService) {
@@ -283,7 +294,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 		}
 	}
 
-	user, err := h.adminService.CreateUser(c.Request.Context(), &service.CreateUserInput{
+	user, err := h.adminService.CreateUser(c.Request.Context(), actor, &service.CreateUserInput{
 		Email:         req.Email,
 		Password:      req.Password,
 		Username:      req.Username,
@@ -306,6 +317,10 @@ func (h *UserHandler) Create(c *gin.Context) {
 // Update handles updating a user
 // PUT /api/v1/admin/users/:id
 func (h *UserHandler) Update(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid user ID")
@@ -317,7 +332,6 @@ func (h *UserHandler) Update(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
 	// 防锁死保护：管理员不能把自己降级为普通用户(单管理员场景下会失去后台访问权)。
 	// 与既有"不能禁用/删除 admin"保护一致。降级其他管理员仍然允许。
 	if req.Role == service.RoleUser && userID == getAdminIDFromContext(c) {
@@ -328,7 +342,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 	// 把普通用户提升为管理员属权限敏感操作：需最近完成 step-up 2FA 验证。
 	// 目标已是管理员时（前端编辑表单总是携带 role）不触发，避免日常编辑被打断。
 	if req.Role == service.RoleAdmin {
-		target, err := h.adminService.GetUser(c.Request.Context(), userID)
+		target, err := h.adminService.GetUser(c.Request.Context(), actor, userID)
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return
@@ -341,7 +355,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 	}
 
 	// 使用指针类型直接传递，nil 表示未提供该字段
-	user, err := h.adminService.UpdateUser(c.Request.Context(), userID, &service.UpdateUserInput{
+	user, err := h.adminService.UpdateUser(c.Request.Context(), actor, userID, &service.UpdateUserInput{
 		Email:         req.Email,
 		Password:      req.Password,
 		Username:      req.Username,
@@ -366,13 +380,16 @@ func (h *UserHandler) Update(c *gin.Context) {
 // Delete handles deleting a user
 // DELETE /api/v1/admin/users/:id
 func (h *UserHandler) Delete(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid user ID")
 		return
 	}
-
-	err = h.adminService.DeleteUser(c.Request.Context(), userID)
+	err = h.adminService.DeleteUser(c.Request.Context(), actor, userID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -415,17 +432,20 @@ func (h *UserHandler) UpdateBalance(c *gin.Context) {
 // GetUserAPIKeys handles getting user's API keys
 // GET /api/v1/admin/users/:id/api-keys
 func (h *UserHandler) GetUserAPIKeys(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid user ID")
 		return
 	}
-
 	page, pageSize := response.ParsePagination(c)
 	sortBy := c.DefaultQuery("sort_by", "created_at")
 	sortOrder := c.DefaultQuery("sort_order", "desc")
 
-	keys, total, err := h.adminService.GetUserAPIKeys(c.Request.Context(), userID, page, pageSize, sortBy, sortOrder)
+	keys, total, err := h.adminService.GetUserAPIKeys(c.Request.Context(), actor, userID, page, pageSize, sortBy, sortOrder)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -508,6 +528,10 @@ type ReplaceGroupRequest struct {
 // ReplaceGroup handles replacing a user's exclusive group
 // POST /api/v1/admin/users/:id/replace-group
 func (h *UserHandler) ReplaceGroup(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid user ID")
@@ -519,8 +543,7 @@ func (h *UserHandler) ReplaceGroup(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
-	result, err := h.adminService.ReplaceUserGroup(c.Request.Context(), userID, req.OldGroupID, req.NewGroupID)
+	result, err := h.adminService.ReplaceUserGroup(c.Request.Context(), actor, userID, req.OldGroupID, req.NewGroupID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -534,13 +557,17 @@ func (h *UserHandler) ReplaceGroup(c *gin.Context) {
 // GetUserRPMStatus 返回指定用户当前分钟的 RPM 用量
 // GET /api/v1/admin/users/:id/rpm-status
 func (h *UserHandler) GetUserRPMStatus(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid user ID")
 		return
 	}
 
-	status, err := h.adminService.GetUserRPMStatus(c.Request.Context(), userID)
+	status, err := h.adminService.GetUserRPMStatus(c.Request.Context(), actor, userID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -559,6 +586,10 @@ type BatchUpdateConcurrencyRequest struct {
 }
 
 func (h *UserHandler) BatchUpdateConcurrency(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	var req BatchUpdateConcurrencyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -579,7 +610,7 @@ func (h *UserHandler) BatchUpdateConcurrency(c *gin.Context) {
 		page := 1
 		const pageSize = 500
 		for {
-			users, _, err := h.adminService.ListUsers(c.Request.Context(), page, pageSize, service.UserListFilters{}, "id", "asc")
+			users, _, err := h.adminService.ListUsers(c.Request.Context(), actor, page, pageSize, service.UserListFilters{}, "id", "asc")
 			if err != nil {
 				response.ErrorFrom(c, err)
 				return
@@ -619,6 +650,10 @@ type BatchUpdateLimitsRequest struct {
 }
 
 func (h *UserHandler) BatchUpdateLimits(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	var req BatchUpdateLimitsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -643,7 +678,7 @@ func (h *UserHandler) BatchUpdateLimits(c *gin.Context) {
 		page := 1
 		const pageSize = 500
 		for {
-			users, _, err := h.adminService.ListUsers(c.Request.Context(), page, pageSize, service.UserListFilters{}, "id", "asc")
+			users, _, err := h.adminService.ListUsers(c.Request.Context(), actor, page, pageSize, service.UserListFilters{}, "id", "asc")
 			if err != nil {
 				response.ErrorFrom(c, err)
 				return
@@ -679,6 +714,10 @@ func (h *UserHandler) BatchUpdateLimits(c *gin.Context) {
 // GetUserPlatformQuotas GET /admin/users/:id/platform-quotas
 // admin 视角：D14 lazy 归零 + 暴露 *_window_start 调试字段
 func (h *UserHandler) GetUserPlatformQuotas(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	idStr := c.Param("id")
 	userID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -690,7 +729,7 @@ func (h *UserHandler) GetUserPlatformQuotas(c *gin.Context) {
 		return
 	}
 	// 校验用户存在：与 PUT/POST 路径一致，不存在返回 404 而非空数组（避免 admin 界面误判用户存在）。
-	if _, err := h.adminService.GetUser(c.Request.Context(), userID); err != nil {
+	if _, err := h.adminService.GetUser(c.Request.Context(), actor, userID); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -725,6 +764,10 @@ type PlatformQuotaInput struct {
 // UpdateUserPlatformQuotas PUT /admin/users/:id/platform-quotas
 // 全量替换该用户所有平台限额。
 func (h *UserHandler) UpdateUserPlatformQuotas(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	if h.userPlatformQuotaRepo == nil {
 		response.Error(c, 503, "platform quota service not available")
 		return
@@ -799,7 +842,7 @@ func (h *UserHandler) UpdateUserPlatformQuotas(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	// 校验用户是否存在，避免 FK 违反导致 500；用户不存在时返回 404。
-	if _, err := h.adminService.GetUser(ctx, userID); err != nil {
+	if _, err := h.adminService.GetUser(ctx, actor, userID); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -901,6 +944,10 @@ var allowedWindowsForQuotaReset = map[string]struct{}{
 // ResetUserPlatformQuotaWindow POST /admin/users/:id/platform-quotas/reset
 // 立即归零指定 (platform, window) 的用量并更新 window_start。
 func (h *UserHandler) ResetUserPlatformQuotaWindow(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	if h.userPlatformQuotaRepo == nil {
 		response.Error(c, 503, "platform quota service not available")
 		return
@@ -929,7 +976,7 @@ func (h *UserHandler) ResetUserPlatformQuotaWindow(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	// 校验用户是否存在，避免对不存在的用户执行操作返回误导性的 500。
-	if _, err := h.adminService.GetUser(ctx, userID); err != nil {
+	if _, err := h.adminService.GetUser(ctx, actor, userID); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}

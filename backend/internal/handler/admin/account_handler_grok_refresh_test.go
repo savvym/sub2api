@@ -6,12 +6,14 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
 type grokRefreshOAuthStub struct {
 	account *service.Account
+	actor   authz.Actor
 	info    *service.GrokTokenInfo
 	calls   int
 }
@@ -20,6 +22,11 @@ func (s *grokRefreshOAuthStub) RefreshAccountToken(_ context.Context, account *s
 	s.calls++
 	s.account = account
 	return s.info, nil
+}
+
+func (s *grokRefreshOAuthStub) AdminRefreshAccountToken(ctx context.Context, actor authz.Actor, account *service.Account) (*service.GrokTokenInfo, error) {
+	s.actor = actor
+	return s.RefreshAccountToken(ctx, account)
 }
 
 func (s *grokRefreshOAuthStub) BuildAccountCredentials(info *service.GrokTokenInfo) map[string]any {
@@ -36,7 +43,7 @@ type grokRefreshAdminService struct {
 	updatedCredentials map[string]any
 }
 
-func (s *grokRefreshAdminService) UpdateAccount(_ context.Context, id int64, input *service.UpdateAccountInput) (*service.Account, error) {
+func (s *grokRefreshAdminService) UpdateAccount(_ context.Context, _ authz.Actor, id int64, input *service.UpdateAccountInput) (*service.Account, error) {
 	s.updatedCredentials = input.Credentials
 	return &service.Account{
 		ID:          id,
@@ -85,11 +92,14 @@ func TestRefreshSingleAccountRoutesGrokThroughGrokOAuthService(t *testing.T) {
 		},
 	}
 
-	updated, warning, err := handler.refreshSingleAccount(context.Background(), account)
+	actor := adminHandlerTestActor(t, authz.SubjectKindUser, 1)
+	updated, warning, err := handler.refreshSingleAccount(context.Background(), actor, account)
 	require.NoError(t, err)
 	require.Empty(t, warning)
 	require.Equal(t, 1, grokOAuth.calls)
 	require.Same(t, account, grokOAuth.account)
+	require.Equal(t, actor.Kind(), grokOAuth.actor.Kind())
+	require.Equal(t, actor.AuthMethod(), grokOAuth.actor.AuthMethod())
 	require.Equal(t, "new-access", adminSvc.updatedCredentials["access_token"])
 	require.Equal(t, "new-refresh", adminSvc.updatedCredentials["refresh_token"])
 	require.Equal(t, "https://example.invalid/v1", adminSvc.updatedCredentials["base_url"])

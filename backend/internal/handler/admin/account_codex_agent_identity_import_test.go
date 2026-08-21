@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -81,9 +82,10 @@ func TestImportCodexSessionsKeepsAgentIdentityTeamsSeparate(t *testing.T) {
 	svc := newCodexImportMemoryAdminService(nil)
 	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
-	result, err := handler.importCodexSessions(context.Background(), CodexSessionImportRequest{
+	result, err := handler.importCodexSessions(context.Background(), adminHandlerTestActor(t, authz.SubjectKindUser, 1), CodexSessionImportRequest{
 		SkipDefaultGroupBind: boolPtr(true),
 	}, []codexImportEntry{{Index: 1, Value: first}, {Index: 2, Value: second}})
+
 	require.NoError(t, err)
 	require.Equal(t, 2, result.Created)
 	require.Zero(t, result.Updated)
@@ -112,9 +114,10 @@ func TestImportCodexSessionsMergesAgentIdentityRuntimesForSameTeam(t *testing.T)
 	svc := newCodexImportMemoryAdminService([]service.Account{existing})
 	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
-	result, err := handler.importCodexSessions(context.Background(), CodexSessionImportRequest{
+	result, err := handler.importCodexSessions(context.Background(), adminHandlerTestActor(t, authz.SubjectKindUser, 1), CodexSessionImportRequest{
 		SkipDefaultGroupBind: boolPtr(true),
 	}, []codexImportEntry{{Index: 1, Value: second}})
+
 	require.NoError(t, err)
 	require.Zero(t, result.Created)
 	require.Equal(t, 1, result.Updated)
@@ -149,7 +152,7 @@ func TestImportCodexSessionsCreatesAgentIdentityWithoutOAuthExpiry(t *testing.T)
 
 	svc := newCodexImportMemoryAdminService(nil)
 	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	result, err := handler.importCodexSessions(context.Background(), CodexSessionImportRequest{
+	result, err := handler.importCodexSessions(context.Background(), adminHandlerTestActor(t, authz.SubjectKindUser, 1), CodexSessionImportRequest{
 		SkipDefaultGroupBind: boolPtr(true),
 	}, []codexImportEntry{{
 		Index: 1,
@@ -164,6 +167,7 @@ func TestImportCodexSessionsCreatesAgentIdentityWithoutOAuthExpiry(t *testing.T)
 			},
 		},
 	}})
+
 	require.NoError(t, err)
 	require.Equal(t, 1, result.Created)
 	require.Zero(t, result.Failed)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -20,7 +21,10 @@ import (
 )
 
 // Group management implementations
-func (s *adminServiceImpl) ListGroups(ctx context.Context, page, pageSize int, platform, status, search string, isExclusive *bool, sortBy, sortOrder string) ([]Group, int64, error) {
+func (s *adminServiceImpl) ListGroups(ctx context.Context, actor authz.Actor, page, pageSize int, platform, status, search string, isExclusive *bool, sortBy, sortOrder string) ([]Group, int64, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, 0, err
+	}
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
 	groups, result, err := s.groupRepo.ListWithFilters(ctx, params, platform, status, search, isExclusive)
 	if err != nil {
@@ -29,26 +33,41 @@ func (s *adminServiceImpl) ListGroups(ctx context.Context, page, pageSize int, p
 	return groups, result.Total, nil
 }
 
-func (s *adminServiceImpl) GetAllGroups(ctx context.Context) ([]Group, error) {
+func (s *adminServiceImpl) GetAllGroups(ctx context.Context, actor authz.Actor) ([]Group, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	return s.groupRepo.ListActive(ctx)
 }
 
-func (s *adminServiceImpl) GetAllGroupsByPlatform(ctx context.Context, platform string) ([]Group, error) {
+func (s *adminServiceImpl) GetAllGroupsByPlatform(ctx context.Context, actor authz.Actor, platform string) ([]Group, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	return s.groupRepo.ListActiveByPlatform(ctx, platform)
 }
 
-func (s *adminServiceImpl) GetAllGroupsIncludingInactive(ctx context.Context) ([]Group, error) {
+func (s *adminServiceImpl) GetAllGroupsIncludingInactive(ctx context.Context, actor authz.Actor) ([]Group, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	// ListWithFilters with empty status = no status filter, so active + disabled groups are returned.
 	// PageSize 10000 is intentionally large; group count is O(dozens) in practice.
 	groups, _, err := s.groupRepo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 10000}, "", "", "", nil)
 	return groups, err
 }
 
-func (s *adminServiceImpl) GetGroup(ctx context.Context, id int64) (*Group, error) {
+func (s *adminServiceImpl) GetGroup(ctx context.Context, actor authz.Actor, id int64) (*Group, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	return s.groupRepo.GetByID(ctx, id)
 }
 
-func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id int64, platform string) ([]string, error) {
+func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, actor authz.Actor, id int64, platform string) ([]string, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	platform = strings.TrimSpace(platform)
 	if id > 0 {
 		group, err := s.groupRepo.GetByIDLite(ctx, id)
@@ -100,7 +119,10 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 	return candidates, nil
 }
 
-func (s *adminServiceImpl) ListCompositeRoutes(ctx context.Context, groupID int64) ([]CompositeModelRoute, error) {
+func (s *adminServiceImpl) ListCompositeRoutes(ctx context.Context, actor authz.Actor, groupID int64) ([]CompositeModelRoute, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	if err := s.requireCompositeGroup(ctx, groupID); err != nil {
 		return nil, err
 	}
@@ -110,7 +132,10 @@ func (s *adminServiceImpl) ListCompositeRoutes(ctx context.Context, groupID int6
 	return s.compositeRouteRepo.ListByGroup(ctx, groupID, true)
 }
 
-func (s *adminServiceImpl) CreateCompositeRoute(ctx context.Context, groupID int64, input CompositeRouteInput) (*CompositeModelRoute, error) {
+func (s *adminServiceImpl) CreateCompositeRoute(ctx context.Context, actor authz.Actor, groupID int64, input CompositeRouteInput) (*CompositeModelRoute, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	if err := s.requireCompositeGroup(ctx, groupID); err != nil {
 		return nil, err
 	}
@@ -127,7 +152,10 @@ func (s *adminServiceImpl) CreateCompositeRoute(ctx context.Context, groupID int
 	return route, nil
 }
 
-func (s *adminServiceImpl) UpdateCompositeRoute(ctx context.Context, groupID, routeID int64, input CompositeRouteInput) (*CompositeModelRoute, error) {
+func (s *adminServiceImpl) UpdateCompositeRoute(ctx context.Context, actor authz.Actor, groupID, routeID int64, input CompositeRouteInput) (*CompositeModelRoute, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	if err := s.requireCompositeGroup(ctx, groupID); err != nil {
 		return nil, err
 	}
@@ -150,7 +178,10 @@ func (s *adminServiceImpl) UpdateCompositeRoute(ctx context.Context, groupID, ro
 	return route, nil
 }
 
-func (s *adminServiceImpl) DeleteCompositeRoute(ctx context.Context, groupID, routeID int64) error {
+func (s *adminServiceImpl) DeleteCompositeRoute(ctx context.Context, actor authz.Actor, groupID, routeID int64) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
 	if err := s.requireCompositeGroup(ctx, groupID); err != nil {
 		return err
 	}
@@ -165,7 +196,10 @@ func (s *adminServiceImpl) DeleteCompositeRoute(ctx context.Context, groupID, ro
 	return s.compositeRouteRepo.Delete(ctx, routeID)
 }
 
-func (s *adminServiceImpl) PreviewCompositeRoute(ctx context.Context, groupID int64, input CompositeRoutePreviewRequest) (*CompositeRouteDecision, error) {
+func (s *adminServiceImpl) PreviewCompositeRoute(ctx context.Context, actor authz.Actor, groupID int64, input CompositeRoutePreviewRequest) (*CompositeRouteDecision, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	if err := s.requireCompositeGroup(ctx, groupID); err != nil {
 		return nil, err
 	}
@@ -295,7 +329,10 @@ func groupSupportsOAuthOnlyFilter(platform string) bool {
 		platform == PlatformComposite
 }
 
-func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {
+func (s *adminServiceImpl) CreateGroup(ctx context.Context, actor authz.Actor, input *CreateGroupInput) (*Group, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	if input.RateMultiplier <= 0 {
 		return nil, errors.New("rate_multiplier must be > 0")
 	}
@@ -635,7 +672,10 @@ func (s *adminServiceImpl) validateFallbackGroupOnInvalidRequest(ctx context.Con
 	return nil
 }
 
-func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *UpdateGroupInput) (*Group, error) {
+func (s *adminServiceImpl) UpdateGroup(ctx context.Context, actor authz.Actor, id int64, input *UpdateGroupInput) (*Group, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	group, err := s.groupRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -1009,7 +1049,10 @@ func normalizeGroupModelPricing(platform string, pricing []ChannelModelPricing) 
 	return out, nil
 }
 
-func (s *adminServiceImpl) DeleteGroup(ctx context.Context, id int64) error {
+func (s *adminServiceImpl) DeleteGroup(ctx context.Context, actor authz.Actor, id int64) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
 	var groupKeys []string
 	if s.authCacheInvalidator != nil {
 		keys, err := s.apiKeyRepo.ListKeysByGroupID(ctx, id)
@@ -1046,7 +1089,10 @@ func (s *adminServiceImpl) DeleteGroup(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (s *adminServiceImpl) GetGroupAPIKeys(ctx context.Context, groupID int64, page, pageSize int) ([]APIKey, int64, error) {
+func (s *adminServiceImpl) GetGroupAPIKeys(ctx context.Context, actor authz.Actor, groupID int64, page, pageSize int) ([]APIKey, int64, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, 0, err
+	}
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize}
 	keys, result, err := s.apiKeyRepo.ListByGroupID(ctx, groupID, params)
 	if err != nil {
@@ -1055,21 +1101,30 @@ func (s *adminServiceImpl) GetGroupAPIKeys(ctx context.Context, groupID int64, p
 	return keys, result.Total, nil
 }
 
-func (s *adminServiceImpl) GetGroupRateMultipliers(ctx context.Context, groupID int64) ([]UserGroupRateEntry, error) {
+func (s *adminServiceImpl) GetGroupRateMultipliers(ctx context.Context, actor authz.Actor, groupID int64) ([]UserGroupRateEntry, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	if s.userGroupRateRepo == nil {
 		return nil, nil
 	}
 	return s.userGroupRateRepo.GetByGroupID(ctx, groupID)
 }
 
-func (s *adminServiceImpl) ClearGroupRateMultipliers(ctx context.Context, groupID int64) error {
+func (s *adminServiceImpl) ClearGroupRateMultipliers(ctx context.Context, actor authz.Actor, groupID int64) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
 	if s.userGroupRateRepo == nil {
 		return nil
 	}
 	return s.userGroupRateRepo.DeleteByGroupID(ctx, groupID)
 }
 
-func (s *adminServiceImpl) BatchSetGroupRateMultipliers(ctx context.Context, groupID int64, entries []GroupRateMultiplierInput) error {
+func (s *adminServiceImpl) BatchSetGroupRateMultipliers(ctx context.Context, actor authz.Actor, groupID int64, entries []GroupRateMultiplierInput) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
 	if s.userGroupRateRepo == nil {
 		return nil
 	}
@@ -1081,7 +1136,10 @@ func (s *adminServiceImpl) BatchSetGroupRateMultipliers(ctx context.Context, gro
 	return s.userGroupRateRepo.SyncGroupRateMultipliers(ctx, groupID, entries)
 }
 
-func (s *adminServiceImpl) ClearGroupRPMOverrides(ctx context.Context, groupID int64) error {
+func (s *adminServiceImpl) ClearGroupRPMOverrides(ctx context.Context, actor authz.Actor, groupID int64) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
 	if s.userGroupRateRepo == nil {
 		return nil
 	}
@@ -1095,7 +1153,10 @@ func (s *adminServiceImpl) ClearGroupRPMOverrides(ctx context.Context, groupID i
 	return nil
 }
 
-func (s *adminServiceImpl) BatchSetGroupRPMOverrides(ctx context.Context, groupID int64, entries []GroupRPMOverrideInput) error {
+func (s *adminServiceImpl) BatchSetGroupRPMOverrides(ctx context.Context, actor authz.Actor, groupID int64, entries []GroupRPMOverrideInput) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
 	if s.userGroupRateRepo == nil {
 		return nil
 	}
@@ -1114,13 +1175,19 @@ func (s *adminServiceImpl) BatchSetGroupRPMOverrides(ctx context.Context, groupI
 	return nil
 }
 
-func (s *adminServiceImpl) UpdateGroupSortOrders(ctx context.Context, updates []GroupSortOrderUpdate) error {
+func (s *adminServiceImpl) UpdateGroupSortOrders(ctx context.Context, actor authz.Actor, updates []GroupSortOrderUpdate) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
 	return s.groupRepo.UpdateSortOrders(ctx, updates)
 }
 
 // AdminUpdateAPIKeyGroupID 管理员修改 API Key 分组绑定
 // groupID: nil=不修改, 指向0=解绑, 指向正整数=绑定到目标分组
-func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error) {
+func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, actor authz.Actor, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	apiKey, err := s.apiKeyRepo.GetByID(ctx, keyID)
 	if err != nil {
 		return nil, err
@@ -1224,7 +1291,10 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 }
 
 // AdminResetAPIKeyRateLimitUsage resets all API key rate-limit usage windows.
-func (s *adminServiceImpl) AdminResetAPIKeyRateLimitUsage(ctx context.Context, keyID int64) (*APIKey, error) {
+func (s *adminServiceImpl) AdminResetAPIKeyRateLimitUsage(ctx context.Context, actor authz.Actor, keyID int64) (*APIKey, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	apiKey, err := s.apiKeyRepo.GetByID(ctx, keyID)
 	if err != nil {
 		return nil, err
@@ -1248,7 +1318,10 @@ func (s *adminServiceImpl) AdminResetAPIKeyRateLimitUsage(ctx context.Context, k
 }
 
 // ReplaceUserGroup 替换用户的专属分组
-func (s *adminServiceImpl) ReplaceUserGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (*ReplaceUserGroupResult, error) {
+func (s *adminServiceImpl) ReplaceUserGroup(ctx context.Context, actor authz.Actor, userID, oldGroupID, newGroupID int64) (*ReplaceUserGroupResult, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	if oldGroupID == newGroupID {
 		return nil, infraerrors.BadRequest("SAME_GROUP", "old and new group must be different")
 	}

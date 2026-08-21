@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -783,6 +784,14 @@ func (s *SubscriptionService) ListActiveUserSubscriptions(ctx context.Context, u
 	return subs, nil
 }
 
+// AdminListGroupSubscriptions is the authenticated admin facade for group subscriptions.
+func (s *SubscriptionService) AdminListGroupSubscriptions(ctx context.Context, actor authz.Actor, groupID int64, page, pageSize int) ([]UserSubscription, *pagination.PaginationResult, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, nil, err
+	}
+	return s.ListGroupSubscriptions(ctx, groupID, page, pageSize)
+}
+
 // ListGroupSubscriptions 获取分组的所有订阅
 func (s *SubscriptionService) ListGroupSubscriptions(ctx context.Context, groupID int64, page, pageSize int) ([]UserSubscription, *pagination.PaginationResult, error) {
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize}
@@ -866,8 +875,8 @@ func (s *SubscriptionService) checkAndActivateWindowAt(ctx context.Context, sub 
 	return s.userSubRepo.ActivateWindows(ctx, sub.ID, timezone.StartOfDay(now), now)
 }
 
-// AdminResetQuota manually resets the daily, weekly, and/or monthly usage windows.
-func (s *SubscriptionService) AdminResetQuota(ctx context.Context, subscriptionID int64, resetDaily, resetWeekly, resetMonthly bool) (*UserSubscription, error) {
+// ResetQuota manually resets the daily, weekly, and/or monthly usage windows.
+func (s *SubscriptionService) ResetQuota(ctx context.Context, subscriptionID int64, resetDaily, resetWeekly, resetMonthly bool) (*UserSubscription, error) {
 	if !resetDaily && !resetWeekly && !resetMonthly {
 		return nil, ErrInvalidInput
 	}

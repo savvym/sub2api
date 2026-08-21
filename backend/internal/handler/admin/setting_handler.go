@@ -101,12 +101,16 @@ func (h *SettingHandler) SetStepUpDeps(totpService *service.TotpService, userSer
 // GetSettings 获取所有系统设置
 // GET /api/v1/admin/settings
 func (h *SettingHandler) GetSettings(c *gin.Context) {
-	settings, err := h.settingService.GetAllSettings(c.Request.Context())
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+	settings, err := h.settingService.AdminGetAllSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	authSourceDefaults, err := h.settingService.GetAuthSourceDefaultSettings(c.Request.Context())
+	authSourceDefaults, err := h.settingService.AdminGetAuthSourceDefaultSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

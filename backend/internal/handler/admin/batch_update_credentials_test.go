@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
@@ -25,17 +26,18 @@ type failingAdminService struct {
 	updateCallCount atomic.Int64
 }
 
-func (f *failingAdminService) UpdateAccount(ctx context.Context, id int64, input *service.UpdateAccountInput) (*service.Account, error) {
+func (f *failingAdminService) UpdateAccount(ctx context.Context, actor authz.Actor, id int64, input *service.UpdateAccountInput) (*service.Account, error) {
 	f.updateCallCount.Add(1)
 	if id == f.failOnAccountID {
 		return nil, errors.New("database error")
 	}
-	return f.stubAdminService.UpdateAccount(ctx, id, input)
+	return f.stubAdminService.UpdateAccount(ctx, actor, id, input)
 }
 
 func setupAccountHandlerWithService(adminSvc service.AdminService) (*gin.Engine, *AccountHandler) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(withAdminTestUserActorID(1))
 	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router.POST("/api/v1/admin/accounts/batch-update-credentials", handler.BatchUpdateCredentials)
 	return router, handler
@@ -121,11 +123,11 @@ type getAccountFailingService struct {
 	failOnAccountID int64
 }
 
-func (f *getAccountFailingService) GetAccount(ctx context.Context, id int64) (*service.Account, error) {
+func (f *getAccountFailingService) GetAccount(ctx context.Context, actor authz.Actor, id int64) (*service.Account, error) {
 	if id == f.failOnAccountID {
 		return nil, errors.New("not found")
 	}
-	return f.stubAdminService.GetAccount(ctx, id)
+	return f.stubAdminService.GetAccount(ctx, actor, id)
 }
 
 func TestBatchUpdateCredentials_InterceptWarmupRequests_NonBool(t *testing.T) {

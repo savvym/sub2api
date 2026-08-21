@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 )
 
 const (
@@ -160,7 +162,15 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 
 // RecoverDuplicateGroup performs a read-only lookup for a copy that was already
 // committed for the same actor, source group, and idempotency key.
-func (s *adminServiceImpl) RecoverDuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*Group, error) {
+func (s *adminServiceImpl) RecoverDuplicateGroup(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Group, error) {
+	actorScope, err := adminResourceActorSubjectKey(actor)
+	if err != nil {
+		return nil, err
+	}
+	return s.recoverDuplicateGroup(ctx, id, actorScope, operationKey)
+}
+
+func (s *adminServiceImpl) recoverDuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*Group, error) {
 	operationID := duplicateGroupOperationID(id, actorScope, operationKey)
 	if strings.TrimSpace(operationKey) != "" && operationID == "" {
 		return nil, ErrIdempotencyActorUnavailable
@@ -192,8 +202,12 @@ func (s *adminServiceImpl) RecoverDuplicateGroup(ctx context.Context, id int64, 
 // DuplicateGroup creates an inactive copy of a group's configuration and exact
 // account priorities. The repository commits the group, bindings, and outbox
 // event atomically so a failed binding never leaves an orphan group.
-func (s *adminServiceImpl) DuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*Group, error) {
-	existing, err := s.RecoverDuplicateGroup(ctx, id, actorScope, operationKey)
+func (s *adminServiceImpl) DuplicateGroup(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Group, error) {
+	actorScope, err := adminResourceActorSubjectKey(actor)
+	if err != nil {
+		return nil, err
+	}
+	existing, err := s.recoverDuplicateGroup(ctx, id, actorScope, operationKey)
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +242,7 @@ func (s *adminServiceImpl) DuplicateGroup(ctx context.Context, id int64, actorSc
 
 		// A unique conflict can be either the generated name or the operation ID.
 		// Recover first; if no operation row exists, advance to the next name.
-		recovered, recoverErr := s.RecoverDuplicateGroup(ctx, id, actorScope, operationKey)
+		recovered, recoverErr := s.recoverDuplicateGroup(ctx, id, actorScope, operationKey)
 		if recoverErr != nil {
 			return nil, recoverErr
 		}

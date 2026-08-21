@@ -17,11 +17,16 @@ type upstreamBillingProbeBatchRequest struct {
 }
 
 func (h *AccountHandler) GetUpstreamBillingProbeSettings(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	if h.upstreamBillingProbe == nil {
 		response.ErrorFrom(c, service.ErrUpstreamBillingProbeUnavailable)
 		return
 	}
-	settings, err := h.upstreamBillingProbe.GetSettings(c.Request.Context())
+	settings, err := h.upstreamBillingProbe.AdminGetSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -30,6 +35,11 @@ func (h *AccountHandler) GetUpstreamBillingProbeSettings(c *gin.Context) {
 }
 
 func (h *AccountHandler) UpdateUpstreamBillingProbeSettings(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	if h.upstreamBillingProbe == nil {
 		response.ErrorFrom(c, service.ErrUpstreamBillingProbeUnavailable)
 		return
@@ -39,11 +49,11 @@ func (h *AccountHandler) UpdateUpstreamBillingProbeSettings(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	if err := h.upstreamBillingProbe.UpdateSettings(c.Request.Context(), &req); err != nil {
+	if err := h.upstreamBillingProbe.AdminUpdateSettings(c.Request.Context(), actor, &req); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	settings, err := h.upstreamBillingProbe.GetSettings(c.Request.Context())
+	settings, err := h.upstreamBillingProbe.AdminGetSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -52,6 +62,11 @@ func (h *AccountHandler) UpdateUpstreamBillingProbeSettings(c *gin.Context) {
 }
 
 func (h *AccountHandler) SetUpstreamBillingProbeEnabled(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	if h.upstreamBillingProbe == nil {
 		response.ErrorFrom(c, service.ErrUpstreamBillingProbeUnavailable)
 		return
@@ -66,7 +81,7 @@ func (h *AccountHandler) SetUpstreamBillingProbeEnabled(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	if err := h.upstreamBillingProbe.SetAccountEnabled(c.Request.Context(), accountID, *req.Enabled); err != nil {
+	if err := h.upstreamBillingProbe.AdminSetAccountEnabled(c.Request.Context(), actor, accountID, *req.Enabled); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -74,6 +89,11 @@ func (h *AccountHandler) SetUpstreamBillingProbeEnabled(c *gin.Context) {
 }
 
 func (h *AccountHandler) ProbeUpstreamBilling(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	if h.upstreamBillingProbe == nil {
 		response.ErrorFrom(c, service.ErrUpstreamBillingProbeUnavailable)
 		return
@@ -83,7 +103,7 @@ func (h *AccountHandler) ProbeUpstreamBilling(c *gin.Context) {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
-	snapshot, err := h.upstreamBillingProbe.ProbeAccount(c.Request.Context(), accountID)
+	snapshot, err := h.upstreamBillingProbe.AdminProbeAccount(c.Request.Context(), actor, accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -92,6 +112,11 @@ func (h *AccountHandler) ProbeUpstreamBilling(c *gin.Context) {
 }
 
 func (h *AccountHandler) ProbeUpstreamBillingBatch(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	if h.upstreamBillingProbe == nil {
 		response.ErrorFrom(c, service.ErrUpstreamBillingProbeUnavailable)
 		return
@@ -118,5 +143,10 @@ func (h *AccountHandler) ProbeUpstreamBillingBatch(c *gin.Context) {
 		seen[accountID] = struct{}{}
 		accountIDs = append(accountIDs, accountID)
 	}
-	response.Success(c, gin.H{"results": h.upstreamBillingProbe.ProbeAccounts(c.Request.Context(), accountIDs)})
+	results, err := h.upstreamBillingProbe.AdminProbeAccounts(c.Request.Context(), actor, accountIDs)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"results": results})
 }

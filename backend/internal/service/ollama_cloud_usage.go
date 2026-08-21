@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -488,11 +489,25 @@ func (s *OllamaCloudUsageService) GetSettings(ctx context.Context) (*OllamaCloud
 	return s.settingService.GetOllamaCloudUsageSettings(ctx)
 }
 
+func (s *OllamaCloudUsageService) AdminGetSettings(ctx context.Context, actor authz.Actor) (*OllamaCloudUsageSettings, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.GetSettings(ctx)
+}
+
 func (s *OllamaCloudUsageService) UpdateSettings(ctx context.Context, settings *OllamaCloudUsageSettings) error {
 	if s == nil || s.settingService == nil {
 		return ErrOllamaCloudUsageUnavailable
 	}
 	return s.settingService.SetOllamaCloudUsageSettings(ctx, settings)
+}
+
+func (s *OllamaCloudUsageService) AdminUpdateSettings(ctx context.Context, actor authz.Actor, settings *OllamaCloudUsageSettings) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
+	return s.UpdateSettings(ctx, settings)
 }
 
 func (s *OllamaCloudUsageService) GetState(ctx context.Context, accountID int64) (*OllamaCloudUsageState, error) {
@@ -509,6 +524,13 @@ func (s *OllamaCloudUsageService) GetState(ctx context.Context, accountID int64)
 	state := OllamaCloudUsageStateFromAccount(account)
 	s.EnrichState(state)
 	return state, nil
+}
+
+func (s *OllamaCloudUsageService) AdminGetState(ctx context.Context, actor authz.Actor, accountID int64) (*OllamaCloudUsageState, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.GetState(ctx, accountID)
 }
 
 // ResolveAccounts overlays group-owned managed state onto the supplied account
@@ -573,6 +595,13 @@ func (s *OllamaCloudUsageService) ResolveAccounts(ctx context.Context, accounts 
 		applyOllamaCloudUsageManagedExtra(account, resolvedSources[fingerprint])
 	}
 	return nil
+}
+
+func (s *OllamaCloudUsageService) AdminResolveAccounts(ctx context.Context, actor authz.Actor, accounts []*Account) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
+	return s.ResolveAccounts(ctx, accounts)
 }
 
 func sameOllamaCloudUsageSession(left, right *Account) bool {
@@ -641,6 +670,13 @@ func (s *OllamaCloudUsageService) SaveSession(ctx context.Context, accountID int
 	return s.GetState(ctx, accountID)
 }
 
+func (s *OllamaCloudUsageService) AdminSaveSession(ctx context.Context, actor authz.Actor, accountID int64, session string) (*OllamaCloudUsageState, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.SaveSession(ctx, accountID, session)
+}
+
 func (s *OllamaCloudUsageService) DeleteSession(ctx context.Context, accountID int64) (*OllamaCloudUsageState, error) {
 	if s == nil || s.accountRepo == nil {
 		return nil, ErrOllamaCloudUsageUnavailable
@@ -663,6 +699,13 @@ func (s *OllamaCloudUsageService) DeleteSession(ctx context.Context, accountID i
 		return nil, err
 	}
 	return s.GetState(ctx, accountID)
+}
+
+func (s *OllamaCloudUsageService) AdminDeleteSession(ctx context.Context, actor authz.Actor, accountID int64) (*OllamaCloudUsageState, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.DeleteSession(ctx, accountID)
 }
 
 func (s *OllamaCloudUsageService) SetAutoRefresh(ctx context.Context, accountID int64, enabled bool) (*OllamaCloudUsageState, error) {
@@ -692,6 +735,13 @@ func (s *OllamaCloudUsageService) SetAutoRefresh(ctx context.Context, accountID 
 	return s.GetState(ctx, accountID)
 }
 
+func (s *OllamaCloudUsageService) AdminSetAutoRefresh(ctx context.Context, actor authz.Actor, accountID int64, enabled bool) (*OllamaCloudUsageState, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.SetAutoRefresh(ctx, accountID, enabled)
+}
+
 func (s *OllamaCloudUsageService) Refresh(ctx context.Context, accountID int64) (*OllamaCloudUsageState, error) {
 	settings, err := s.GetSettings(ctx)
 	if err != nil {
@@ -701,6 +751,13 @@ func (s *OllamaCloudUsageService) Refresh(ctx context.Context, accountID int64) 
 		return nil, err
 	}
 	return s.GetState(ctx, accountID)
+}
+
+func (s *OllamaCloudUsageService) AdminRefresh(ctx context.Context, actor authz.Actor, accountID int64) (*OllamaCloudUsageState, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.Refresh(ctx, accountID)
 }
 
 func (s *OllamaCloudUsageService) RunDue(ctx context.Context) error {

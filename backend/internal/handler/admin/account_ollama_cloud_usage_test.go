@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
+	servermiddleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -72,12 +74,16 @@ func newOllamaCloudUsageHandlerTestService(t *testing.T) *service.OllamaCloudUsa
 	return svc
 }
 
-func newOllamaCloudUsageHandlerContext(method, target, body, id string) (*gin.Context, *httptest.ResponseRecorder) {
+func newOllamaCloudUsageHandlerContext(t testing.TB, method, target, body, id string) (*gin.Context, *httptest.ResponseRecorder) {
+	t.Helper()
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(method, target, bytes.NewBufferString(body))
 	request.Header.Set("Content-Type", "application/json")
+	actor := adminHandlerTestActor(t, authz.SubjectKindUser, 1)
+	request = request.WithContext(authz.ContextWithActor(request.Context(), actor))
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = request
+	ctx.Set(string(servermiddleware.ContextKeyUser), servermiddleware.AuthSubject{UserID: 1})
 	if id != "" {
 		ctx.Params = gin.Params{{Key: "id", Value: id}}
 	}
@@ -89,25 +95,25 @@ func TestOllamaCloudUsageHandlersValidateRequestsAndDependencies(t *testing.T) {
 	svc := newOllamaCloudUsageHandlerTestService(t)
 
 	t.Run("invalid account id", func(t *testing.T) {
-		ctx, recorder := newOllamaCloudUsageHandlerContext(http.MethodGet, "/admin/accounts/not-an-id/ollama-cloud-usage", "", "not-an-id")
+		ctx, recorder := newOllamaCloudUsageHandlerContext(t, http.MethodGet, "/admin/accounts/not-an-id/ollama-cloud-usage", "", "not-an-id")
 		(&AccountHandler{ollamaCloudUsage: svc}).GetOllamaCloudUsage(ctx)
 		require.Equal(t, http.StatusBadRequest, recorder.Code)
 	})
 
 	t.Run("empty session", func(t *testing.T) {
-		ctx, recorder := newOllamaCloudUsageHandlerContext(http.MethodPut, "/admin/accounts/7/ollama-cloud-usage/session", `{"session":""}`, "7")
+		ctx, recorder := newOllamaCloudUsageHandlerContext(t, http.MethodPut, "/admin/accounts/7/ollama-cloud-usage/session", `{"session":""}`, "7")
 		(&AccountHandler{ollamaCloudUsage: svc}).SaveOllamaCloudUsageSession(ctx)
 		require.Equal(t, http.StatusBadRequest, recorder.Code)
 	})
 
 	t.Run("missing enabled", func(t *testing.T) {
-		ctx, recorder := newOllamaCloudUsageHandlerContext(http.MethodPut, "/admin/accounts/7/ollama-cloud-usage/auto-refresh", `{}`, "7")
+		ctx, recorder := newOllamaCloudUsageHandlerContext(t, http.MethodPut, "/admin/accounts/7/ollama-cloud-usage/auto-refresh", `{}`, "7")
 		(&AccountHandler{ollamaCloudUsage: svc}).SetOllamaCloudUsageAutoRefresh(ctx)
 		require.Equal(t, http.StatusBadRequest, recorder.Code)
 	})
 
 	t.Run("service unavailable", func(t *testing.T) {
-		ctx, recorder := newOllamaCloudUsageHandlerContext(http.MethodGet, "/admin/accounts/7/ollama-cloud-usage", "", "7")
+		ctx, recorder := newOllamaCloudUsageHandlerContext(t, http.MethodGet, "/admin/accounts/7/ollama-cloud-usage", "", "7")
 		(&AccountHandler{}).GetOllamaCloudUsage(ctx)
 		require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 		require.Contains(t, recorder.Body.String(), "OLLAMA_CLOUD_USAGE_UNAVAILABLE")
@@ -139,6 +145,7 @@ func TestOllamaCloudUsageEncryptionKeyStateConsistentAcrossAccountResponses(t *t
 			handler := NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 			handler.SetOllamaCloudUsageService(usageService)
 			router := gin.New()
+			router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 			router.GET("/accounts", handler.List)
 			router.GET("/accounts/:id", handler.GetByID)
 			router.GET("/accounts/:id/ollama-cloud-usage", handler.GetOllamaCloudUsage)
@@ -215,6 +222,7 @@ func TestOllamaCloudUsageSharedStateMatchesListDetailAndSpecialEndpointWithoutLi
 	handler := NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	handler.SetOllamaCloudUsageService(usageService)
 	router := gin.New()
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 	router.GET("/accounts", handler.List)
 	router.GET("/accounts/:id", handler.GetByID)
 	router.GET("/accounts/:id/ollama-cloud-usage", handler.GetOllamaCloudUsage)
@@ -265,7 +273,7 @@ func TestOllamaCloudUsageSharedStateMatchesListDetailAndSpecialEndpointWithoutLi
 
 func TestGetOllamaCloudUsageSettingsHandlerSuccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	ctx, recorder := newOllamaCloudUsageHandlerContext(http.MethodGet, "/admin/accounts/ollama-cloud-usage/settings", "", "")
+	ctx, recorder := newOllamaCloudUsageHandlerContext(t, http.MethodGet, "/admin/accounts/ollama-cloud-usage/settings", "", "")
 	handler := &AccountHandler{ollamaCloudUsage: newOllamaCloudUsageHandlerTestService(t)}
 
 	handler.GetOllamaCloudUsageSettings(ctx)

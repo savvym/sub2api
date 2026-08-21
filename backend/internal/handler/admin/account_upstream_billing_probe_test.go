@@ -7,17 +7,20 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
-func setupUpstreamBillingProbeRouter() *gin.Engine {
+func setupUpstreamBillingProbeRouter(t testing.TB) *gin.Engine {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	handler := NewAccountHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	handler.SetUpstreamBillingProbeService(service.NewUpstreamBillingProbeService(nil, nil, nil))
 
 	router := gin.New()
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 	router.GET("/admin/accounts/upstream-billing-probe/settings", handler.GetUpstreamBillingProbeSettings)
 	router.POST("/admin/accounts/upstream-billing-probe/batch", handler.ProbeUpstreamBillingBatch)
 	router.PUT("/admin/accounts/:id/upstream-billing-probe", handler.SetUpstreamBillingProbeEnabled)
@@ -25,7 +28,7 @@ func setupUpstreamBillingProbeRouter() *gin.Engine {
 }
 
 func TestAccountHandlerGetUpstreamBillingProbeSettingsReturnsDefaults(t *testing.T) {
-	router := setupUpstreamBillingProbeRouter()
+	router := setupUpstreamBillingProbeRouter(t)
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/admin/accounts/upstream-billing-probe/settings", nil))
 
@@ -39,7 +42,7 @@ func TestAccountHandlerGetUpstreamBillingProbeSettingsReturnsDefaults(t *testing
 }
 
 func TestAccountHandlerProbeUpstreamBillingBatchValidatesIDs(t *testing.T) {
-	router := setupUpstreamBillingProbeRouter()
+	router := setupUpstreamBillingProbeRouter(t)
 
 	for _, body := range []string{`{"account_ids":[]}`, `{"account_ids":[0]}`} {
 		recorder := httptest.NewRecorder()
@@ -51,7 +54,7 @@ func TestAccountHandlerProbeUpstreamBillingBatchValidatesIDs(t *testing.T) {
 }
 
 func TestAccountHandlerSetUpstreamBillingProbeEnabledRejectsInvalidID(t *testing.T) {
-	router := setupUpstreamBillingProbeRouter()
+	router := setupUpstreamBillingProbeRouter(t)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPut, "/admin/accounts/not-an-id/upstream-billing-probe", bytes.NewBufferString(`{"enabled":true}`))
 	request.Header.Set("Content-Type", "application/json")
@@ -61,7 +64,7 @@ func TestAccountHandlerSetUpstreamBillingProbeEnabledRejectsInvalidID(t *testing
 }
 
 func TestAccountHandlerSetUpstreamBillingProbeEnabledRequiresValue(t *testing.T) {
-	router := setupUpstreamBillingProbeRouter()
+	router := setupUpstreamBillingProbeRouter(t)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPut, "/admin/accounts/1/upstream-billing-probe", bytes.NewBufferString(`{}`))
 	request.Header.Set("Content-Type", "application/json")

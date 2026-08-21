@@ -141,7 +141,7 @@ func TestCreateShadow(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, parent))
 
 	// Test 1: 基本生成
-	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "p-spark", Priority: 50})
+	shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "p-spark", Priority: 50})
 	require.NoError(t, err)
 	require.NotNil(t, shadow)
 	require.Equal(t, parent.ID, *shadow.ParentAccountID)
@@ -153,7 +153,7 @@ func TestCreateShadow(t *testing.T) {
 	require.Equal(t, parent.ProxyID, shadow.ProxyID)
 
 	// Test 2: 一母一影 — 再作成は拒否
-	_, err = svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "dup"})
+	_, err = svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "dup"})
 	require.Error(t, err)
 }
 
@@ -181,7 +181,7 @@ func TestCreateShadowInheritsParentEffectiveOpenAILongContextBillingValue(t *tes
 			}
 			require.NoError(t, repo.Create(context.Background(), parent))
 
-			shadow, err := svc.CreateShadow(context.Background(), parent.ID, ShadowOptions{Name: "shadow"})
+			shadow, err := svc.CreateShadow(context.Background(), adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "shadow"})
 
 			require.NoError(t, err)
 			require.Equal(t, tt.want, shadow.Extra[openAILongContextBillingEnabledKey])
@@ -209,10 +209,11 @@ func TestCreateShadow_BindGroups(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, parent))
 
 	const testGroupID = int64(42)
-	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{
+	shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{
 		Name:     "p-spark",
 		GroupIDs: []int64{testGroupID},
 	})
+
 	require.NoError(t, err)
 	require.NotNil(t, shadow)
 	require.Equal(t, []int64{testGroupID}, shadow.GroupIDs, "CreateShadow should backfill GroupIDs into the returned shadow")
@@ -240,7 +241,7 @@ func TestCreateShadow_InheritsParentConcurrency(t *testing.T) {
 		}
 		require.NoError(t, repo.Create(ctx, parent))
 
-		shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "conc-shadow"})
+		shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "conc-shadow"})
 		require.NoError(t, err)
 		require.Equal(t, 3, shadow.Concurrency, "未指定并发应继承母账号(非 0=无限)")
 		require.Equal(t, 3, repo.accounts[shadow.ID].Concurrency)
@@ -256,7 +257,7 @@ func TestCreateShadow_InheritsParentConcurrency(t *testing.T) {
 		}
 		require.NoError(t, repo.Create(ctx, parent))
 
-		shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "conc-shadow2", Concurrency: 2})
+		shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "conc-shadow2", Concurrency: 2})
 		require.NoError(t, err)
 		require.Equal(t, 2, shadow.Concurrency, "显式正并发应保留")
 	})
@@ -279,7 +280,7 @@ func TestCreateShadow_InheritsParentPriorityWhenOmitted(t *testing.T) {
 		require.NoError(t, repo.Create(ctx, parent))
 
 		// 模拟前端一键创建:只传 name,priority 省略=0。
-		shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "prio-shadow"})
+		shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "prio-shadow"})
 		require.NoError(t, err)
 		require.Equal(t, 30, shadow.Priority, "未指定优先级应继承母账号(而非 0=最高优先级)")
 		require.Equal(t, 30, repo.accounts[shadow.ID].Priority)
@@ -295,7 +296,7 @@ func TestCreateShadow_InheritsParentPriorityWhenOmitted(t *testing.T) {
 		}
 		require.NoError(t, repo.Create(ctx, parent))
 
-		shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "prio-shadow2", Priority: 7})
+		shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "prio-shadow2", Priority: 7})
 		require.NoError(t, err)
 		require.Equal(t, 7, shadow.Priority, "显式正优先级应保留")
 	})
@@ -415,14 +416,14 @@ func TestResetAccountQuota_RejectsShadow(t *testing.T) {
 		Credentials: map[string]any{"chatgpt_account_id": "o"},
 	}
 	require.NoError(t, repo.Create(ctx, parent))
-	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "rq-shadow"})
+	shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "rq-shadow"})
 	require.NoError(t, err)
 
-	err = svc.ResetAccountQuota(ctx, shadow.ID)
+	err = svc.ResetAccountQuota(ctx, adminResourceUserTestActor(t), shadow.ID)
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err), "影子 reset-quota 应 400")
 
-	require.NoError(t, svc.ResetAccountQuota(ctx, parent.ID), "母账号 reset-quota 应放行")
+	require.NoError(t, svc.ResetAccountQuota(ctx, adminResourceUserTestActor(t), parent.ID), "母账号 reset-quota 应放行")
 }
 
 // sparkShadowGroupRepoStub 嵌入 groupRepoStub(其余方法 panic),仅覆写
@@ -455,7 +456,7 @@ func TestCreateShadow_DefaultGroupBinding(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, parent))
 
-	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "grp-shadow"})
+	shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "grp-shadow"})
 	require.NoError(t, err)
 	require.Equal(t, []int64{99}, repo.groupsOf[shadow.ID], "未指定分组应回落绑定 openai-default(id=99)")
 }
@@ -476,7 +477,7 @@ func TestCreateShadow_InheritsParentGroups(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, parent))
 
-	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "grp-shadow"})
+	shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "grp-shadow"})
 	require.NoError(t, err)
 	require.Equal(t, []int64{11, 22}, repo.groupsOf[shadow.ID], "未指定分组应继承母账号分组,而非 openai-default")
 }
@@ -492,11 +493,11 @@ func TestCreateShadow_RejectsShadowAsParent(t *testing.T) {
 		Status: StatusActive, Credentials: map[string]any{"chatgpt_account_id": "org-x"},
 	}
 	require.NoError(t, repo.Create(ctx, parent))
-	firstShadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "first-shadow"})
+	firstShadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "first-shadow"})
 	require.NoError(t, err)
 
 	// 把一级影子当母 → 必须被拒(400)。
-	_, err = svc.CreateShadow(ctx, firstShadow.ID, ShadowOptions{Name: "second-shadow"})
+	_, err = svc.CreateShadow(ctx, adminResourceUserTestActor(t), firstShadow.ID, ShadowOptions{Name: "second-shadow"})
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err), "影子当母应返回 400")
 }
@@ -510,7 +511,7 @@ func TestCreateShadow_StructuredErrors(t *testing.T) {
 		svc := &adminServiceImpl{accountRepo: repo}
 		parent := &Account{Name: "apikey-parent", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive}
 		require.NoError(t, repo.Create(ctx, parent))
-		_, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "s"})
+		_, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "s"})
 		require.Error(t, err)
 		require.Equal(t, http.StatusBadRequest, infraerrors.Code(err), "非 OAuth 母账号应 400")
 	})
@@ -520,9 +521,9 @@ func TestCreateShadow_StructuredErrors(t *testing.T) {
 		svc := &adminServiceImpl{accountRepo: repo}
 		parent := &Account{Name: "p", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Credentials: map[string]any{"chatgpt_account_id": "o"}}
 		require.NoError(t, repo.Create(ctx, parent))
-		_, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "s1"})
+		_, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "s1"})
 		require.NoError(t, err)
-		_, err = svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "s2"})
+		_, err = svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "s2"})
 		require.Error(t, err)
 		require.Equal(t, http.StatusConflict, infraerrors.Code(err), "重复创建应 409")
 	})
@@ -538,17 +539,17 @@ func TestUpdateAccount_RejectsTypeChangeOnShadow(t *testing.T) {
 		Status: StatusActive, Credentials: map[string]any{"chatgpt_account_id": "org-t"},
 	}
 	require.NoError(t, repo.Create(ctx, parent))
-	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "type-shadow"})
+	shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "type-shadow"})
 	require.NoError(t, err)
 
 	// 试图把影子 type 改成 apikey → 必须被拒(400)。
-	_, err = svc.UpdateAccount(ctx, shadow.ID, &UpdateAccountInput{Type: AccountTypeAPIKey})
+	_, err = svc.UpdateAccount(ctx, adminResourceUserTestActor(t), shadow.ID, &UpdateAccountInput{Type: AccountTypeAPIKey})
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err), "改影子 type 应 400")
 	require.Equal(t, AccountTypeOAuth, repo.accounts[shadow.ID].Type, "影子 type 必须保持 oauth")
 
 	// 传入相同 type(oauth)为 no-op,应允许。
-	_, err = svc.UpdateAccount(ctx, shadow.ID, &UpdateAccountInput{Type: AccountTypeOAuth})
+	_, err = svc.UpdateAccount(ctx, adminResourceUserTestActor(t), shadow.ID, &UpdateAccountInput{Type: AccountTypeOAuth})
 	require.NoError(t, err, "传入相同 type 应允许")
 }
 
@@ -563,13 +564,14 @@ func TestBulkUpdateAccounts_RejectsCredentialWriteToShadow(t *testing.T) {
 		Status: StatusActive, Credentials: map[string]any{"chatgpt_account_id": "org-b", "access_token": "t"},
 	}
 	require.NoError(t, repo.Create(ctx, parent))
-	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "bulk-shadow"})
+	shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "bulk-shadow"})
 	require.NoError(t, err)
 
-	_, err = svc.BulkUpdateAccounts(ctx, &BulkUpdateAccountsInput{
+	_, err = svc.BulkUpdateAccounts(ctx, adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 		AccountIDs:  []int64{shadow.ID},
 		Credentials: map[string]any{"access_token": "leaked"},
 	})
+
 	require.Error(t, err, "批量给影子写凭据必须被拒")
 	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err), "应 400")
 	// Credentials 允许持有 model_mapping(CreateShadow 写入的默认值),该不变量只约束
@@ -591,7 +593,7 @@ func TestDeleteAccount_CascadeToShadow(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, parent))
 
-	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "cascade-shadow"})
+	shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "cascade-shadow"})
 	require.NoError(t, err)
 	shadowID := shadow.ID
 
@@ -601,7 +603,7 @@ func TestDeleteAccount_CascadeToShadow(t *testing.T) {
 	_, ok = repo.accounts[shadowID]
 	require.True(t, ok)
 
-	require.NoError(t, svc.DeleteAccount(ctx, parent.ID))
+	require.NoError(t, svc.DeleteAccount(ctx, adminResourceUserTestActor(t), parent.ID))
 
 	// Parent is gone.
 	_, ok = repo.accounts[parent.ID]
@@ -629,13 +631,13 @@ func TestUpdateAccount_PropagatesProxyToShadow(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, parent))
 
-	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "proxy-shadow"})
+	shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "proxy-shadow"})
 	require.NoError(t, err)
 	shadowID := shadow.ID
 
 	// Update parent's ProxyID.
 	newProxy := int64(42)
-	_, err = svc.UpdateAccount(ctx, parent.ID, &UpdateAccountInput{ProxyID: &newProxy})
+	_, err = svc.UpdateAccount(ctx, adminResourceUserTestActor(t), parent.ID, &UpdateAccountInput{ProxyID: &newProxy})
 	require.NoError(t, err)
 
 	// Shadow must carry the new ProxyID.
@@ -663,15 +665,16 @@ func TestUpdateAccount_RejectsCredentialWriteToShadow(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, parent))
 
-	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "cred-shadow"})
+	shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "cred-shadow"})
 	require.NoError(t, err)
 	require.Empty(t, shadow.GetOpenAIAccessToken(), "前提:影子创建后不持有 access_token")
 	require.Empty(t, shadow.GetOpenAIRefreshToken(), "前提:影子创建后不持有 refresh_token")
 
 	// 试图给影子写入凭据 → 必须被拒绝。
-	_, err = svc.UpdateAccount(ctx, shadow.ID, &UpdateAccountInput{
+	_, err = svc.UpdateAccount(ctx, adminResourceUserTestActor(t), shadow.ID, &UpdateAccountInput{
 		Credentials: map[string]any{"access_token": "leaked", "refresh_token": "leaked-rt"},
 	})
+
 	require.Error(t, err, "对影子写入凭据必须被拒绝")
 
 	// 结构化 4xx(非裸 error→500)。
@@ -685,7 +688,7 @@ func TestUpdateAccount_RejectsCredentialWriteToShadow(t *testing.T) {
 
 	// 对照:不带凭据的字段更新(如 Priority)仍应成功。
 	newPriority := 5
-	_, err = svc.UpdateAccount(ctx, shadow.ID, &UpdateAccountInput{Priority: &newPriority})
+	_, err = svc.UpdateAccount(ctx, adminResourceUserTestActor(t), shadow.ID, &UpdateAccountInput{Priority: &newPriority})
 	require.NoError(t, err, "影子的非凭据字段更新应正常")
 }
 
@@ -707,16 +710,17 @@ func TestBulkUpdateAccounts_PropagatesProxyToShadow(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, parent))
 
-	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "bulk-shadow"})
+	shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "bulk-shadow"})
 	require.NoError(t, err)
 	shadowID := shadow.ID
 
 	// Bulk update parent's ProxyID.
 	newProxy := int64(99)
-	_, err = svc.BulkUpdateAccounts(ctx, &BulkUpdateAccountsInput{
+	_, err = svc.BulkUpdateAccounts(ctx, adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 		AccountIDs: []int64{parent.ID},
 		ProxyID:    &newProxy,
 	})
+
 	require.NoError(t, err)
 
 	// Shadow must carry the new ProxyID.
@@ -782,7 +786,7 @@ func TestCreateShadow_DefaultsNameFromParent(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, parent))
 
-	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "   "})
+	shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "   "})
 	require.NoError(t, err, "空/空白 name 不应 500,应默认命名")
 	require.Equal(t, "mum (Spark)", shadow.Name)
 }
@@ -800,7 +804,7 @@ func TestCreateShadow_ConcurrentCreateReturns409(t *testing.T) {
 	}
 	require.NoError(t, base.Create(ctx, parent))
 
-	_, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "s"})
+	_, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "s"})
 	require.Error(t, err)
 	require.Equal(t, http.StatusConflict, infraerrors.Code(err), "并发竞态撞唯一索引应映射 409 而非 500")
 }
@@ -818,7 +822,7 @@ func TestCreateShadow_InvalidGroupRejectedNoOrphan(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, parent))
 
-	_, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "s", GroupIDs: []int64{999}})
+	_, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "s", GroupIDs: []int64{999}})
 	require.Error(t, err, "无效分组应在创建前被拒")
 
 	shadows, qerr := repo.ListShadowsByParent(ctx, parent.ID)
@@ -840,7 +844,7 @@ func TestCreateShadow_BindFailureRollsBackShadow(t *testing.T) {
 	}
 	require.NoError(t, base.Create(ctx, parent))
 
-	_, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "s", GroupIDs: []int64{7}})
+	_, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "s", GroupIDs: []int64{7}})
 	require.Error(t, err, "绑组失败应返回错误")
 
 	shadows, qerr := base.ListShadowsByParent(ctx, parent.ID)
@@ -859,16 +863,16 @@ func TestUpdateAccount_RejectsParentTypeChangeWithShadow(t *testing.T) {
 		Status: StatusActive, Credentials: map[string]any{"chatgpt_account_id": "o"},
 	}
 	require.NoError(t, repo.Create(ctx, parent))
-	_, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "s"})
+	_, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "s"})
 	require.NoError(t, err)
 
-	_, err = svc.UpdateAccount(ctx, parent.ID, &UpdateAccountInput{Type: AccountTypeAPIKey})
+	_, err = svc.UpdateAccount(ctx, adminResourceUserTestActor(t), parent.ID, &UpdateAccountInput{Type: AccountTypeAPIKey})
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err), "母账号有影子时改 type 出 oauth 应 400")
 	require.Equal(t, AccountTypeOAuth, repo.accounts[parent.ID].Type, "母账号 type 必须保持 oauth")
 
 	// 对照:把 type 设为相同 oauth(no-op)应允许。
-	_, err = svc.UpdateAccount(ctx, parent.ID, &UpdateAccountInput{Type: AccountTypeOAuth})
+	_, err = svc.UpdateAccount(ctx, adminResourceUserTestActor(t), parent.ID, &UpdateAccountInput{Type: AccountTypeOAuth})
 	require.NoError(t, err, "传入相同 type(no-op)应允许")
 }
 
@@ -885,13 +889,13 @@ func TestUpdateAccount_IgnoresProxyChangeOnShadow(t *testing.T) {
 		Credentials: map[string]any{"chatgpt_account_id": "o"},
 	}
 	require.NoError(t, repo.Create(ctx, parent))
-	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "s"})
+	shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "s"})
 	require.NoError(t, err)
 	require.NotNil(t, repo.accounts[shadow.ID].ProxyID)
 	require.Equal(t, parentProxy, *repo.accounts[shadow.ID].ProxyID, "前提:影子继承母 proxy=7")
 
 	newProxy := int64(42)
-	_, err = svc.UpdateAccount(ctx, shadow.ID, &UpdateAccountInput{ProxyID: &newProxy})
+	_, err = svc.UpdateAccount(ctx, adminResourceUserTestActor(t), shadow.ID, &UpdateAccountInput{ProxyID: &newProxy})
 	require.NoError(t, err, "影子的非 proxy 字段更新仍应成功")
 	require.NotNil(t, repo.accounts[shadow.ID].ProxyID)
 	require.Equal(t, parentProxy, *repo.accounts[shadow.ID].ProxyID, "影子 proxy 不应被独立改动,恒继承母账号")
@@ -927,7 +931,7 @@ func TestUpdateAccount_ShadowAllowsModelMappingAndGroupUpdate(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, shadow))
 
 	groupIDs := []int64{7}
-	updated, err := svc.UpdateAccount(ctx, shadow.ID, &UpdateAccountInput{
+	updated, err := svc.UpdateAccount(ctx, adminResourceUserTestActor(t), shadow.ID, &UpdateAccountInput{
 		Credentials: map[string]any{
 			"model_mapping": map[string]any{
 				"gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
@@ -962,7 +966,7 @@ func TestUpdateAccount_ShadowEmptyCredentialsClearsModelMapping(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, shadow))
 
-	updated, err := svc.UpdateAccount(ctx, shadow.ID, &UpdateAccountInput{
+	updated, err := svc.UpdateAccount(ctx, adminResourceUserTestActor(t), shadow.ID, &UpdateAccountInput{
 		Credentials: map[string]any{},
 	})
 
@@ -987,7 +991,7 @@ func TestUpdateAccount_ShadowRejectsAuthCredentials(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, shadow))
 
-	_, err := svc.UpdateAccount(ctx, shadow.ID, &UpdateAccountInput{
+	_, err := svc.UpdateAccount(ctx, adminResourceUserTestActor(t), shadow.ID, &UpdateAccountInput{
 		Credentials: map[string]any{"access_token": "leak"},
 	})
 
@@ -1009,14 +1013,15 @@ func TestBulkUpdateAccounts_RejectsProxyChangeOnShadow(t *testing.T) {
 		Credentials: map[string]any{"chatgpt_account_id": "o"},
 	}
 	require.NoError(t, repo.Create(ctx, parent))
-	shadow, err := svc.CreateShadow(ctx, parent.ID, ShadowOptions{Name: "s"})
+	shadow, err := svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "s"})
 	require.NoError(t, err)
 
 	newProxy := int64(42)
-	_, err = svc.BulkUpdateAccounts(ctx, &BulkUpdateAccountsInput{
+	_, err = svc.BulkUpdateAccounts(ctx, adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 		AccountIDs: []int64{shadow.ID},
 		ProxyID:    &newProxy,
 	})
+
 	require.Error(t, err, "批量给影子改 proxy 必须被拒")
 	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err), "应 400")
 	require.NotNil(t, repo.accounts[shadow.ID].ProxyID)
@@ -1029,5 +1034,5 @@ func TestForceOpenAIPrivacy_SkipsShadow(t *testing.T) {
 	svc := &adminServiceImpl{}
 	pid := int64(1)
 	shadow := &Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth, ParentAccountID: &pid}
-	require.Equal(t, "", svc.ForceOpenAIPrivacy(context.Background(), shadow), "影子隐私设置应跳过")
+	require.Equal(t, "", svc.ForceOpenAIPrivacy(context.Background(), adminResourceUserTestActor(t), shadow), "影子隐私设置应跳过")
 }

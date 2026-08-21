@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -19,7 +20,7 @@ type searchUsersAdminStub struct {
 	gotFilters service.UserListFilters
 }
 
-func (s *searchUsersAdminStub) ListUsers(ctx context.Context, page, pageSize int, filters service.UserListFilters, sortBy, sortOrder string) ([]service.User, int64, error) {
+func (s *searchUsersAdminStub) ListUsers(ctx context.Context, actor authz.Actor, page, pageSize int, filters service.UserListFilters, sortBy, sortOrder string) ([]service.User, int64, error) {
 	s.gotFilters = filters
 	ts := time.Date(2026, 5, 28, 0, 0, 0, 0, time.UTC)
 	return []service.User{
@@ -33,6 +34,7 @@ func TestAdminUsageSearchUsers_IncludesDeletedAndFlags(t *testing.T) {
 	stub := &searchUsersAdminStub{}
 	handler := NewUsageHandler(nil, nil, stub, nil)
 	router := gin.New()
+	router.Use(withAdminTestUserActorID(1))
 	router.GET("/admin/usage/search-users", handler.SearchUsers)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/usage/search-users?q=test", nil)

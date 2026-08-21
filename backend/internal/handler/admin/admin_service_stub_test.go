@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -44,7 +45,9 @@ type stubAdminService struct {
 		platform  string
 		groupIDs  []int64
 	}
-	lastListAccounts struct {
+	lastResourceActor  authz.Actor
+	resourceActorCalls int
+	lastListAccounts   struct {
 		platform    string
 		accountType string
 		status      string
@@ -80,6 +83,13 @@ type stubAdminService struct {
 		calls     int
 	}
 	mu sync.Mutex
+}
+
+func (s *stubAdminService) captureResourceActor(actor authz.Actor) {
+	s.mu.Lock()
+	s.lastResourceActor = actor
+	s.resourceActorCalls++
+	s.mu.Unlock()
 }
 
 func newStubAdminService() *stubAdminService {
@@ -147,7 +157,8 @@ func newStubAdminService() *stubAdminService {
 	}
 }
 
-func (s *stubAdminService) ListUsers(ctx context.Context, page, pageSize int, filters service.UserListFilters, sortBy, sortOrder string) ([]service.User, int64, error) {
+func (s *stubAdminService) ListUsers(ctx context.Context, actor authz.Actor, page, pageSize int, filters service.UserListFilters, sortBy, sortOrder string) ([]service.User, int64, error) {
+	s.captureResourceActor(actor)
 	s.lastListUsers.page = page
 	s.lastListUsers.pageSize = pageSize
 	s.lastListUsers.filters = filters
@@ -157,7 +168,8 @@ func (s *stubAdminService) ListUsers(ctx context.Context, page, pageSize int, fi
 	return s.users, int64(len(s.users)), nil
 }
 
-func (s *stubAdminService) GetUser(ctx context.Context, id int64) (*service.User, error) {
+func (s *stubAdminService) GetUser(ctx context.Context, actor authz.Actor, id int64) (*service.User, error) {
+	s.captureResourceActor(actor)
 	if s.getUserErr != nil {
 		return nil, s.getUserErr
 	}
@@ -170,21 +182,24 @@ func (s *stubAdminService) GetUser(ctx context.Context, id int64) (*service.User
 	return &user, nil
 }
 
-func (s *stubAdminService) GetUserIncludeDeleted(ctx context.Context, id int64) (*service.User, error) {
-	return s.GetUser(ctx, id)
+func (s *stubAdminService) GetUserIncludeDeleted(ctx context.Context, actor authz.Actor, id int64) (*service.User, error) {
+	return s.GetUser(ctx, actor, id)
 }
 
-func (s *stubAdminService) CreateUser(ctx context.Context, input *service.CreateUserInput) (*service.User, error) {
+func (s *stubAdminService) CreateUser(ctx context.Context, actor authz.Actor, input *service.CreateUserInput) (*service.User, error) {
+	s.captureResourceActor(actor)
 	user := service.User{ID: 100, Email: input.Email, Status: service.StatusActive}
 	return &user, nil
 }
 
-func (s *stubAdminService) UpdateUser(ctx context.Context, id int64, input *service.UpdateUserInput) (*service.User, error) {
+func (s *stubAdminService) UpdateUser(ctx context.Context, actor authz.Actor, id int64, input *service.UpdateUserInput) (*service.User, error) {
+	s.captureResourceActor(actor)
 	user := service.User{ID: id, Email: "updated@example.com", Status: service.StatusActive}
 	return &user, nil
 }
 
-func (s *stubAdminService) DeleteUser(ctx context.Context, id int64) error {
+func (s *stubAdminService) DeleteUser(ctx context.Context, actor authz.Actor, id int64) error {
+	s.captureResourceActor(actor)
 	return nil
 }
 
@@ -201,7 +216,8 @@ func (s *stubAdminService) BatchUpdateLimits(ctx context.Context, userIDs []int6
 	return len(userIDs), nil
 }
 
-func (s *stubAdminService) GetUserAPIKeys(ctx context.Context, userID int64, page, pageSize int, sortBy, sortOrder string) ([]service.APIKey, int64, error) {
+func (s *stubAdminService) GetUserAPIKeys(ctx context.Context, actor authz.Actor, userID int64, page, pageSize int, sortBy, sortOrder string) ([]service.APIKey, int64, error) {
+	s.captureResourceActor(actor)
 	return s.apiKeys, int64(len(s.apiKeys)), nil
 }
 
@@ -209,8 +225,8 @@ func (s *stubAdminService) GetUserUsageStats(ctx context.Context, userID int64, 
 	return map[string]any{"user_id": userID}, nil
 }
 
-func (s *stubAdminService) GetUserRPMStatus(ctx context.Context, userID int64) (*service.UserRPMStatus, error) {
-	user, err := s.GetUser(ctx, userID)
+func (s *stubAdminService) GetUserRPMStatus(ctx context.Context, actor authz.Actor, userID int64) (*service.UserRPMStatus, error) {
+	user, err := s.GetUser(ctx, actor, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -266,35 +282,42 @@ func (s *stubAdminService) BindUserAuthIdentity(ctx context.Context, userID int6
 	return result, nil
 }
 
-func (s *stubAdminService) ListGroups(ctx context.Context, page, pageSize int, platform, status, search string, isExclusive *bool, sortBy, sortOrder string) ([]service.Group, int64, error) {
+func (s *stubAdminService) ListGroups(ctx context.Context, actor authz.Actor, page, pageSize int, platform, status, search string, isExclusive *bool, sortBy, sortOrder string) ([]service.Group, int64, error) {
+	s.captureResourceActor(actor)
 	return s.groups, int64(len(s.groups)), nil
 }
 
-func (s *stubAdminService) GetAllGroups(ctx context.Context) ([]service.Group, error) {
+func (s *stubAdminService) GetAllGroups(ctx context.Context, actor authz.Actor) ([]service.Group, error) {
+	s.captureResourceActor(actor)
 	return s.groups, nil
 }
 
-func (s *stubAdminService) GetAllGroupsByPlatform(ctx context.Context, platform string) ([]service.Group, error) {
+func (s *stubAdminService) GetAllGroupsByPlatform(ctx context.Context, actor authz.Actor, platform string) ([]service.Group, error) {
+	s.captureResourceActor(actor)
 	return s.groups, nil
 }
 
-func (s *stubAdminService) GetAllGroupsIncludingInactive(ctx context.Context) ([]service.Group, error) {
+func (s *stubAdminService) GetAllGroupsIncludingInactive(ctx context.Context, actor authz.Actor) ([]service.Group, error) {
+	s.captureResourceActor(actor)
 	return s.groups, nil
 }
 
-func (s *stubAdminService) GetGroup(ctx context.Context, id int64) (*service.Group, error) {
+func (s *stubAdminService) GetGroup(ctx context.Context, actor authz.Actor, id int64) (*service.Group, error) {
+	s.captureResourceActor(actor)
 	group := service.Group{ID: id, Name: "group", Status: service.StatusActive}
 	return &group, nil
 }
 
-func (s *stubAdminService) GetGroupModelsListCandidates(ctx context.Context, id int64, platform string) ([]string, error) {
+func (s *stubAdminService) GetGroupModelsListCandidates(ctx context.Context, actor authz.Actor, id int64, platform string) ([]string, error) {
+	s.captureResourceActor(actor)
 	if platform == service.PlatformOpenAI {
 		return []string{"gpt-5.5", "gpt-5.4"}, nil
 	}
 	return []string{"claude-sonnet-4-6"}, nil
 }
 
-func (s *stubAdminService) ListCompositeRoutes(ctx context.Context, groupID int64) ([]service.CompositeModelRoute, error) {
+func (s *stubAdminService) ListCompositeRoutes(ctx context.Context, actor authz.Actor, groupID int64) ([]service.CompositeModelRoute, error) {
+	s.captureResourceActor(actor)
 	return []service.CompositeModelRoute{
 		{
 			ID:             1,
@@ -310,7 +333,8 @@ func (s *stubAdminService) ListCompositeRoutes(ctx context.Context, groupID int6
 	}, nil
 }
 
-func (s *stubAdminService) CreateCompositeRoute(ctx context.Context, groupID int64, input service.CompositeRouteInput) (*service.CompositeModelRoute, error) {
+func (s *stubAdminService) CreateCompositeRoute(ctx context.Context, actor authz.Actor, groupID int64, input service.CompositeRouteInput) (*service.CompositeModelRoute, error) {
+	s.captureResourceActor(actor)
 	return &service.CompositeModelRoute{
 		ID:             1,
 		GroupID:        groupID,
@@ -325,7 +349,8 @@ func (s *stubAdminService) CreateCompositeRoute(ctx context.Context, groupID int
 	}, nil
 }
 
-func (s *stubAdminService) UpdateCompositeRoute(ctx context.Context, groupID, routeID int64, input service.CompositeRouteInput) (*service.CompositeModelRoute, error) {
+func (s *stubAdminService) UpdateCompositeRoute(ctx context.Context, actor authz.Actor, groupID, routeID int64, input service.CompositeRouteInput) (*service.CompositeModelRoute, error) {
+	s.captureResourceActor(actor)
 	return &service.CompositeModelRoute{
 		ID:             routeID,
 		GroupID:        groupID,
@@ -340,11 +365,13 @@ func (s *stubAdminService) UpdateCompositeRoute(ctx context.Context, groupID, ro
 	}, nil
 }
 
-func (s *stubAdminService) DeleteCompositeRoute(ctx context.Context, groupID, routeID int64) error {
+func (s *stubAdminService) DeleteCompositeRoute(ctx context.Context, actor authz.Actor, groupID, routeID int64) error {
+	s.captureResourceActor(actor)
 	return nil
 }
 
-func (s *stubAdminService) PreviewCompositeRoute(ctx context.Context, groupID int64, input service.CompositeRoutePreviewRequest) (*service.CompositeRouteDecision, error) {
+func (s *stubAdminService) PreviewCompositeRoute(ctx context.Context, actor authz.Actor, groupID int64, input service.CompositeRoutePreviewRequest) (*service.CompositeRouteDecision, error) {
+	s.captureResourceActor(actor)
 	decision, err := service.NewCompositeRouteResolver(nil).Resolve(ctx, groupID, input.Model, input.Endpoint)
 	if err != nil {
 		return nil, err
@@ -352,54 +379,66 @@ func (s *stubAdminService) PreviewCompositeRoute(ctx context.Context, groupID in
 	return &decision, nil
 }
 
-func (s *stubAdminService) CreateGroup(ctx context.Context, input *service.CreateGroupInput) (*service.Group, error) {
+func (s *stubAdminService) CreateGroup(ctx context.Context, actor authz.Actor, input *service.CreateGroupInput) (*service.Group, error) {
+	s.captureResourceActor(actor)
 	group := service.Group{ID: 200, Name: input.Name, Status: service.StatusActive}
 	return &group, nil
 }
 
-func (s *stubAdminService) DuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*service.Group, error) {
+func (s *stubAdminService) DuplicateGroup(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*service.Group, error) {
+	s.captureResourceActor(actor)
 	group := service.Group{ID: 201, Name: "group (Copy)", Status: "inactive"}
 	return &group, nil
 }
 
-func (s *stubAdminService) RecoverDuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*service.Group, error) {
+func (s *stubAdminService) RecoverDuplicateGroup(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*service.Group, error) {
+	s.captureResourceActor(actor)
 	return nil, nil
 }
 
-func (s *stubAdminService) UpdateGroup(ctx context.Context, id int64, input *service.UpdateGroupInput) (*service.Group, error) {
+func (s *stubAdminService) UpdateGroup(ctx context.Context, actor authz.Actor, id int64, input *service.UpdateGroupInput) (*service.Group, error) {
+	s.captureResourceActor(actor)
 	group := service.Group{ID: id, Name: input.Name, Status: service.StatusActive}
 	return &group, nil
 }
 
-func (s *stubAdminService) DeleteGroup(ctx context.Context, id int64) error {
+func (s *stubAdminService) DeleteGroup(ctx context.Context, actor authz.Actor, id int64) error {
+	s.captureResourceActor(actor)
 	return nil
 }
 
-func (s *stubAdminService) GetGroupAPIKeys(ctx context.Context, groupID int64, page, pageSize int) ([]service.APIKey, int64, error) {
+func (s *stubAdminService) GetGroupAPIKeys(ctx context.Context, actor authz.Actor, groupID int64, page, pageSize int) ([]service.APIKey, int64, error) {
+	s.captureResourceActor(actor)
 	return s.apiKeys, int64(len(s.apiKeys)), nil
 }
 
-func (s *stubAdminService) GetGroupRateMultipliers(_ context.Context, _ int64) ([]service.UserGroupRateEntry, error) {
+func (s *stubAdminService) GetGroupRateMultipliers(_ context.Context, actor authz.Actor, _ int64) ([]service.UserGroupRateEntry, error) {
+	s.captureResourceActor(actor)
 	return nil, nil
 }
 
-func (s *stubAdminService) ClearGroupRateMultipliers(_ context.Context, _ int64) error {
+func (s *stubAdminService) ClearGroupRateMultipliers(_ context.Context, actor authz.Actor, _ int64) error {
+	s.captureResourceActor(actor)
 	return nil
 }
 
-func (s *stubAdminService) BatchSetGroupRateMultipliers(_ context.Context, _ int64, _ []service.GroupRateMultiplierInput) error {
+func (s *stubAdminService) BatchSetGroupRateMultipliers(_ context.Context, actor authz.Actor, _ int64, _ []service.GroupRateMultiplierInput) error {
+	s.captureResourceActor(actor)
 	return nil
 }
 
-func (s *stubAdminService) ClearGroupRPMOverrides(_ context.Context, _ int64) error {
+func (s *stubAdminService) ClearGroupRPMOverrides(_ context.Context, actor authz.Actor, _ int64) error {
+	s.captureResourceActor(actor)
 	return nil
 }
 
-func (s *stubAdminService) BatchSetGroupRPMOverrides(_ context.Context, _ int64, _ []service.GroupRPMOverrideInput) error {
+func (s *stubAdminService) BatchSetGroupRPMOverrides(_ context.Context, actor authz.Actor, _ int64, _ []service.GroupRPMOverrideInput) error {
+	s.captureResourceActor(actor)
 	return nil
 }
 
-func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]service.Account, int64, error) {
+func (s *stubAdminService) ListAccounts(ctx context.Context, actor authz.Actor, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]service.Account, int64, error) {
+	s.captureResourceActor(actor)
 	s.lastListAccounts.platform = platform
 	s.lastListAccounts.accountType = accountType
 	s.lastListAccounts.status = status
@@ -428,7 +467,8 @@ func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int,
 	return accounts[start:end], int64(total), nil
 }
 
-func (s *stubAdminService) ListAccountsForSchedulerScoreFilter(_ context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
+func (s *stubAdminService) ListAccountsForSchedulerScoreFilter(_ context.Context, actor authz.Actor, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
+	s.captureResourceActor(actor)
 	s.schedulerScoreFilterCalls++
 	if s.accountSchedulerScoreFilterAccounts != nil {
 		return s.accountSchedulerScoreFilterAccounts, nil
@@ -436,7 +476,8 @@ func (s *stubAdminService) ListAccountsForSchedulerScoreFilter(_ context.Context
 	return s.accounts, nil
 }
 
-func (s *stubAdminService) ListOpenAISchedulableAccountsForSchedulerScore(_ context.Context, groupID *int64) ([]service.Account, error) {
+func (s *stubAdminService) ListOpenAISchedulableAccountsForSchedulerScore(_ context.Context, actor authz.Actor, groupID *int64) ([]service.Account, error) {
+	s.captureResourceActor(actor)
 	s.openAISchedulerScorePoolCalls++
 	accounts := s.openAISchedulerScorePoolAccounts
 	if accounts == nil {
@@ -463,7 +504,8 @@ func (s *stubAdminService) ListOpenAISchedulableAccountsForSchedulerScore(_ cont
 	return out, nil
 }
 
-func (s *stubAdminService) GetAccount(ctx context.Context, id int64) (*service.Account, error) {
+func (s *stubAdminService) GetAccount(ctx context.Context, actor authz.Actor, id int64) (*service.Account, error) {
+	s.captureResourceActor(actor)
 	if s.getAccountResult != nil {
 		return s.getAccountResult, nil
 	}
@@ -471,7 +513,8 @@ func (s *stubAdminService) GetAccount(ctx context.Context, id int64) (*service.A
 	return &account, nil
 }
 
-func (s *stubAdminService) GetAccountsByIDs(ctx context.Context, ids []int64) ([]*service.Account, error) {
+func (s *stubAdminService) GetAccountsByIDs(ctx context.Context, actor authz.Actor, ids []int64) ([]*service.Account, error) {
+	s.captureResourceActor(actor)
 	out := make([]*service.Account, 0, len(ids))
 	for _, id := range ids {
 		account := service.Account{ID: id, Name: "account", Status: service.StatusActive}
@@ -480,7 +523,8 @@ func (s *stubAdminService) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 	return out, nil
 }
 
-func (s *stubAdminService) CreateAccount(ctx context.Context, input *service.CreateAccountInput) (*service.Account, error) {
+func (s *stubAdminService) CreateAccount(ctx context.Context, actor authz.Actor, input *service.CreateAccountInput) (*service.Account, error) {
+	s.captureResourceActor(actor)
 	s.mu.Lock()
 	s.createdAccounts = append(s.createdAccounts, input)
 	s.mu.Unlock()
@@ -491,16 +535,19 @@ func (s *stubAdminService) CreateAccount(ctx context.Context, input *service.Cre
 	return &account, nil
 }
 
-func (s *stubAdminService) DuplicateAccount(ctx context.Context, id int64, actorScope, operationKey string) (*service.Account, error) {
+func (s *stubAdminService) DuplicateAccount(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*service.Account, error) {
+	s.captureResourceActor(actor)
 	account := service.Account{ID: 301, Name: "account (Copy)", Status: service.StatusActive, Schedulable: false}
 	return &account, nil
 }
 
-func (s *stubAdminService) RecoverDuplicateAccount(ctx context.Context, id int64, actorScope, operationKey string) (*service.Account, error) {
+func (s *stubAdminService) RecoverDuplicateAccount(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*service.Account, error) {
+	s.captureResourceActor(actor)
 	return nil, nil
 }
 
-func (s *stubAdminService) UpdateAccount(ctx context.Context, id int64, input *service.UpdateAccountInput) (*service.Account, error) {
+func (s *stubAdminService) UpdateAccount(ctx context.Context, actor authz.Actor, id int64, input *service.UpdateAccountInput) (*service.Account, error) {
+	s.captureResourceActor(actor)
 	s.updateAccountCalls++
 	s.lastUpdateAccountInput = input
 	if s.updateAccountErr != nil {
@@ -510,35 +557,42 @@ func (s *stubAdminService) UpdateAccount(ctx context.Context, id int64, input *s
 	return &account, nil
 }
 
-func (s *stubAdminService) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+func (s *stubAdminService) UpdateAccountExtra(ctx context.Context, actor authz.Actor, id int64, updates map[string]any) error {
+	s.captureResourceActor(actor)
 	s.updateAccountExtraCalls++
 	return nil
 }
 
-func (s *stubAdminService) DeleteAccount(ctx context.Context, id int64) error {
+func (s *stubAdminService) DeleteAccount(ctx context.Context, actor authz.Actor, id int64) error {
+	s.captureResourceActor(actor)
 	return nil
 }
 
-func (s *stubAdminService) RefreshAccountCredentials(ctx context.Context, id int64) (*service.Account, error) {
+func (s *stubAdminService) RefreshAccountCredentials(ctx context.Context, actor authz.Actor, id int64) (*service.Account, error) {
+	s.captureResourceActor(actor)
 	account := service.Account{ID: id, Name: "account", Status: service.StatusActive}
 	return &account, nil
 }
 
-func (s *stubAdminService) ClearAccountError(ctx context.Context, id int64) (*service.Account, error) {
+func (s *stubAdminService) ClearAccountError(ctx context.Context, actor authz.Actor, id int64) (*service.Account, error) {
+	s.captureResourceActor(actor)
 	account := service.Account{ID: id, Name: "account", Status: service.StatusActive}
 	return &account, nil
 }
 
-func (s *stubAdminService) SetAccountError(ctx context.Context, id int64, errorMsg string) error {
+func (s *stubAdminService) SetAccountError(ctx context.Context, actor authz.Actor, id int64, errorMsg string) error {
+	s.captureResourceActor(actor)
 	return nil
 }
 
-func (s *stubAdminService) SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*service.Account, error) {
+func (s *stubAdminService) SetAccountSchedulable(ctx context.Context, actor authz.Actor, id int64, schedulable bool) (*service.Account, error) {
+	s.captureResourceActor(actor)
 	account := service.Account{ID: id, Name: "account", Status: service.StatusActive, Schedulable: schedulable}
 	return &account, nil
 }
 
-func (s *stubAdminService) BulkUpdateAccounts(ctx context.Context, input *service.BulkUpdateAccountsInput) (*service.BulkUpdateAccountsResult, error) {
+func (s *stubAdminService) BulkUpdateAccounts(ctx context.Context, actor authz.Actor, input *service.BulkUpdateAccountsInput) (*service.BulkUpdateAccountsResult, error) {
+	s.captureResourceActor(actor)
 	s.lastBulkUpdateAccountInput = input
 	if s.bulkUpdateAccountErr != nil {
 		return nil, s.bulkUpdateAccountErr
@@ -546,7 +600,8 @@ func (s *stubAdminService) BulkUpdateAccounts(ctx context.Context, input *servic
 	return &service.BulkUpdateAccountsResult{Success: len(input.AccountIDs), Failed: 0, SuccessIDs: input.AccountIDs}, nil
 }
 
-func (s *stubAdminService) CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error {
+func (s *stubAdminService) CheckMixedChannelRisk(ctx context.Context, actor authz.Actor, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error {
+	s.captureResourceActor(actor)
 	s.lastMixedCheck.accountID = currentAccountID
 	s.lastMixedCheck.platform = currentAccountPlatform
 	s.lastMixedCheck.groupIDs = append([]int64(nil), groupIDs...)
@@ -647,7 +702,7 @@ func (s *stubAdminService) BatchDeleteProxies(ctx context.Context, ids []int64) 
 	return &service.ProxyBatchDeleteResult{DeletedIDs: ids}, nil
 }
 
-func (s *stubAdminService) GetProxyAccounts(ctx context.Context, proxyID int64) ([]service.ProxyAccountSummary, error) {
+func (s *stubAdminService) AdminGetProxyAccounts(ctx context.Context, actor authz.Actor, proxyID int64) ([]service.ProxyAccountSummary, error) {
 	return []service.ProxyAccountSummary{{ID: 1, Name: "account"}}, nil
 }
 
@@ -692,12 +747,23 @@ func (s *stubAdminService) ListRedeemCodes(ctx context.Context, page, pageSize i
 	return s.redeems, int64(len(s.redeems)), nil
 }
 
+func (s *stubAdminService) AdminListRedeemCodes(ctx context.Context, actor authz.Actor, page, pageSize int, codeType, status, search string, sortBy, sortOrder string) ([]service.RedeemCode, int64, error) {
+	s.captureResourceActor(actor)
+	return s.ListRedeemCodes(ctx, page, pageSize, codeType, status, search, sortBy, sortOrder)
+}
+
 func (s *stubAdminService) GetRedeemCode(ctx context.Context, id int64) (*service.RedeemCode, error) {
 	code := service.RedeemCode{ID: id, Code: "R-TEST", Status: service.StatusUnused}
 	return &code, nil
 }
 
-func (s *stubAdminService) GenerateRedeemCodes(ctx context.Context, input *service.GenerateRedeemCodesInput) ([]service.RedeemCode, error) {
+func (s *stubAdminService) AdminGetRedeemCode(ctx context.Context, actor authz.Actor, id int64) (*service.RedeemCode, error) {
+	s.captureResourceActor(actor)
+	return s.GetRedeemCode(ctx, id)
+}
+
+func (s *stubAdminService) GenerateRedeemCodes(ctx context.Context, actor authz.Actor, input *service.GenerateRedeemCodesInput) ([]service.RedeemCode, error) {
+	s.captureResourceActor(actor)
 	return s.redeems, nil
 }
 
@@ -705,8 +771,18 @@ func (s *stubAdminService) DeleteRedeemCode(ctx context.Context, id int64) error
 	return nil
 }
 
+func (s *stubAdminService) AdminDeleteRedeemCode(ctx context.Context, actor authz.Actor, id int64) error {
+	s.captureResourceActor(actor)
+	return s.DeleteRedeemCode(ctx, id)
+}
+
 func (s *stubAdminService) BatchDeleteRedeemCodes(ctx context.Context, ids []int64) (int64, error) {
 	return int64(len(ids)), nil
+}
+
+func (s *stubAdminService) AdminBatchDeleteRedeemCodes(ctx context.Context, actor authz.Actor, ids []int64) (int64, error) {
+	s.captureResourceActor(actor)
+	return s.BatchDeleteRedeemCodes(ctx, ids)
 }
 
 func (s *stubAdminService) ExpireRedeemCode(ctx context.Context, id int64) (*service.RedeemCode, error) {
@@ -714,15 +790,22 @@ func (s *stubAdminService) ExpireRedeemCode(ctx context.Context, id int64) (*ser
 	return &code, nil
 }
 
+func (s *stubAdminService) AdminExpireRedeemCode(ctx context.Context, actor authz.Actor, id int64) (*service.RedeemCode, error) {
+	s.captureResourceActor(actor)
+	return s.ExpireRedeemCode(ctx, id)
+}
+
 func (s *stubAdminService) GetUserBalanceHistory(ctx context.Context, userID int64, page, pageSize int, codeType string) ([]service.RedeemCode, int64, float64, error) {
 	return s.redeems, int64(len(s.redeems)), 100.0, nil
 }
 
-func (s *stubAdminService) UpdateGroupSortOrders(ctx context.Context, updates []service.GroupSortOrderUpdate) error {
+func (s *stubAdminService) UpdateGroupSortOrders(ctx context.Context, actor authz.Actor, updates []service.GroupSortOrderUpdate) error {
+	s.captureResourceActor(actor)
 	return nil
 }
 
-func (s *stubAdminService) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*service.AdminUpdateAPIKeyGroupIDResult, error) {
+func (s *stubAdminService) AdminUpdateAPIKeyGroupID(ctx context.Context, actor authz.Actor, keyID int64, groupID *int64) (*service.AdminUpdateAPIKeyGroupIDResult, error) {
+	s.captureResourceActor(actor)
 	for i := range s.apiKeys {
 		if s.apiKeys[i].ID == keyID {
 			k := s.apiKeys[i]
@@ -740,7 +823,8 @@ func (s *stubAdminService) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 	return nil, service.ErrAPIKeyNotFound
 }
 
-func (s *stubAdminService) AdminResetAPIKeyRateLimitUsage(ctx context.Context, keyID int64) (*service.APIKey, error) {
+func (s *stubAdminService) AdminResetAPIKeyRateLimitUsage(ctx context.Context, actor authz.Actor, keyID int64) (*service.APIKey, error) {
+	s.captureResourceActor(actor)
 	for i := range s.apiKeys {
 		if s.apiKeys[i].ID == keyID {
 			s.apiKeys[i].Usage5h = 0
@@ -756,35 +840,43 @@ func (s *stubAdminService) AdminResetAPIKeyRateLimitUsage(ctx context.Context, k
 	return nil, service.ErrAPIKeyNotFound
 }
 
-func (s *stubAdminService) ResetAccountQuota(ctx context.Context, id int64) error {
+func (s *stubAdminService) ResetAccountQuota(ctx context.Context, actor authz.Actor, id int64) error {
+	s.captureResourceActor(actor)
 	return nil
 }
 
-func (s *stubAdminService) EnsureOpenAIPrivacy(ctx context.Context, account *service.Account) string {
+func (s *stubAdminService) EnsureOpenAIPrivacy(ctx context.Context, actor authz.Actor, account *service.Account) string {
+	s.captureResourceActor(actor)
 	return ""
 }
 
-func (s *stubAdminService) EnsureAntigravityPrivacy(ctx context.Context, account *service.Account) string {
+func (s *stubAdminService) EnsureAntigravityPrivacy(ctx context.Context, actor authz.Actor, account *service.Account) string {
+	s.captureResourceActor(actor)
 	return ""
 }
 
-func (s *stubAdminService) ForceOpenAIPrivacy(ctx context.Context, account *service.Account) string {
+func (s *stubAdminService) ForceOpenAIPrivacy(ctx context.Context, actor authz.Actor, account *service.Account) string {
+	s.captureResourceActor(actor)
 	return ""
 }
 
-func (s *stubAdminService) ForceAntigravityPrivacy(ctx context.Context, account *service.Account) string {
+func (s *stubAdminService) ForceAntigravityPrivacy(ctx context.Context, actor authz.Actor, account *service.Account) string {
+	s.captureResourceActor(actor)
 	return ""
 }
 
-func (s *stubAdminService) ReplaceUserGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (*service.ReplaceUserGroupResult, error) {
+func (s *stubAdminService) ReplaceUserGroup(ctx context.Context, actor authz.Actor, userID, oldGroupID, newGroupID int64) (*service.ReplaceUserGroupResult, error) {
+	s.captureResourceActor(actor)
 	return &service.ReplaceUserGroupResult{MigratedKeys: 0}, nil
 }
 
-func (s *stubAdminService) RevertAccountProxyFallback(ctx context.Context, id int64) error {
+func (s *stubAdminService) RevertAccountProxyFallback(ctx context.Context, actor authz.Actor, id int64) error {
+	s.captureResourceActor(actor)
 	return nil
 }
 
-func (s *stubAdminService) CreateShadow(ctx context.Context, parentID int64, opts service.ShadowOptions) (*service.Account, error) {
+func (s *stubAdminService) CreateShadow(ctx context.Context, actor authz.Actor, parentID int64, opts service.ShadowOptions) (*service.Account, error) {
+	s.captureResourceActor(actor)
 	if s.createSparkShadowErr != nil {
 		return nil, s.createSparkShadowErr
 	}

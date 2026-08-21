@@ -14,13 +14,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
 // Account management implementations
-func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]Account, int64, error) {
+func (s *adminServiceImpl) ListAccounts(ctx context.Context, actor authz.Actor, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]Account, int64, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, 0, err
+	}
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
 	accounts, result, err := s.accountRepo.ListWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode)
 	if err != nil {
@@ -29,14 +33,20 @@ func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int,
 	return accounts, result.Total, nil
 }
 
-func (s *adminServiceImpl) ListAccountsForSchedulerScoreFilter(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error) {
+func (s *adminServiceImpl) ListAccountsForSchedulerScoreFilter(ctx context.Context, actor authz.Actor, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	if s == nil || s.accountRepo == nil {
 		return nil, nil
 	}
 	return s.accountRepo.ListAllWithFilters(ctx, platform, accountType, status, search, groupID, privacyMode)
 }
 
-func (s *adminServiceImpl) ListOpenAISchedulableAccountsForSchedulerScore(ctx context.Context, groupID *int64) ([]Account, error) {
+func (s *adminServiceImpl) ListOpenAISchedulableAccountsForSchedulerScore(ctx context.Context, actor authz.Actor, groupID *int64) ([]Account, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	if s == nil || s.accountRepo == nil {
 		return nil, nil
 	}
@@ -46,11 +56,17 @@ func (s *adminServiceImpl) ListOpenAISchedulableAccountsForSchedulerScore(ctx co
 	return s.accountRepo.ListSchedulableUngroupedByPlatform(ctx, PlatformOpenAI)
 }
 
-func (s *adminServiceImpl) GetAccount(ctx context.Context, id int64) (*Account, error) {
+func (s *adminServiceImpl) GetAccount(ctx context.Context, actor authz.Actor, id int64) (*Account, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	return s.accountRepo.GetByID(ctx, id)
 }
 
-func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([]*Account, error) {
+func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, actor authz.Actor, ids []int64) ([]*Account, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	if len(ids) == 0 {
 		return []*Account{}, nil
 	}
@@ -219,7 +235,11 @@ func (s *adminServiceImpl) findDuplicateByOperationID(ctx context.Context, opera
 // RecoverDuplicateAccount performs a read-only lookup for an already committed duplicate.
 // It is used when the idempotency coordinator cannot confirm whether response persistence
 // succeeded, and deliberately never repeats the create side effect.
-func (s *adminServiceImpl) RecoverDuplicateAccount(ctx context.Context, id int64, actorScope, operationKey string) (*Account, error) {
+func (s *adminServiceImpl) RecoverDuplicateAccount(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Account, error) {
+	actorScope, err := adminResourceActorSubjectKey(actor)
+	if err != nil {
+		return nil, err
+	}
 	operationID := duplicateAccountOperationID(id, actorScope, operationKey)
 	if strings.TrimSpace(operationKey) != "" && operationID == "" {
 		return nil, ErrIdempotencyActorUnavailable
@@ -246,9 +266,14 @@ func cloneAccountValuePointer[T any](value *T) *T {
 // runtime state. Credentials and extra configuration are deep-copied so normalization of the new
 // account cannot mutate the in-memory source. Linked credential shadows are excluded because they
 // intentionally do not own credentials and must be created through CreateShadow.
-func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actorScope, operationKey string) (*Account, error) {
+
+func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Account, error) {
+	actorScope, err := adminResourceActorSubjectKey(actor)
+	if err != nil {
+		return nil, err
+	}
 	operationID := duplicateAccountOperationID(id, actorScope, operationKey)
-	existing, err := s.RecoverDuplicateAccount(ctx, id, actorScope, operationKey)
+	existing, err := s.RecoverDuplicateAccount(ctx, actor, id, operationKey)
 	if err != nil {
 		return nil, err
 	}
@@ -472,7 +497,10 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	return account, nil
 }
 
-func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+func (s *adminServiceImpl) CreateAccount(ctx context.Context, actor authz.Actor, input *CreateAccountInput) (*Account, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
 		return nil, err
@@ -538,7 +566,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 						slog.Error("create_account_openai_privacy_panic", "account_id", account.ID, "recover", r)
 					}
 				}()
-				s.EnsureOpenAIPrivacy(context.Background(), account)
+				s.EnsureOpenAIPrivacy(context.Background(), actor, account)
 			}()
 		case PlatformAntigravity:
 			go func() {
@@ -547,7 +575,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 						slog.Error("create_account_antigravity_privacy_panic", "account_id", account.ID, "recover", r)
 					}
 				}()
-				s.EnsureAntigravityPrivacy(context.Background(), account)
+				s.EnsureAntigravityPrivacy(context.Background(), actor, account)
 			}()
 		}
 	}
@@ -555,7 +583,10 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	return account, nil
 }
 
-func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
+func (s *adminServiceImpl) UpdateAccount(ctx context.Context, actor authz.Actor, id int64, input *UpdateAccountInput) (*Account, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -869,7 +900,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
-func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, actor authz.Actor, id int64, updates map[string]any) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	delete(updates, UpstreamBillingProbeEnabledExtraKey)
 	delete(updates, UpstreamBillingRateSyncEnabledExtraKey)
@@ -894,7 +928,10 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 
 // BulkUpdateAccounts updates multiple accounts in one request.
 // It merges credentials/extra keys instead of overwriting the whole object.
-func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
+func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, actor authz.Actor, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	// Managed probe/session state may only enter through dedicated typed endpoints.
 	input.Extra = sanitizedCodexFingerprintExtraUpdates(input.Extra)
 	delete(input.Extra, UpstreamBillingProbeEnabledExtraKey)
@@ -905,7 +942,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	delete(input.Extra, OllamaCloudUsageSnapshotExtraKey)
 
 	if len(input.AccountIDs) == 0 && input.Filters != nil {
-		accountIDs, err := s.resolveBulkUpdateTargetIDs(ctx, input.Filters)
+		accountIDs, err := s.resolveBulkUpdateTargetIDs(ctx, actor, input.Filters)
 		if err != nil {
 			return nil, err
 		}
@@ -1165,7 +1202,7 @@ func upstreamBillingProbeIdentity(account *Account) map[string]any {
 	return identity
 }
 
-func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filters *BulkUpdateAccountFilters) ([]int64, error) {
+func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, actor authz.Actor, filters *BulkUpdateAccountFilters) ([]int64, error) {
 	if filters == nil {
 		return nil, nil
 	}
@@ -1190,6 +1227,7 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 	for {
 		accounts, total, err := s.ListAccounts(
 			ctx,
+			actor,
 			page,
 			pageSize,
 			filters.Platform,
@@ -1214,7 +1252,10 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 	}
 }
 
-func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
+func (s *adminServiceImpl) DeleteAccount(ctx context.Context, actor authz.Actor, id int64) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
 	// 级联删除 spark 影子账号（先删影子，再删母账号）
 	shadows, err := s.accountRepo.ListShadowsByParent(ctx, id)
 	if err != nil {
@@ -1231,7 +1272,10 @@ func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (s *adminServiceImpl) RefreshAccountCredentials(ctx context.Context, id int64) (*Account, error) {
+func (s *adminServiceImpl) RefreshAccountCredentials(ctx context.Context, actor authz.Actor, id int64) (*Account, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -1240,7 +1284,10 @@ func (s *adminServiceImpl) RefreshAccountCredentials(ctx context.Context, id int
 	return account, nil
 }
 
-func (s *adminServiceImpl) ClearAccountError(ctx context.Context, id int64) (*Account, error) {
+func (s *adminServiceImpl) ClearAccountError(ctx context.Context, actor authz.Actor, id int64) (*Account, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	if err := s.accountRepo.ClearError(ctx, id); err != nil {
 		return nil, err
 	}
@@ -1262,11 +1309,17 @@ func (s *adminServiceImpl) ClearAccountError(ctx context.Context, id int64) (*Ac
 	return s.accountRepo.GetByID(ctx, id)
 }
 
-func (s *adminServiceImpl) SetAccountError(ctx context.Context, id int64, errorMsg string) error {
+func (s *adminServiceImpl) SetAccountError(ctx context.Context, actor authz.Actor, id int64, errorMsg string) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
 	return s.accountRepo.SetError(ctx, id, errorMsg)
 }
 
-func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error) {
+func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, actor authz.Actor, id int64, schedulable bool) (*Account, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	if err := s.accountRepo.SetSchedulable(ctx, id, schedulable); err != nil {
 		return nil, err
 	}
@@ -1277,7 +1330,10 @@ func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, id int64, 
 	return updated, nil
 }
 
-func (s *adminServiceImpl) RevertAccountProxyFallback(ctx context.Context, id int64) error {
+func (s *adminServiceImpl) RevertAccountProxyFallback(ctx context.Context, actor authz.Actor, id int64) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
 	if err := s.accountRepo.RevertProxyFallback(ctx, id); err != nil {
 		return err
 	}
@@ -1291,7 +1347,10 @@ func (s *adminServiceImpl) RevertAccountProxyFallback(ctx context.Context, id in
 
 // CreateShadow 为指定 OpenAI OAuth 母账号创建 spark 维度影子账号（一母一影）。
 // 安全不变量：Credentials 恒不含 auth token（仅 model_mapping，守卫 isAllowedSparkShadowCredentialsUpdate 放行）。
-func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opts ShadowOptions) (*Account, error) {
+func (s *adminServiceImpl) CreateShadow(ctx context.Context, actor authz.Actor, parentID int64, opts ShadowOptions) (*Account, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	// 1. 加载母账号并校验平台/类型
 	parent, err := s.accountRepo.GetByID(ctx, parentID)
 	if err != nil {
@@ -1515,7 +1574,10 @@ func (s *adminServiceImpl) validateGroupIDsExist(ctx context.Context, groupIDs [
 }
 
 // CheckMixedChannelRisk checks whether target groups contain mixed channels for the current account platform.
-func (s *adminServiceImpl) CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error {
+func (s *adminServiceImpl) CheckMixedChannelRisk(ctx context.Context, actor authz.Actor, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
 	return s.checkMixedChannelRisk(ctx, currentAccountID, currentAccountPlatform, groupIDs)
 }
 
@@ -1544,7 +1606,10 @@ func (e *MixedChannelError) Error() string {
 		e.GroupName, e.CurrentPlatform, e.OtherPlatform)
 }
 
-func (s *adminServiceImpl) ResetAccountQuota(ctx context.Context, id int64) error {
+func (s *adminServiceImpl) ResetAccountQuota(ctx context.Context, actor authz.Actor, id int64) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return err
@@ -1560,7 +1625,10 @@ func (s *adminServiceImpl) ResetAccountQuota(ctx context.Context, id int64) erro
 
 // EnsureOpenAIPrivacy 检查 OpenAI OAuth 账号是否已设置 privacy_mode，
 // 未设置则调用 disableOpenAITraining 并持久化到 Extra，返回设置的 mode 值。
-func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Account) string {
+func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, actor authz.Actor, account *Account) string {
+	if ValidateAdminResourceActor(actor) != nil {
+		return ""
+	}
 	// 影子账号不持凭据，隐私设置由母账号管理，直接跳过。
 	if account.IsCredentialShadow() {
 		return ""
@@ -1597,7 +1665,10 @@ func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Acc
 }
 
 // ForceOpenAIPrivacy 强制重新设置 OpenAI OAuth 账号隐私，无论当前状态。
-func (s *adminServiceImpl) ForceOpenAIPrivacy(ctx context.Context, account *Account) string {
+func (s *adminServiceImpl) ForceOpenAIPrivacy(ctx context.Context, actor authz.Actor, account *Account) string {
+	if ValidateAdminResourceActor(actor) != nil {
+		return ""
+	}
 	// 影子账号不持凭据,隐私由母账号管理,直接跳过(与 EnsureOpenAIPrivacy 一致——外审第4轮)。
 	if account.IsCredentialShadow() {
 		return ""
@@ -1640,7 +1711,10 @@ func (s *adminServiceImpl) ForceOpenAIPrivacy(ctx context.Context, account *Acco
 // EnsureAntigravityPrivacy 检查 Antigravity OAuth 账号隐私状态。
 // 仅当 privacy_mode 已成功设置（"privacy_set"）时跳过；
 // 未设置或之前失败（"privacy_set_failed"）均会重试。
-func (s *adminServiceImpl) EnsureAntigravityPrivacy(ctx context.Context, account *Account) string {
+func (s *adminServiceImpl) EnsureAntigravityPrivacy(ctx context.Context, actor authz.Actor, account *Account) string {
+	if ValidateAdminResourceActor(actor) != nil {
+		return ""
+	}
 	if account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
 		return ""
 	}
@@ -1678,7 +1752,10 @@ func (s *adminServiceImpl) EnsureAntigravityPrivacy(ctx context.Context, account
 }
 
 // ForceAntigravityPrivacy 强制重新设置 Antigravity OAuth 账号隐私，无论当前状态。
-func (s *adminServiceImpl) ForceAntigravityPrivacy(ctx context.Context, account *Account) string {
+func (s *adminServiceImpl) ForceAntigravityPrivacy(ctx context.Context, actor authz.Actor, account *Account) string {
+	if ValidateAdminResourceActor(actor) != nil {
+		return ""
+	}
 	if account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
 		return ""
 	}

@@ -68,7 +68,7 @@ func TestUpdateGroupInvalidatesChannelCacheOnPlatformChange(t *testing.T) {
 			spy := &channelCacheInvalidatorSpy{}
 			svc := &adminServiceImpl{groupRepo: repo, channelCacheInvalidator: spy}
 
-			got, err := svc.UpdateGroup(context.Background(), 7, &UpdateGroupInput{Platform: tt.inputPlatform})
+			got, err := svc.UpdateGroup(context.Background(), adminResourceUserTestActor(t), 7, &UpdateGroupInput{Platform: tt.inputPlatform})
 			require.NoError(t, err)
 			require.NotNil(t, got)
 			require.Equal(t, tt.wantCalls, spy.calls)
@@ -81,7 +81,7 @@ func TestUpdateGroupWithoutChannelCacheInvalidator(t *testing.T) {
 	repo := &groupPlatformRepoStub{group: &Group{ID: 7, Name: "g", Platform: PlatformAnthropic}}
 	svc := &adminServiceImpl{groupRepo: repo}
 
-	got, err := svc.UpdateGroup(context.Background(), 7, &UpdateGroupInput{Platform: PlatformOpenAI})
+	got, err := svc.UpdateGroup(context.Background(), adminResourceUserTestActor(t), 7, &UpdateGroupInput{Platform: PlatformOpenAI})
 	require.NoError(t, err)
 	require.Equal(t, PlatformOpenAI, got.Platform)
 }

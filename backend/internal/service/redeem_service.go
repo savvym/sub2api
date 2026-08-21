@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -270,6 +271,13 @@ func (s *RedeemService) CreateCode(ctx context.Context, code *RedeemCode) error 
 	return nil
 }
 
+func (s *RedeemService) AdminCreateCode(ctx context.Context, actor authz.Actor, code *RedeemCode) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
+	return s.CreateCode(ctx, code)
+}
+
 func (s *RedeemService) BatchUpdate(ctx context.Context, input *RedeemCodeBatchUpdateInput) (*RedeemCodeBatchUpdateResult, error) {
 	if input == nil {
 		return nil, infraerrors.BadRequest("REDEEM_CODE_BATCH_UPDATE_INVALID", "batch update input is required")
@@ -323,6 +331,13 @@ func (s *RedeemService) BatchUpdate(ctx context.Context, input *RedeemCodeBatchU
 		return nil, err
 	}
 	return &RedeemCodeBatchUpdateResult{Updated: updated}, nil
+}
+
+func (s *RedeemService) AdminBatchUpdate(ctx context.Context, actor authz.Actor, input *RedeemCodeBatchUpdateInput) (*RedeemCodeBatchUpdateResult, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.BatchUpdate(ctx, input)
 }
 
 // checkRedeemRateLimit 检查用户兑换错误次数是否超限
@@ -530,6 +545,13 @@ func (s *RedeemService) Redeem(ctx context.Context, userID int64, code string) (
 	return redeemCode, nil
 }
 
+func (s *RedeemService) AdminRedeem(ctx context.Context, actor authz.Actor, userID int64, code string) (*RedeemCode, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.Redeem(ctx, userID, code)
+}
+
 // invalidateRedeemCaches 失效兑换相关的缓存
 func (s *RedeemService) invalidateRedeemCaches(ctx context.Context, userID int64, redeemCode *RedeemCode) {
 	switch redeemCode.Type {
@@ -606,6 +628,13 @@ func (s *RedeemService) GetByCode(ctx context.Context, code string) (*RedeemCode
 		return nil, fmt.Errorf("get redeem code: %w", err)
 	}
 	return redeemCode, nil
+}
+
+func (s *RedeemService) AdminGetByCode(ctx context.Context, actor authz.Actor, code string) (*RedeemCode, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.GetByCode(ctx, code)
 }
 
 // List 获取兑换码列表（管理员功能）
