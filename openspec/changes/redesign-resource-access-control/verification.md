@@ -151,7 +151,8 @@
 | 生产只读数据预检与凭据键名统计 | 对批准的只读副本运行 `data-preflight.sql` 与 `credential-key-preflight.sql`，归档异常/回填规模及只含文档名、软删除状态、帐号 status、平台/类型、键名、shape 和计数的受限结果 | 待实现；本机没有生产连接配置，两份脚本均未对真实数据执行 |
 | 目标环境 shadow readiness 与观察 | 专用 role-mode readiness、legacy→shadow 执行、具体差异指标、日志量与 sink `dropped_count`、观察窗口和回滚证据 | 待实现（当前部署仍为 legacy） |
 | PR URL | [Draft PR #1](https://github.com/savvym/sub2api/pull/1)，base `main`，保持 Draft | 通过；PR 可干净合并，但退出门禁完成前不得转 Ready 或合并 |
-| GitHub Security Scan 与平台/认证/安全批准人 | workflow 已从 `disabled_fork` 启用为 `active`，本地等价步骤已通过；GitHub workflow run 与三方最终批准必须有链接 | 待实现；启用时当前 HEAD 尚无 GitHub scan 结果，且尚无批准链接 |
+| GitHub Security Scan | [push Run 32727879905](https://github.com/savvym/sub2api/actions/runs/32727879905) 与 [PR Run 32727886870](https://github.com/savvym/sub2api/actions/runs/32727886870)，均覆盖 backend `govulncheck` 与 frontend production audit exception check | 通过；SHA `1523aa1740140b6c7de9ae5553545856f141b889`，两个 event 的两个 security job 均成功 |
+| 平台/认证/安全批准人 | 三方最终批准必须有可追溯链接 | 待实现；尚无批准链接 |
 | Phase 1 正式退出结论 | 所有上述门禁完成后才能批准 | 待实现；1.12 保持未勾选，进度保持 20/49 |
 
 ## 标准命令
