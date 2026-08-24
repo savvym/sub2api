@@ -1571,24 +1571,6 @@ func outboxRebuildRetryDelay(failures int) time.Duration {
 	return delay
 }
 
-func (s *SchedulerSnapshotService) clearOutboxDegradedEpisode() {
-	if s == nil {
-		return
-	}
-	s.lagMu.Lock()
-	if s.lagFailures != 0 || s.outboxRebuildLatched || s.outboxRebuildRunning ||
-		s.outboxRebuildFailures != 0 || !s.outboxRebuildRetryAt.IsZero() ||
-		s.outboxRebuildRetryReason != "" || s.outboxLagWarningActive {
-		s.lagFailures = 0
-		s.outboxRebuildLatched = false
-		s.outboxRebuildFailures = 0
-		s.outboxRebuildRetryAt = time.Time{}
-		s.outboxRebuildRetryReason = ""
-		s.outboxLagWarningActive = false
-	}
-	s.lagMu.Unlock()
-}
-
 func (s *SchedulerSnapshotService) shouldLogOutboxMaxIDError(now time.Time) bool {
 	s.lagMu.Lock()
 	defer s.lagMu.Unlock()

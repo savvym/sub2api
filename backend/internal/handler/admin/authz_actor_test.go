@@ -89,10 +89,3 @@ func withAdminTestUserActorID(userID int64) gin.HandlerFunc {
 		c.Next()
 	}
 }
-
-func attachAdminTestUserActorID(t testing.TB, c *gin.Context, userID int64) {
-	t.Helper()
-	actor := adminHandlerTestActor(t, authz.SubjectKindUser, userID)
-	c.Request = c.Request.WithContext(authz.ContextWithActor(c.Request.Context(), actor))
-	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: userID})
-}

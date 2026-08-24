@@ -943,6 +943,7 @@ func truncateAuthIdentityLegacyFixtureTables(t *testing.T, tx *sql.Tx, ctx conte
 	t.Helper()
 
 	_, err := tx.ExecContext(ctx, `
+SET LOCAL session_replication_role = replica;
 TRUNCATE TABLE
 	auth_identity_channels,
 	identity_adoption_decisions,
@@ -954,6 +955,7 @@ TRUNCATE TABLE
 	user_external_identities,
 	users
 RESTART IDENTITY CASCADE;
+SET LOCAL session_replication_role = origin;
 `)
 	require.NoError(t, err)
 }

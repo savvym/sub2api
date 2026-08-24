@@ -102,6 +102,7 @@ func TestSystemActorCannotBeForgedByJSON(t *testing.T) {
 	t.Parallel()
 
 	var actor Actor
+	//nolint:staticcheck // Verifies JSON cannot populate Actor's intentionally private authorization state.
 	if err := json.Unmarshal([]byte(`{"kind":"system","systemCode":"http","authMethod":"system"}`), &actor); err != nil {
 		t.Fatalf("unmarshal actor: %v", err)
 	}

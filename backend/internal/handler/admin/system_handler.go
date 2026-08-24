@@ -259,14 +259,6 @@ func (h *SystemHandler) acquireSystemLock(
 	return lock, release, nil
 }
 
-func buildSystemOperationID(c *gin.Context, operation string) string {
-	actorScope := adminActorScope(c)
-	if actorScope == "" {
-		return ""
-	}
-	return buildSystemOperationIDForActorScope(c, operation, actorScope)
-}
-
 func buildSystemOperationIDForActorScope(c *gin.Context, operation, actorScope string) string {
 	if c == nil || c.Request == nil || strings.TrimSpace(actorScope) == "" {
 		return ""

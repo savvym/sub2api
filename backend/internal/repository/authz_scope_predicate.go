@@ -83,10 +83,6 @@ func accountAccessiblePredicateWithClaims(scope accessibleScopeClaims) (dbpredic
 	}), nil
 }
 
-func groupAccessiblePredicate(scope authz.AccessibleScope) (dbpredicate.Group, error) {
-	return groupAccessiblePredicateWithClaims(scope)
-}
-
 func groupAccessiblePredicateWithClaims(scope accessibleScopeClaims) (dbpredicate.Group, error) {
 	plan, err := newAuthzScopeSQLPlan(scope, authz.ResourceTypeGroup, authz.ActionGroupView)
 	if err != nil {

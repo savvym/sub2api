@@ -203,9 +203,10 @@ func registeredAdminResourceHandlers(t *testing.T, filename string) map[string]b
 				return true
 			}
 			handlerType := chain[2] + "Handler"
-			if chain[2] == "APIKey" {
+			switch chain[2] {
+			case "APIKey":
 				handlerType = "AdminAPIKeyHandler"
-			} else if chain[2] == "ChannelMonitorTemplate" {
+			case "ChannelMonitorTemplate":
 				handlerType = "ChannelMonitorRequestTemplateHandler"
 			}
 			result[handlerType+"."+chain[3]] = true

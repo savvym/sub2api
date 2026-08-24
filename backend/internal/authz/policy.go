@@ -303,10 +303,6 @@ func equalCapabilities(left, right []Capability) bool {
 	return true
 }
 
-func capabilityDecision(actor Actor, snapshot SubjectSnapshot, capability Capability) Decision {
-	return capabilityDecisionForMode(actor, snapshot, capability, authoritativeRoleMode(snapshot.Configuration().RoleMode()))
-}
-
 func capabilityDecisionForMode(actor Actor, snapshot SubjectSnapshot, capability Capability, mode RoleAuthorizationMode) Decision {
 	switch mode {
 	case RoleAuthorizationModeLegacy:
@@ -382,10 +378,6 @@ func platformCapabilityForMode(snapshot SubjectSnapshot, action Action, mode Rol
 	return "", false
 }
 
-func hasCurrentPlatformVisibility(snapshot SubjectSnapshot, resourceType ResourceType) bool {
-	return hasPlatformVisibilityForMode(snapshot, resourceType, snapshot.Configuration().RoleMode())
-}
-
 func hasPlatformVisibilityForMode(snapshot SubjectSnapshot, resourceType ResourceType, mode RoleAuthorizationMode) bool {
 	var viewAction Action
 	switch resourceType {
@@ -398,10 +390,6 @@ func hasPlatformVisibilityForMode(snapshot SubjectSnapshot, resourceType Resourc
 	}
 	_, ok := platformCapabilityForMode(snapshot, viewAction, mode)
 	return ok
-}
-
-func hasPlatformManagementAuthority(actor Actor, snapshot SubjectSnapshot) bool {
-	return hasPlatformManagementAuthorityForMode(actor, snapshot, authoritativeRoleMode(snapshot.Configuration().RoleMode()))
 }
 
 func hasPlatformManagementAuthorityForMode(actor Actor, snapshot SubjectSnapshot, mode RoleAuthorizationMode) bool {

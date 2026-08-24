@@ -170,24 +170,6 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, actor authz.Actor, in
 	return user, nil
 }
 
-// ensureNotLastAdmin 降级管理员前确认系统中仍存在其他管理员，防止零 admin 锁死。
-// 注：读取与写入之间存在竞态窗口，极端并发下仍可能双双降级；作为后台低频操作
-// 的兜底保护足够，彻底防护需依赖数据库层约束。
-func (s *adminServiceImpl) ensureNotLastAdmin(ctx context.Context) error {
-	noSubs := false
-	_, result, err := s.userRepo.ListWithFilters(ctx,
-		pagination.PaginationParams{Page: 1, PageSize: 1},
-		UserListFilters{Role: RoleAdmin, IncludeSubscriptions: &noSubs},
-	)
-	if err != nil {
-		return fmt.Errorf("count admin users: %w", err)
-	}
-	if result == nil || result.Total <= 1 {
-		return errors.New("cannot demote the last admin user")
-	}
-	return nil
-}
-
 func (s *adminServiceImpl) assignDefaultSubscriptions(ctx context.Context, userID int64) {
 	if s.settingService == nil || s.defaultSubAssigner == nil || userID <= 0 {
 		return

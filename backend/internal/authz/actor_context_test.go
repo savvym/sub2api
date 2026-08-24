@@ -29,6 +29,7 @@ func TestActorContextRoundTripAndInvalidActorShadow(t *testing.T) {
 func TestActorContextHandlesNilAndMissingContext(t *testing.T) {
 	t.Parallel()
 
+	//nolint:staticcheck // Exercises ActorFromContext's defensive nil-context handling.
 	if actor, ok := ActorFromContext(nil); ok || actor.Valid() {
 		t.Fatalf("nil context returned actor: %+v", actor)
 	}
@@ -37,6 +38,7 @@ func TestActorContextHandlesNilAndMissingContext(t *testing.T) {
 	}
 
 	want := mustUserActor(t, 7, 1, nil, nil, false)
+	//nolint:staticcheck // Exercises ContextWithActor's defensive nil-context normalization.
 	ctx := ContextWithActor(nil, want)
 	got, ok := ActorFromContext(ctx)
 	if !ok {

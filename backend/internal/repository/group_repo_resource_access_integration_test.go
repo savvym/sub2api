@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGroupRepositoryPersistsResourceAccessFieldsAndDefaults(t *testing.T) {
+func TestGroupRepositoryPersistsResourceAccessFieldsAndDefaultsAndOrdinaryUpdateIsolation(t *testing.T) {
 	tx := testEntTx(t)
 	repo := newGroupRepositoryWithSQL(tx.Client(), tx)
 	defaultGroup := &service.Group{
@@ -64,14 +64,19 @@ func TestGroupRepositoryPersistsResourceAccessFieldsAndDefaults(t *testing.T) {
 	groupIn.AccessVersion = 0
 	groupIn.AuthorizationMode = ""
 	require.NoError(t, repo.Update(context.Background(), groupIn))
+	require.Equal(t, &ownerUserID, groupIn.OwnerUserID)
+	require.Equal(t, &createdByUserID, groupIn.CreatedByUserID)
+	require.Equal(t, &publicAccessLevel, groupIn.PublicAccessLevel)
+	require.EqualValues(t, 4, groupIn.AccessVersion)
+	require.Equal(t, "shadow", groupIn.AuthorizationMode)
 
 	got, err = repo.GetByIDLite(context.Background(), groupIn.ID)
 	require.NoError(t, err)
-	require.Nil(t, got.OwnerUserID)
-	require.Nil(t, got.CreatedByUserID)
-	require.Nil(t, got.PublicAccessLevel)
-	require.EqualValues(t, 1, got.AccessVersion)
-	require.Equal(t, "legacy", got.AuthorizationMode)
+	require.Equal(t, &ownerUserID, got.OwnerUserID)
+	require.Equal(t, &createdByUserID, got.CreatedByUserID)
+	require.Equal(t, &publicAccessLevel, got.PublicAccessLevel)
+	require.EqualValues(t, 4, got.AccessVersion)
+	require.Equal(t, "shadow", got.AuthorizationMode)
 }
 
 func TestGroupRepositoryCreateJoinsOuterTransaction(t *testing.T) {

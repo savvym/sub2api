@@ -570,7 +570,7 @@ func TestBuildSystemOperationIDUsesCanonicalActorScope(t *testing.T) {
 		if compatibilityUserID > 0 {
 			context.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: compatibilityUserID})
 		}
-		return buildSystemOperationID(context, "update")
+		return buildSystemOperationIDForActorScope(context, "update", adminActorScope(context))
 	}
 
 	userActor := adminHandlerTestActor(t, authz.SubjectKindUser, 42)

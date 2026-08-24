@@ -808,7 +808,7 @@ func TestPolicyFailuresAreUnavailableAndLocalDenialsSkipStore(t *testing.T) {
 
 	validResource := mustResourceSnapshot(t, ResourceAccessSnapshotInput{Subject: subject, Resource: ref, Exists: true, AccessVersion: 1})
 	validStore := &stubPolicyStore{resourceSnapshot: validResource}
-	decision, err = NewPolicyService(validStore).Authorize(context.Background(), actor, ActionAccountView, ref)
+	_, err = NewPolicyService(validStore).Authorize(context.Background(), actor, ActionAccountView, ref)
 	if err != nil || validStore.resourceCalls != 1 || validStore.subjectCalls != 0 {
 		t.Fatalf("Authorize did not use exactly one resource snapshot: subject=%d resource=%d err=%v", validStore.subjectCalls, validStore.resourceCalls, err)
 	}

@@ -157,7 +157,7 @@ RETURNING id
 `).Scan(&adminUserID))
 	require.NoError(t, tx.QueryRowContext(ctx, `
 INSERT INTO users (email, password_hash, role)
-VALUES ('authz-migration-user@example.test', 'hash', 'unexpected_legacy_value')
+VALUES ('authz-migration-user@example.test', 'hash', 'unexpected_legacy')
 RETURNING id
 `).Scan(&normalUserID))
 	require.NoError(t, tx.QueryRowContext(ctx, `

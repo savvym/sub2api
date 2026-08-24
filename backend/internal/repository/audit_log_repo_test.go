@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
@@ -66,17 +67,23 @@ func TestScanAuditLogRowKeepsActorlessEventsValid(t *testing.T) {
 			"", "127.0.0.1", "test-agent", "", 401, int64(3), "{}",
 		}
 		for i := range dest {
+			var assignErr error
 			switch target := dest[i].(type) {
 			case *int64:
-				*target = values[i].(int64)
+				assignErr = assignAuditLogScanValue(target, values[i])
 			case *time.Time:
-				*target = values[i].(time.Time)
+				assignErr = assignAuditLogScanValue(target, values[i])
 			case *sql.NullInt64:
-				*target = values[i].(sql.NullInt64)
+				assignErr = assignAuditLogScanValue(target, values[i])
 			case *string:
-				*target = values[i].(string)
+				assignErr = assignAuditLogScanValue(target, values[i])
 			case *int:
-				*target = values[i].(int)
+				assignErr = assignAuditLogScanValue(target, values[i])
+			default:
+				assignErr = fmt.Errorf("unsupported audit log scan destination %T", target)
+			}
+			if assignErr != nil {
+				return assignErr
 			}
 		}
 		return nil
@@ -84,4 +91,14 @@ func TestScanAuditLogRowKeepsActorlessEventsValid(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, entry.ActorUserID)
 	require.Nil(t, entry.ActorServicePrincipalID)
+}
+
+func assignAuditLogScanValue[T any](target *T, value any) error {
+	typedValue, ok := value.(T)
+	if !ok {
+		var expected T
+		return fmt.Errorf("cannot scan %T into %T", value, expected)
+	}
+	*target = typedValue
+	return nil
 }

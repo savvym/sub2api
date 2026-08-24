@@ -43,10 +43,6 @@ type MatchProvenance struct {
 	granteeRoleID int64
 }
 
-func systemMatch() MatchProvenance {
-	return MatchProvenance{source: MatchSourceSystem}
-}
-
 func legacyAdminMatch() MatchProvenance {
 	return MatchProvenance{source: MatchSourceLegacyAdmin}
 }

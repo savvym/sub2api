@@ -444,26 +444,30 @@ func TestDecodeAuthzPolicyDocumentRejectsIncompleteNestedObjects(t *testing.T) {
 		name            string
 		payload         string
 		requireResource bool
-		mutate          func(map[string]any)
+		mutate          func(*testing.T, map[string]any)
 	}{
 		{
 			name:    "empty subject",
 			payload: subjectPayload,
-			mutate: func(document map[string]any) {
+			mutate: func(_ *testing.T, document map[string]any) {
 				document["subject"] = map[string]any{}
 			},
 		},
 		{
 			name:    "null required subject field",
 			payload: subjectPayload,
-			mutate: func(document map[string]any) {
-				document["subject"].(map[string]any)["active"] = nil
+			mutate: func(t *testing.T, document map[string]any) {
+				subject, ok := document["subject"].(map[string]any)
+				if !ok {
+					t.Fatalf("subject has unexpected type %T", document["subject"])
+				}
+				subject["active"] = nil
 			},
 		},
 		{
 			name:    "empty configuration",
 			payload: subjectPayload,
-			mutate: func(document map[string]any) {
+			mutate: func(_ *testing.T, document map[string]any) {
 				document["configuration"] = map[string]any{}
 			},
 		},
@@ -471,7 +475,7 @@ func TestDecodeAuthzPolicyDocumentRejectsIncompleteNestedObjects(t *testing.T) {
 			name:            "empty resource",
 			payload:         resourcePayload,
 			requireResource: true,
-			mutate: func(document map[string]any) {
+			mutate: func(_ *testing.T, document map[string]any) {
 				document["resource"] = map[string]any{}
 			},
 		},
@@ -479,15 +483,19 @@ func TestDecodeAuthzPolicyDocumentRejectsIncompleteNestedObjects(t *testing.T) {
 			name:            "null required resource field",
 			payload:         resourcePayload,
 			requireResource: true,
-			mutate: func(document map[string]any) {
-				document["resource"].(map[string]any)["exists"] = nil
+			mutate: func(t *testing.T, document map[string]any) {
+				resource, ok := document["resource"].(map[string]any)
+				if !ok {
+					t.Fatalf("resource has unexpected type %T", document["resource"])
+				}
+				resource["exists"] = nil
 			},
 		},
 		{
 			name:            "missing grant collection",
 			payload:         resourcePayload,
 			requireResource: true,
-			mutate: func(document map[string]any) {
+			mutate: func(_ *testing.T, document map[string]any) {
 				delete(document, "user_grants")
 			},
 		},
@@ -813,13 +821,13 @@ func mustAuthzPolicyJSON(t *testing.T, document rawAuthzPolicyDocument) string {
 	return string(payload)
 }
 
-func mutateAuthzPolicyJSON(t *testing.T, payload string, mutate func(map[string]any)) string {
+func mutateAuthzPolicyJSON(t *testing.T, payload string, mutate func(*testing.T, map[string]any)) string {
 	t.Helper()
 	var document map[string]any
 	if err := json.Unmarshal([]byte(payload), &document); err != nil {
 		t.Fatalf("decode policy JSON for mutation: %v", err)
 	}
-	mutate(document)
+	mutate(t, document)
 	encoded, err := json.Marshal(document)
 	if err != nil {
 		t.Fatalf("encode mutated policy JSON: %v", err)
