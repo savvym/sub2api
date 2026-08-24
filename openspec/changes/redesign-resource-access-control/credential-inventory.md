@@ -164,7 +164,7 @@ CRS 同步会复制远端 `Extra` 后补充本地标识；`sanitizeCredentialsMa
 
 以下项目完成后，负责人才能把本清单从 Review Ready 标为 Accepted：
 
-- [ ] 在生产只读副本聚合 `jsonb_object_keys(credentials)` 与 `jsonb_object_keys(extra)`，只输出键名、平台/类型和计数，绝不输出值。
+- [ ] 在生产只读副本运行 [`credential-key-preflight.sql`](credential-key-preflight.sql)，聚合 `jsonb_object_keys(credentials)` 与 `jsonb_object_keys(extra)`；只输出键名、平台/类型、软删除状态、帐号 status、JSON shape 和计数，绝不输出值或帐号 ID，并将结果作为受限安全评审材料归档。
 - [ ] 各平台/认证类型负责人确认必需、可选、废弃键及刷新、CAS、probe 和缓存依赖。
 - [ ] 安全负责人确认未知键 fail-closed、DTO allowlist 和 `header_overrides` 整体 Secret 策略。
 - [ ] 平台负责人确认 PostgreSQL、Redis、导出和备份的加密边界、KMS/key hierarchy、轮换与灾备方案。

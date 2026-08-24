@@ -18,7 +18,8 @@
 - Transactional Resource Mutation Coordination 提交：`5b9060048`，已推送同一远程分支。
 - Bounded Authorization Propagation 提交：`1035f73a4`，已推送同一远程分支。
 - Phase 1 CI Stabilization 提交：`2d203b601`，已推送同一远程分支；GitHub Actions [CI Run 32711471080](https://github.com/savvym/sub2api/actions/runs/32711471080) 与 [test job 97383587468](https://github.com/savvym/sub2api/actions/runs/32711471080/job/97383587468) 在完整 SHA `2d203b601c5d5b6578e91020bdbfbff4eb5bae6b` 上通过。
-- 任务进度：20/49。1.12 当前已实现的工程验证项已通过：跨租户全链、当前管理员写面 TOCTOU、SQL Scope 生产规模 EXPLAIN、64 组 Standard/SIMPLE 配置、Admin API Key fail-closed、production role shadow 脱敏结构化日志，以及 CI/Testcontainers 的 228→current 升级/reapply 与完整 repository integration 套件均已有自动化证据。正式 Phase 1 退出仍未批准，因此 1.12 保持未勾选；Phase 0 的 0.4/0.5/0.8、生产预检、目标环境 shadow 观察、PR 和批准人证据仍缺失。
+- Phase 1 CI Evidence 提交：`10e20f841`，已推送同一远程分支；[Draft PR #1](https://github.com/savvym/sub2api/pull/1) 已建立，base 为 `main`，保持 Draft 且不得在退出门禁完成前合并。
+- 任务进度：20/49。1.12 当前已实现的工程验证项已通过：跨租户全链、当前管理员写面 TOCTOU、SQL Scope 生产规模 EXPLAIN、64 组 Standard/SIMPLE 配置、Admin API Key fail-closed、production role shadow 脱敏结构化日志，以及 CI/Testcontainers 的 228→current 升级/reapply 与完整 repository integration 套件均已有自动化证据。正式 Phase 1 退出仍未批准，因此 1.12 保持未勾选；Phase 0 的 0.4/0.5/0.8、生产预检与凭据键名统计、目标环境 shadow 观察、GitHub Security Scan 和批准人证据仍缺失。
 - 当前权威行为仍为旧 `users.role` 与旧分组资格；核心管理员写虽已调用 Policy，但 legacy/shadow 下只保持现有 JWT Admin 与固定 Admin API Key Service Principal 行为，不得解释为 ACL/RBAC 已启用。
 
 ## 已完成
@@ -91,16 +92,19 @@
 - production `PolicyService` 的 capability/create/resource/scope 四个入口在 shadow mode 并行计算 legacy 与 RBAC，始终返回 legacy 结果；管理员 JWT 与固定 Admin API Key 生产认证入口已接入 Policy。差异以不含主体、角色、Grant、资源 ID 的低基数结构化日志记录，行为差异为 WARN、等价比较为 INFO，并隔离 observer panic；日志可由外部系统聚合，当前没有独立进程内指标计数器。
 - 新增 Testcontainers 持久升级回归，从 migration 228 分段推进至当前版本并重复 `ApplyMigrations`，覆盖存量数据、seed/backfill、触发器、在线索引和幂等；本机无 Docker，随后由 GitHub Actions 完整 integration suite 动态验证通过。
 - GitHub Actions push Run `32711471080`（attempt 1）在 SHA `2d203b601c5d5b6578e91020bdbfbff4eb5bae6b`、Ubuntu runner 与 Go 1.26.6 上执行 `make test-integration`，实际为 `go test -tags=integration ./...`；PostgreSQL `18.1-alpine3.23`、Redis `8.4-alpine` Testcontainers harness 成功，`internal/repository` 非缓存运行 `41.430s`。该命令没有 `-run` 过滤，因而包含 228→current 持久升级/reapply 回归。
+- Draft PR #1 已提供统一评审入口；分支相对 `origin/main` ahead 17/behind 0，merge-tree 可干净合并，但改动规模为 477 个文件，因此必须按提交顺序评审并保持 Draft。
+- GitHub `Security Scan` workflow 在当前 fork 中为 `disabled_fork`。本机按 workflow 等价步骤执行 `govulncheck ./...`，可调用路径 0 个漏洞；前端 `pnpm audit --prod --audit-level=high` 经仓库例外校验通过。该本地结果不能冒充 GitHub workflow run，转 Ready 前仍需启用并执行 workflow 或取得有链接的批准豁免。
+- 新增只读 `credential-key-preflight.sql`，仅聚合 credentials/extra 的键名、平台/类型、软删除状态、帐号 status、JSON shape 和计数，不读取值或帐号 ID；当前没有生产连接配置，尚未执行或归档真实数据结果。
 
 ## 下一步
 
 1. 由平台/认证/安全负责人复核并批准 0.4 credentials/extra 清单和 0.5 自助平台/出站 allowlist。
-2. 对真实服务器只读数据运行 `data-preflight.sql`，记录异常角色、名称冲突、孤立关系和回填规模。
-3. 在目标环境运行 role-mode readiness，按批准方案推进 legacy→shadow，聚合 production shadow 结构化日志并记录具体差异指标、日志量与 sink `dropped_count`、观察窗口、回滚结果、PR URL 和批准人；门禁全部满足后才能勾选 0.8/1.12 并进入 2.1。
+2. 对批准的生产只读副本运行 `data-preflight.sql` 与 `credential-key-preflight.sql`，分别归档数据异常/回填规模和 credentials/extra 键名统计。
+3. 在目标环境运行 role-mode readiness，按批准方案推进 legacy→shadow，聚合 production shadow 结构化日志并记录具体差异指标、日志量与 sink `dropped_count`、观察窗口和回滚结果；完成 Draft PR 评审、GitHub Security Scan（或批准豁免）及平台/认证/安全批准后，才能勾选 0.8/1.12 并进入 2.1。
 
 ## 阻塞与风险
 
-- 1.12 当前工程测试、CI/Testcontainers 和 production role shadow 代码通过不等于正式 Phase 1 退出；仍缺 Phase 0 批准、生产预检、目标环境 shadow 观测、PR 和最终批准人，任务必须保持未勾选。
+- 1.12 当前工程测试、CI/Testcontainers、production role shadow 代码和 Draft PR 建立不等于正式 Phase 1 退出；仍缺 Phase 0 批准、生产预检与凭据键名统计、目标环境 shadow 观测、GitHub Security Scan（或批准豁免）和最终批准人，任务必须保持未勾选。
 - 本地 `sub2api` 只是空测试实例，仅有 1 个管理员和 1 个平台默认分组；本地预检不能替代真实服务器只读报告。
 - Phase 0 的 credentials/extra 与自助出站文档均为 Review Ready、尚未 Accepted；这是开放自助托管前的硬阻塞。
 - fresh setup 缺失兼容角色的问题已修复，本地管理员也已由 migration 232 补齐；真实服务器升级后仍必须通过专用 GET status/readiness 入口验证全量一致性。

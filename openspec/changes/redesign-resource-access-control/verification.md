@@ -148,9 +148,10 @@
 | CI repository Testcontainers 动态套件 | [Run 32711471080](https://github.com/savvym/sub2api/actions/runs/32711471080) / [test job 97383587468](https://github.com/savvym/sub2api/actions/runs/32711471080/job/97383587468)：`make test-integration` → `go test -tags=integration ./...`；Ubuntu、Go 1.26.6、PostgreSQL `18.1-alpine3.23`、Redis `8.4-alpine` | 通过；push、attempt 1、SHA `2d203b601c5d5b6578e91020bdbfbff4eb5bae6b`，repository 非缓存运行 41.430s |
 | production role shadow 差异记录能力 | `PolicyService` 四个入口并行计算 legacy/RBAC 且保持 legacy 响应；管理员 JWT/Admin API Key 生产入口接线；低基数、无 ID 的结构化 INFO/WARN 日志与 observer panic 隔离测试 | 通过（日志可由外部系统聚合；未新增独立进程内指标） |
 | Phase 0 安全决策与退出批准 | 0.4 credentials/extra、0.5 allowlist/SSRF/限频、0.8 Phase 0 exit | 待实现（Review Ready，尚无批准链接） |
-| 生产只读数据预检 | 对真实服务器运行 `data-preflight.sql` 并归档异常与回填规模 | 待实现 |
+| 生产只读数据预检与凭据键名统计 | 对批准的只读副本运行 `data-preflight.sql` 与 `credential-key-preflight.sql`，归档异常/回填规模及只含文档名、软删除状态、帐号 status、平台/类型、键名、shape 和计数的受限结果 | 待实现；本机没有生产连接配置，两份脚本均未对真实数据执行 |
 | 目标环境 shadow readiness 与观察 | 专用 role-mode readiness、legacy→shadow 执行、具体差异指标、日志量与 sink `dropped_count`、观察窗口和回滚证据 | 待实现（当前部署仍为 legacy） |
-| PR URL 与平台/认证/安全批准人 | 可追溯发布记录和最终批准；CI URL 已归档 | 待实现 |
+| PR URL | [Draft PR #1](https://github.com/savvym/sub2api/pull/1)，base `main`，保持 Draft | 通过；PR 可干净合并，但退出门禁完成前不得转 Ready 或合并 |
+| GitHub Security Scan 与平台/认证/安全批准人 | 本地 workflow 等价步骤已通过；GitHub workflow run 或批准豁免，以及三方最终批准必须有链接 | 待实现；当前 workflow 状态为 `disabled_fork`，尚无批准链接 |
 | Phase 1 正式退出结论 | 所有上述门禁完成后才能批准 | 待实现；1.12 保持未勾选，进度保持 20/49 |
 
 ## 标准命令
