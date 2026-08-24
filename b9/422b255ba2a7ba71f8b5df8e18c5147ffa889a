@@ -1,0 +1,23 @@
+openspec/changes/redesign-resource-access-control/implementation-evidence.md
+  s_f81a3df0641cb6::t_0d990f32b3c0f1 510,518
+openspec/changes/redesign-resource-access-control/verification.md
+  s_f81a3df0641cb6::t_0d990f32b3c0f1 154-155
+openspec/changes/redesign-resource-access-control/progress.md
+  s_f81a3df0641cb6::t_0d990f32b3c0f1 22,96,103,107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "b9422b255ba2a7ba71f8b5df8e18c5147ffa889a",
+  "prompts": {},
+  "sessions": {
+    "s_f81a3df0641cb6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a02205-24aa-7fb2-affe-137eb104f5cf",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "savvym <savvy.chn@gmail.com>"
+    }
+  }
+}
