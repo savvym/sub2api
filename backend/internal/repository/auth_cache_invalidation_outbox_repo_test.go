@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ func TestAuthCacheInvalidationOutboxRepository_ClaimUsesLeaseAndSkipLocked(t *te
 	defer func() { _ = db.Close() }()
 
 	created := time.Now().UTC()
-	mock.ExpectQuery("(?s)claimed_at < NOW\\(\\) - .*FOR UPDATE SKIP LOCKED.*RETURNING").
+	mock.ExpectQuery("(?s)claimed_at < statement_timestamp\\(\\) - .*ORDER BY delivery_stage ASC, available_at ASC, id ASC.*FOR UPDATE SKIP LOCKED.*RETURNING").
 		WithArgs("worker-a", 100, int64(30)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "cache_key", "attempts", "delivery_stage", "created_at"}).
 			AddRow(int64(4), strings.Repeat("a", 64), 2, 1, created))
@@ -52,17 +53,35 @@ func TestAuthCacheInvalidationOutboxRepository_ClaimOwnershipTransitions(t *test
 	defer func() { _ = db.Close() }()
 	repo := NewAuthCacheInvalidationOutboxRepository(db)
 
-	next := time.Now().UTC().Add(time.Minute)
-	mock.ExpectExec("UPDATE auth_cache_invalidation_outbox").
-		WithArgs(int64(1), "worker", next).
+	const scheduleSecondPassSQL = `
+		UPDATE auth_cache_invalidation_outbox
+		SET delivery_stage = 1,
+			available_at = statement_timestamp() + ($3 * INTERVAL '1 millisecond'),
+			last_error = NULL,
+			claimed_at = NULL,
+			claimed_by = NULL
+		WHERE id = $1 AND claimed_by = $2 AND delivery_stage = 0
+	`
+	secondPassDelay := time.Minute
+	mock.ExpectExec(regexp.QuoteMeta(scheduleSecondPassSQL)).
+		WithArgs(int64(1), "worker", secondPassDelay.Milliseconds()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	require.NoError(t, repo.ScheduleSecondPass(context.Background(), 1, "worker", next))
+	require.NoError(t, repo.ScheduleSecondPass(context.Background(), 1, "worker", secondPassDelay))
 
-	retryAt := next.Add(time.Minute)
-	mock.ExpectExec("UPDATE auth_cache_invalidation_outbox").
-		WithArgs(int64(2), "worker", retryAt, "publish failed").
+	const retrySQL = `
+		UPDATE auth_cache_invalidation_outbox
+		SET attempts = attempts + 1,
+			available_at = statement_timestamp() + ($3 * INTERVAL '1 millisecond'),
+			last_error = $4,
+			claimed_at = NULL,
+			claimed_by = NULL
+		WHERE id = $1 AND claimed_by = $2
+	`
+	retryDelay := 2 * time.Minute
+	mock.ExpectExec(regexp.QuoteMeta(retrySQL)).
+		WithArgs(int64(2), "worker", retryDelay.Milliseconds(), "publish failed").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	require.NoError(t, repo.RetryClaimed(context.Background(), 2, "worker", retryAt, "publish failed"))
+	require.NoError(t, repo.RetryClaimed(context.Background(), 2, "worker", retryDelay, "publish failed"))
 
 	mock.ExpectExec("DELETE FROM auth_cache_invalidation_outbox").
 		WithArgs(int64(3), "worker").
@@ -83,20 +102,79 @@ func TestAuthCacheInvalidationOutboxRepository_RejectsLostClaim(t *testing.T) {
 	require.ErrorContains(t, err, "no longer owned")
 }
 
+func TestAuthCacheInvalidationOutboxRepository_ReleasesOnlyOwnedClaims(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectExec("(?s)UPDATE auth_cache_invalidation_outbox.*claimed_at = NULL.*claimed_by = NULL.*WHERE claimed_by = \\$1.*id = ANY\\(\\$2::BIGINT\\[\\]\\)").
+		WithArgs("worker-a", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+
+	err = NewAuthCacheInvalidationOutboxRepository(db).ReleaseClaims(
+		context.Background(), "worker-a", []int64{7, 8},
+	)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestAuthCacheInvalidationOutboxRepository_StatsExposeDurableLagAndFailures(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	oldest := time.Now().UTC().Add(-time.Minute)
-	mock.ExpectQuery("(?s)SELECT COUNT\\(\\*\\), MIN\\(created_at\\), COALESCE\\(MAX\\(attempts\\), 0\\)").
-		WillReturnRows(sqlmock.NewRows([]string{"count", "min", "max", "last_error"}).AddRow(5, oldest, 7, "redis down"))
+	stage0Oldest := oldest.Add(15 * time.Second)
+	stage1Oldest := oldest.Add(30 * time.Second)
+	mock.ExpectQuery("(?s)COUNT\\(\\*\\) FILTER \\(WHERE delivery_stage = 0\\).*COUNT\\(\\*\\) FILTER \\(WHERE delivery_stage = 1\\)").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"count", "min", "max", "last_error",
+			"stage0_count", "stage0_min", "stage0_max", "stage0_last_error",
+			"stage1_count", "stage1_min", "stage1_max", "stage1_last_error",
+		}).AddRow(
+			5, oldest, 7, "redis down",
+			2, stage0Oldest, 3, "stage0 retry",
+			3, stage1Oldest, 7, "stage1 retry",
+		))
 	repo := NewAuthCacheInvalidationOutboxRepository(db)
 	stats, err := repo.Stats(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int64(5), stats.Pending)
 	require.Equal(t, 7, stats.MaxAttempts)
 	require.Equal(t, "redis down", stats.LastError)
-	require.NotNil(t, stats.OldestCreatedAt)
+	require.Equal(t, oldest, *stats.OldestCreatedAt)
+	require.Equal(t, int64(2), stats.Stage0.Pending)
+	require.Equal(t, stage0Oldest, *stats.Stage0.OldestCreatedAt)
+	require.Equal(t, 3, stats.Stage0.MaxAttempts)
+	require.Equal(t, "stage0 retry", stats.Stage0.LastError)
+	require.Equal(t, int64(3), stats.Stage1.Pending)
+	require.Equal(t, stage1Oldest, *stats.Stage1.OldestCreatedAt)
+	require.Equal(t, 7, stats.Stage1.MaxAttempts)
+	require.Equal(t, "stage1 retry", stats.Stage1.LastError)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestAuthCacheInvalidationOutboxRepository_StatsHandleEmptyStages(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	mock.ExpectQuery("(?s)FROM auth_cache_invalidation_outbox").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"count", "min", "max", "last_error",
+			"stage0_count", "stage0_min", "stage0_max", "stage0_last_error",
+			"stage1_count", "stage1_min", "stage1_max", "stage1_last_error",
+		}).AddRow(0, nil, 0, nil, 0, nil, 0, nil, 0, nil, 0, nil))
+
+	repo := NewAuthCacheInvalidationOutboxRepository(db)
+	stats, err := repo.Stats(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, stats.Pending)
+	require.Nil(t, stats.OldestCreatedAt)
+	require.Nil(t, stats.Stage0.OldestCreatedAt)
+	require.Nil(t, stats.Stage1.OldestCreatedAt)
+	require.Empty(t, stats.LastError)
+	require.Empty(t, stats.Stage0.LastError)
+	require.Empty(t, stats.Stage1.LastError)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestAuthCacheInvalidationMigration_SecurityCoverageAndNoPlaintextPayload(t *testing.T) {

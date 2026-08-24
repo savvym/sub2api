@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -12,15 +13,21 @@ import (
 )
 
 type authInvalidationRepoStub struct {
-	mu         sync.Mutex
-	events     []AuthCacheInvalidationEvent
-	claimLimit int
-	scheduled  []int64
-	deleted    []int64
-	retried    []int64
-	retryError string
-	stats      AuthCacheInvalidationOutboxStats
-	statsErr   error
+	mu             sync.Mutex
+	events         []AuthCacheInvalidationEvent
+	claimLimit     int
+	scheduled      []int64
+	scheduleDelays []time.Duration
+	deleted        []int64
+	retried        []int64
+	retryDelays    []time.Duration
+	released       []int64
+	releaseCtx     error
+	retryError     string
+	scheduleErr    error
+	deleteErr      error
+	stats          AuthCacheInvalidationOutboxStats
+	statsErr       error
 }
 
 func (r *authInvalidationRepoStub) Claim(_ context.Context, _ string, limit int, _ time.Duration) ([]AuthCacheInvalidationEvent, error) {
@@ -33,19 +40,28 @@ func (r *authInvalidationRepoStub) DeleteClaimed(_ context.Context, id int64, _ 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.deleted = append(r.deleted, id)
-	return nil
+	return r.deleteErr
 }
-func (r *authInvalidationRepoStub) ScheduleSecondPass(_ context.Context, id int64, _ string, _ time.Time) error {
+func (r *authInvalidationRepoStub) ScheduleSecondPass(_ context.Context, id int64, _ string, delay time.Duration) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.scheduled = append(r.scheduled, id)
-	return nil
+	r.scheduleDelays = append(r.scheduleDelays, delay)
+	return r.scheduleErr
 }
-func (r *authInvalidationRepoStub) RetryClaimed(_ context.Context, id int64, _ string, _ time.Time, lastError string) error {
+func (r *authInvalidationRepoStub) RetryClaimed(_ context.Context, id int64, _ string, delay time.Duration, lastError string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.retried = append(r.retried, id)
+	r.retryDelays = append(r.retryDelays, delay)
 	r.retryError = lastError
+	return nil
+}
+func (r *authInvalidationRepoStub) ReleaseClaims(ctx context.Context, _ string, eventIDs []int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.released = append(r.released, eventIDs...)
+	r.releaseCtx = ctx.Err()
 	return nil
 }
 func (r *authInvalidationRepoStub) Stats(context.Context) (AuthCacheInvalidationOutboxStats, error) {
@@ -111,7 +127,12 @@ func TestAuthCacheInvalidationWorker_FirstPassSchedulesSafetyPass(t *testing.T) 
 	require.Equal(t, []string{"hash"}, cache.deleted)
 	require.Equal(t, []string{"hash"}, cache.published)
 	require.Equal(t, []int64{7}, repo.scheduled)
+	require.Equal(t, []time.Duration{authInvalidationSafetyDelay}, repo.scheduleDelays)
 	require.Empty(t, repo.deleted)
+	health := worker.Health(context.Background())
+	require.Equal(t, uint64(1), health.Processed)
+	require.Equal(t, uint64(1), health.Stage0.Processed)
+	require.Zero(t, health.Stage1.Processed)
 }
 
 func TestAuthCacheInvalidationWorker_SecondPassCleansEvent(t *testing.T) {
@@ -120,18 +141,22 @@ func TestAuthCacheInvalidationWorker_SecondPassCleansEvent(t *testing.T) {
 	worker := NewAuthCacheInvalidationWorker(repo, cache)
 	worker.processEvent(context.Background(), AuthCacheInvalidationEvent{ID: 8, CacheKey: "hash", Stage: 1})
 	require.Equal(t, []int64{8}, repo.deleted)
-	require.Equal(t, uint64(1), worker.Health(context.Background()).Processed)
+	health := worker.Health(context.Background())
+	require.Equal(t, uint64(1), health.Processed)
+	require.Zero(t, health.Stage0.Processed)
+	require.Equal(t, uint64(1), health.Stage1.Processed)
 }
 
 func TestAuthCacheInvalidationWorker_RetriesRedisAndPublishFailures(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
+		stage      int
 		deleteErr  error
 		publishErr error
 		published  int
 	}{
-		{name: "redis down", deleteErr: errors.New("redis unavailable")},
-		{name: "publish failure after delete", publishErr: errors.New("publish failed"), published: 1},
+		{name: "stage0 redis down", stage: 0, deleteErr: errors.New("redis unavailable")},
+		{name: "stage1 publish failure after delete", stage: 1, publishErr: errors.New("publish failed"), published: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &authInvalidationRepoStub{}
@@ -140,12 +165,61 @@ func TestAuthCacheInvalidationWorker_RetriesRedisAndPublishFailures(t *testing.T
 				publishFn: func(context.Context, string) error { return tc.publishErr },
 			}
 			worker := NewAuthCacheInvalidationWorker(repo, cache)
-			worker.processEvent(context.Background(), AuthCacheInvalidationEvent{ID: 9, CacheKey: "hash"})
+			worker.processEvent(context.Background(), AuthCacheInvalidationEvent{ID: 9, CacheKey: "hash", Stage: tc.stage})
 			require.Equal(t, []int64{9}, repo.retried)
+			require.Len(t, repo.retryDelays, 1)
+			require.Positive(t, repo.retryDelays[0])
 			require.Len(t, cache.published, tc.published)
 			require.NotEmpty(t, repo.retryError)
 			require.Empty(t, repo.deleted)
-			require.Equal(t, uint64(1), worker.Health(context.Background()).Failures)
+			health := worker.Health(context.Background())
+			require.Equal(t, uint64(1), health.Failures)
+			if tc.stage == 0 {
+				require.Equal(t, uint64(1), health.Stage0.Failures)
+				require.Zero(t, health.Stage1.Failures)
+				require.Contains(t, health.Stage0.LastError, tc.deleteErr.Error())
+			} else {
+				require.Zero(t, health.Stage0.Failures)
+				require.Equal(t, uint64(1), health.Stage1.Failures)
+				require.Contains(t, health.Stage1.LastError, tc.publishErr.Error())
+			}
+		})
+	}
+}
+
+func TestAuthCacheInvalidationWorker_AttributesTransitionFailuresToTheirPass(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		stage int
+		repo  *authInvalidationRepoStub
+	}{
+		{
+			name:  "stage0 schedule failure",
+			stage: 0,
+			repo:  &authInvalidationRepoStub{scheduleErr: errors.New("schedule failed")},
+		},
+		{
+			name:  "stage1 acknowledgement failure",
+			stage: 1,
+			repo:  &authInvalidationRepoStub{deleteErr: errors.New("ack failed")},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			worker := NewAuthCacheInvalidationWorker(tc.repo, &authInvalidationCacheStub{})
+			worker.processEvent(context.Background(), AuthCacheInvalidationEvent{ID: 11, CacheKey: "hash", Stage: tc.stage})
+
+			health := worker.Health(context.Background())
+			require.Equal(t, uint64(1), health.Failures)
+			require.Zero(t, health.Processed)
+			if tc.stage == 0 {
+				require.Equal(t, uint64(1), health.Stage0.Failures)
+				require.Zero(t, health.Stage1.Failures)
+				require.Contains(t, health.Stage0.LastError, "schedule failed")
+				return
+			}
+			require.Zero(t, health.Stage0.Failures)
+			require.Equal(t, uint64(1), health.Stage1.Failures)
+			require.Contains(t, health.Stage1.LastError, "ack failed")
 		})
 	}
 }
@@ -166,8 +240,16 @@ func TestAuthCacheInvalidationWorker_RedisSlowIsTimedOut(t *testing.T) {
 
 func TestAuthCacheInvalidationWorker_BoundedBatchAndHealth(t *testing.T) {
 	oldest := time.Now().Add(-time.Minute)
+	stage0Oldest := time.Now().Add(-10 * time.Second)
+	stage1Oldest := time.Now().Add(-45 * time.Second)
 	repo := &authInvalidationRepoStub{stats: AuthCacheInvalidationOutboxStats{
 		Pending: 12, OldestCreatedAt: &oldest, MaxAttempts: 4, LastError: "redis down",
+		Stage0: AuthCacheInvalidationPassStats{
+			Pending: 3, OldestCreatedAt: &stage0Oldest, MaxAttempts: 2, LastError: "stage0 down",
+		},
+		Stage1: AuthCacheInvalidationPassStats{
+			Pending: 9, OldestCreatedAt: &stage1Oldest, MaxAttempts: 4, LastError: "stage1 down",
+		},
 	}}
 	worker := NewAuthCacheInvalidationWorker(repo, &authInvalidationCacheStub{})
 	require.NoError(t, worker.processBatch(context.Background()))
@@ -179,6 +261,42 @@ func TestAuthCacheInvalidationWorker_BoundedBatchAndHealth(t *testing.T) {
 	require.GreaterOrEqual(t, health.OldestLag, time.Minute)
 	require.Equal(t, 35*time.Second, health.HealthySLA)
 	require.Equal(t, 6*time.Minute, health.RecoverySLA)
+	require.Equal(t, int64(3), health.Stage0.Pending)
+	require.Equal(t, 2, health.Stage0.MaxAttempts)
+	require.Equal(t, "stage0 down", health.Stage0.LastError)
+	require.GreaterOrEqual(t, health.Stage0.OldestLag, 10*time.Second)
+	require.Equal(t, int64(9), health.Stage1.Pending)
+	require.Equal(t, 4, health.Stage1.MaxAttempts)
+	require.Equal(t, "stage1 down", health.Stage1.LastError)
+	require.GreaterOrEqual(t, health.Stage1.OldestLag, 45*time.Second)
+}
+
+func TestAuthCacheInvalidationHealthJSONKeepsLegacyFieldsAndAddsPasses(t *testing.T) {
+	payload, err := json.Marshal(AuthCacheInvalidationHealth{
+		Running: true, Processed: 2, Failures: 1, Pending: 3,
+		OldestLag: time.Second, LastError: "legacy", StatsError: "stats",
+		HealthySLA: 35 * time.Second, RecoverySLA: 6 * time.Minute, MaxAttempts: 4,
+		Stage0: AuthCacheInvalidationPassHealth{Processed: 1, Pending: 1},
+		Stage1: AuthCacheInvalidationPassHealth{Processed: 1, Pending: 2},
+	})
+	require.NoError(t, err)
+
+	var fields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(payload, &fields))
+	for _, field := range []string{
+		"running", "processed", "failures", "pending", "oldest_lag", "last_error",
+		"stats_error", "healthy_sla", "recovery_sla", "max_attempts", "stage0", "stage1",
+	} {
+		require.Contains(t, fields, field)
+	}
+
+	for _, pass := range []string{"stage0", "stage1"} {
+		var passFields map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(fields[pass], &passFields))
+		for _, field := range []string{"processed", "failures", "pending", "oldest_lag", "max_attempts"} {
+			require.Contains(t, passFields, field)
+		}
+	}
 }
 
 func TestAuthCacheInvalidationWorker_ProcessesClaimedBatchConcurrently(t *testing.T) {
@@ -204,6 +322,43 @@ func TestAuthCacheInvalidationWorker_LifecycleIsManagedAndIdempotent(t *testing.
 	require.Eventually(t, func() bool { return worker.Health(context.Background()).Running }, time.Second, 10*time.Millisecond)
 	require.NotPanics(t, func() { worker.Stop(); worker.Stop() })
 	require.False(t, worker.Health(context.Background()).Running)
+}
+
+func TestAuthCacheInvalidationWorker_StopReleasesWholeUnsettledBatch(t *testing.T) {
+	events := make([]AuthCacheInvalidationEvent, 32)
+	for i := range events {
+		events[i] = AuthCacheInvalidationEvent{ID: int64(i + 1), CacheKey: "hash", Stage: 0}
+	}
+	repo := &authInvalidationRepoStub{events: events}
+	started := make(chan struct{})
+	var once sync.Once
+	cache := &authInvalidationCacheStub{deleteFn: func(ctx context.Context, _ string) error {
+		once.Do(func() { close(started) })
+		<-ctx.Done()
+		return ctx.Err()
+	}}
+	worker := NewAuthCacheInvalidationWorker(repo, cache)
+	worker.Start()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("auth invalidation processing did not start")
+	}
+	worker.Stop()
+
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	require.NoError(t, repo.releaseCtx)
+	require.Empty(t, repo.retried)
+	require.Len(t, repo.released, len(events))
+	require.ElementsMatch(t, func() []int64 {
+		ids := make([]int64, len(events))
+		for i := range ids {
+			ids[i] = int64(i + 1)
+		}
+		return ids
+	}(), repo.released)
 }
 
 func TestAuthInvalidationRetryDelayIsBoundedAndJittered(t *testing.T) {

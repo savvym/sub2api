@@ -245,6 +245,87 @@ func TestAuthzPolicyStorePostgresCTESnapshotAndExpiry(t *testing.T) {
 	}
 }
 
+func TestAuthzPolicyStorePostgresExpiryAdvancesWithinLongTransaction(t *testing.T) {
+	db := newAuthzPolicyPostgresTestDatabase(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := ApplyMigrations(ctx, db); err != nil {
+		t.Fatalf("apply migrations to temporary authz database: %v", err)
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin expiry transaction: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	ownerID := insertAuthzPolicyPostgresUser(t, ctx, tx, "authz-long-tx-owner@example.test")
+	subjectID := insertAuthzPolicyPostgresUser(t, ctx, tx, "authz-long-tx-subject@example.test")
+	roleID := insertAuthzPolicyPostgresRole(t, ctx, tx, "authz_long_tx_role", authz.CapabilityAccountCreate)
+	setAuthzPolicyPostgresConfiguration(t, ctx, tx)
+
+	var accountID int64
+	if err := tx.QueryRowContext(ctx, `
+		INSERT INTO accounts (
+			name, platform, type, credentials, extra,
+			owner_user_id, created_by_user_id, access_version
+		)
+		VALUES ('authz-long-tx-account', 'openai', 'apikey', '{}'::jsonb, '{}'::jsonb, $1, $1, 1)
+		RETURNING id
+	`, ownerID).Scan(&accountID); err != nil {
+		t.Fatalf("insert long-transaction account: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO user_roles (user_id, role_id, granted_by_user_id, expires_at)
+		VALUES ($1, $2, $3, statement_timestamp() + INTERVAL '1 second')
+	`, subjectID, roleID, ownerID); err != nil {
+		t.Fatalf("insert expiring role assignment: %v", err)
+	}
+	directGrantID := insertAuthzPolicyPostgresGrant(t, ctx, tx, `
+		INSERT INTO account_access_grants (
+			account_id, grantee_user_id, access_level, granted_by_user_id, expires_at
+		)
+		VALUES ($1, $2, 'viewer', $3, statement_timestamp() + INTERVAL '1 second')
+		RETURNING id
+	`, accountID, subjectID, ownerID)
+
+	subject := mustAuthzSubjectRef(t, authz.SubjectKindUser, subjectID)
+	resource := mustAuthzResourceRef(t, authz.ResourceTypeAccount, accountID)
+	store := newAuthzPolicyStoreWithQueryer(tx)
+	beforeSubject, err := store.LoadSubjectSnapshot(ctx, subject)
+	if err != nil {
+		t.Fatalf("load subject before expiry: %v", err)
+	}
+	if _, ok := beforeSubject.RoleVersions()[roleID]; !ok {
+		t.Fatalf("expiring role missing before boundary: %v", beforeSubject.RoleVersions())
+	}
+	beforeResource, err := store.LoadResourceAccessSnapshot(ctx, subject, resource)
+	if err != nil {
+		t.Fatalf("load resource before expiry: %v", err)
+	}
+	if len(beforeResource.UserGrants()) != 1 || beforeResource.UserGrants()[0].GrantID() != directGrantID {
+		t.Fatalf("expiring direct grant missing before boundary: %+v", beforeResource.UserGrants())
+	}
+
+	if _, err := tx.ExecContext(ctx, `SELECT pg_sleep(1.2)`); err != nil {
+		t.Fatalf("cross expiry boundary: %v", err)
+	}
+	afterSubject, err := store.LoadSubjectSnapshot(ctx, subject)
+	if err != nil {
+		t.Fatalf("load subject after expiry: %v", err)
+	}
+	if len(afterSubject.RoleVersions()) != 0 || len(afterSubject.Capabilities()) != 0 {
+		t.Fatalf("role remained active after expiry in the same transaction: roles=%v capabilities=%v", afterSubject.RoleVersions(), afterSubject.Capabilities())
+	}
+	afterResource, err := store.LoadResourceAccessSnapshot(ctx, subject, resource)
+	if err != nil {
+		t.Fatalf("load resource after expiry: %v", err)
+	}
+	if len(afterResource.UserGrants()) != 0 {
+		t.Fatalf("direct grant remained active after expiry in the same transaction: %+v", afterResource.UserGrants())
+	}
+}
+
 func assertAuthzPolicyPostgresEntScopes(
 	t *testing.T,
 	ctx context.Context,
@@ -635,7 +716,7 @@ func assertAuthzPolicyPostgresEntQuery(
 		"current_subject AS",
 		"FROM " + grantTable + " direct_grant",
 		"FROM " + grantTable + " role_grant",
-		"expires_at > CURRENT_TIMESTAMP",
+		"expires_at > statement_timestamp()",
 	} {
 		if !strings.Contains(recorded.query, fragment) {
 			t.Fatalf("Ent scope SQL missing %q:\n%s", fragment, recorded.query)

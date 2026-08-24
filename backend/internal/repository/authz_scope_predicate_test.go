@@ -106,7 +106,7 @@ func TestAuthzScopeSQLPlanRevalidatesUserAndEveryAccountAccessSource(t *testing.
 		`account_row.deleted_at IS NULL`,
 		`FROM users`,
 		`current_subject.status = 'active' AND current_subject.deleted_at IS NULL`,
-		`assignment.expires_at > CURRENT_TIMESTAMP`,
+		`assignment.expires_at > statement_timestamp()`,
 		`jsonb_object_agg(active_roles.id::text, active_roles.authz_version)`,
 		`jsonb_agg(current_capabilities.code ORDER BY current_capabilities.code)`,
 		`policy_configuration.role_authorization_mode = ?`,
@@ -115,16 +115,20 @@ func TestAuthzScopeSQLPlanRevalidatesUserAndEveryAccountAccessSource(t *testing.
 		`policy_configuration.account_sharing_enabled`,
 		`FROM account_access_grants direct_grant`,
 		`direct_grant.grantee_user_id = current_subject.id`,
+		`direct_grant.expires_at > statement_timestamp()`,
 		`FROM account_access_grants role_grant`,
 		`JOIN active_roles ON active_roles.id = role_grant.grantee_role_id`,
-		`role_grant.expires_at > CURRENT_TIMESTAMP`,
+		`role_grant.expires_at > statement_timestamp()`,
 	} {
 		if !strings.Contains(query, fragment) {
 			t.Fatalf("scope SQL missing %q\n%s", fragment, query)
 		}
 	}
-	if strings.Contains(query, ">= CURRENT_TIMESTAMP") {
+	if strings.Contains(query, ">= statement_timestamp()") {
 		t.Fatalf("scope SQL accepted an expires_at equality boundary\n%s", query)
+	}
+	if strings.Contains(query, "expires_at > CURRENT_TIMESTAMP") {
+		t.Fatalf("scope SQL must use per-statement time, not transaction start\n%s", query)
 	}
 	if len(args) != 9 {
 		t.Fatalf("scope SQL args = %d, want 9: %#v", len(args), args)
@@ -175,7 +179,9 @@ func TestAuthzScopeSQLPlanKeepsServicePrincipalToRoleAndPlatformSources(t *testi
 	for _, fragment := range []string{
 		`FROM service_principals`,
 		`FROM service_principal_roles assignment`,
+		`assignment.expires_at > statement_timestamp()`,
 		`FROM group_access_grants role_grant`,
+		`role_grant.expires_at > statement_timestamp()`,
 		`policy_configuration.group_sharing_enabled`,
 	} {
 		if !strings.Contains(query, fragment) {

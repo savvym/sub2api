@@ -16,9 +16,9 @@
 | resource-sharing | 分级、多主体分享 | Grant schema/Policy/API/UI 测试 | 待实现 |
 | resource-sharing | 分享不级联 | DTO、关系查询、跨资源 E2E | 待实现 |
 | resource-sharing | 帐号-分组受众闭包 | audience closure/TOCTOU/Scheduler 测试 | 待实现 |
-| resource-sharing | 撤权与到期 | Grant 边界、协调器、多来源重算测试 | 待实现 |
+| resource-sharing | 撤权与到期 | 1.11 已覆盖严格到期边界、四来源协调与 durable Scheduler 事件；完整 `account_groups` 关系重算仍待 4.2/4.4 | 待实现 |
 | runtime-authorization-consistency | 运行时再次授权 | API Key、WS、异步任务、fallback 测试 | 待实现 |
-| runtime-authorization-consistency | 两条 Outbox 与传播 SLA | 原子 enqueue/rollback 已覆盖；Worker 幂等消费、lag 指标、SLA 与多实例恢复待实现 | 待实现 |
+| runtime-authorization-consistency | 两条 Outbox 与传播 SLA | 1.11 已覆盖 claim/lease/fencing、恢复、lag、5 秒目标和 30 秒扩大权限门；数据面 E2E 与发布窗口验证仍待实现 | 待实现 |
 | runtime-authorization-consistency | 渐进迁移与回滚 | fresh/upgrade/reapply、shadow diff、模式测试 | 待实现 |
 
 ## Dark Schema Foundation 门禁
@@ -110,6 +110,26 @@
 | 公开 AdminService 构造缺少 coordinator 时 fail closed，不回退 legacy 直写 | constructor regression + API contract coordinator fixture | 通过 |
 | 完整 backend unit、相关 vet 与聚焦 service/repository race | `make -C backend test-unit` + `go vet` + `go test -race` | 通过 |
 | CI/Testcontainers ResourceMutationRepository integration | `CI=1 go test -tags=integration ./internal/repository` | 待 CI 执行（本机无 Docker；Scheduler/Auth Outbox 故障注入场景标签编译通过） |
+
+## Authorization Expiry 与 Propagation 门禁（1.11）
+
+| 门禁 | 证据 | 状态 |
+| --- | --- | --- |
+| User/Service Principal role 与 Account/Group Grant 在 `expires_at <= statement_timestamp()` 时同步失效 | PolicyStore/SQL Scope contract、严格边界 unit 与 PostgreSQL 动态测试 | 通过 |
+| migration 238 为四类来源原子维护、回填和重臂 durable expiry job，重复应用不复活同 generation 已处理作业 | migration contract + PostgreSQL 18 migration/rearm 场景 | 通过 |
+| `authorization_expiry_coordinator` 仅作 durable 审计身份，必须 active 且零角色；disabled、缺失或带任意角色均 fail closed | migration collision contract、repository readiness/锁测试、传播健康测试 | 通过 |
+| 到期处理固定 `parent -> source -> job -> coordinator` 锁序；版本、audit/resource event、Scheduler enqueue 与 job 完成同事务 | expiry repository unit + PostgreSQL exact-once、audit failure rollback 和管理写并发无死锁场景 | 通过 |
+| 租约过期可恢复，claim ownership、rearm generation、orphan source、retry/release 与停机 detached cleanup 不重复副作用 | expiry repository/worker race + PostgreSQL lease/rearm/orphan 场景 | 通过 |
+| Scheduler Outbox 使用 PostgreSQL `SKIP LOCKED` claim、lease token fencing、ack/retry；durable bucket/lifecycle/full rebuild 锁忙或 fencing 必须 retry，不能 ACK | repository/service contract + PostgreSQL commit-order/lease recovery + strict rebuild tests | 通过 |
+| migration 239 的新增 CHECK 使用 `NOT VALID`；Scheduler claim 索引由 migration 241 以 `_notx` 在线创建，invalid index 可清理重试 | migration 239/241 contract + migration runner tests | 通过 |
+| Auth Outbox stage 0 固定优先，stage 0/1 指标分离，停机释放整批未结清 claim；second pass/retry 只传相对 delay，由数据库时间计算 `available_at`；并发索引可在线创建及恢复 | worker/repository race、migration 240 contract 与 migration runner tests | 通过 |
+| API Key allow snapshot v22 丢弃 v21 及更早版本；首次正向 L1/L2 写入受 monotonic deadline 和 30 秒上限约束，rewrite 不续期，正向 L2 不提升 L1，无效 L2 只回源且不删除并发新值 | API Key auth cache version/TTL/clock-skew/interleaving + miniredis TTL/JSON round-trip tests | 通过 |
+| 传播统计按数据库时间分别计算 Auth primary/safety、Scheduler、Expiry 的 pending/ready/oldest lag；延迟 safety pass 不计入 5 秒目标但受 30 秒安全线约束 | propagation repository/service tests | 通过 |
+| 5 秒目标与 30 秒安全门边界精确；统计错误、必需 Worker 缺失/停止和 coordinator 不就绪均稳定禁止扩大权限 | propagation guard race + handler JSON contract | 通过 |
+| Settings 仅在有效 Feature Flag 状态扩大时要求传播健康；关闭功能和撤权不受积压阻塞；ResourceMutation 扩权必须显式设置 `ExpandsAccess` | settings/resource mutation unit contracts | 通过 |
+| Ops 健康入口暴露队列、Worker、target/safety、`expiry_coordinator_ready` 与稳定降级原因，且不因可选 Ops monitoring disabled 而隐藏安全状态 | `GET /api/v1/admin/ops/authorization/propagation/health` handler/route tests | 通过 |
+| 完整 `account_groups` 授权来源、验证版本和撤权/到期/角色变化关系重算 | 任务 4.2/4.4；1.11 只产生 durable Scheduler 事件 | 待实现 |
+| CI/Testcontainers 1.11 repository dynamic suite | `CI=1 go test -tags=integration ./internal/repository` | 待实现（本机无 Docker；integration 标签编译不等于动态执行） |
 
 ## 标准命令
 

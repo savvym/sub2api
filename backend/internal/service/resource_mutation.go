@@ -168,12 +168,17 @@ type CreatedResourceMutation struct {
 type ResourceMutationCommand struct {
 	CreateResourceTypes []authz.ResourceType
 	Targets             []ResourceMutationTarget
+	// ExpandsAccess marks commands that can add or reactivate an authorization
+	// path. Restrictive and revocation commands leave this false so degraded
+	// propagation can never prevent access from being reduced.
+	ExpandsAccess bool
 }
 
 type ResourceMutationCoordinator struct {
-	repository ResourceMutationRepository
-	resolver   authz.Resolver
-	policy     authz.ResourcePolicy
+	repository       ResourceMutationRepository
+	resolver         authz.Resolver
+	policy           authz.ResourcePolicy
+	propagationGuard *AuthorizationPropagationGuard
 }
 
 func NewResourceMutationCoordinator(
@@ -182,6 +187,17 @@ func NewResourceMutationCoordinator(
 	policy authz.ResourcePolicy,
 ) *ResourceMutationCoordinator {
 	return &ResourceMutationCoordinator{repository: repository, resolver: resolver, policy: policy}
+}
+
+func ProvideResourceMutationCoordinator(
+	repository ResourceMutationRepository,
+	resolver authz.Resolver,
+	policy authz.ResourcePolicy,
+	propagationGuard *AuthorizationPropagationGuard,
+) *ResourceMutationCoordinator {
+	coordinator := NewResourceMutationCoordinator(repository, resolver, policy)
+	coordinator.propagationGuard = propagationGuard
+	return coordinator
 }
 
 type resourceMutationRuntime struct {
@@ -232,6 +248,14 @@ func (c *ResourceMutationCoordinator) Execute(
 	targets, err := normalizeResourceMutationCommand(command)
 	if err != nil {
 		return err
+	}
+	if command.ExpandsAccess {
+		if c.propagationGuard == nil {
+			return ErrAuthorizationPropagationDegraded
+		}
+		if err := c.propagationGuard.RequireExpansion(ctx); err != nil {
+			return err
+		}
 	}
 
 	runtime := &resourceMutationRuntime{}

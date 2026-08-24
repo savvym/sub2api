@@ -416,3 +416,39 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 - 1.10 只完成适用 Auth/Scheduler Outbox 的原子 enqueue 与失败 rollback；Worker 幂等消费、lag 指标、多实例恢复、5 秒/30 秒传播 SLA、到期协调器和积压降级门仍属于 1.11 或后续切片。
 - 没有新增普通用户帐号/分组路由，没有启用 ACL/RBAC Feature Flag，没有切换旧分组资格权威源，也没有完成数据面、WebSocket、异步任务或全部后台 System/Service Principal 写路径。
 - repository Testcontainers 动态套件仍须在 Docker/CI 环境以 `CI=1` 执行；integration 标签编译通过不能记录为该门禁通过。
+
+## 2026-08-24 - Bounded Authorization Propagation and Expiry Coordination（1.11）
+
+### 实现范围
+
+- migration 238 新增 `authorization_expiry_jobs`，由 `user_roles`、`service_principal_roles`、`account_access_grants` 和 `group_access_grants` 的 trigger 原子维护，并回填 future/already-due 来源。相同 generation 的 migration reapply 或无关字段更新不会复活已处理 job，`expires_at` 变化会清空旧 retry/lease 并重臂。
+- 新增保留 Service Principal `authorization_expiry_coordinator` 作为 durable worker 审计身份；迁移清理其全部角色但保留既有 disabled 状态，运行时在每个到期事务内以 `FOR UPDATE` 验证 active 且零角色。缺失来源和提前 claim 也必须先通过该 readiness，禁止 coordinator 失效时静默消费队列。
+- 到期 Worker 使用数据库时间、`SKIP LOCKED` claim、30 秒可恢复租约、有界重试和 detached 2 秒 retry/release。Repository 采用 `SERIALIZABLE` 及 `parent -> source -> job -> coordinator` 锁序；同一事务递增 User/Service Principal `authz_version` 或 Account/Group `access_version`，写 durable audit/resource event，并为 Account/Group Grant 到期 enqueue Scheduler 事件后才完成 job。request ID 绑定 job ID 与 `expires_at` 微秒 generation。
+- PolicyStore 与 Account/Group SQL Scope 的所有 role/Grant 有效性判断统一使用严格 `expires_at > statement_timestamp()`；协调器负责跨实例收敛版本、缓存、审计与 Scheduler 状态，不作为同步拒绝的替代品。
+- migration 239 为 Scheduler Outbox 增加 lease token、lease expiry、next attempt、attempt count 和 bounded last error，新增 CHECK 使用 `NOT VALID` 避免升级时全表验证阻塞写入；claim 索引拆到 migration 241，以 `_notx` `CREATE INDEX CONCURRENTLY` 在线创建并在重试前清理同名 invalid index。生产 Worker 改用 PostgreSQL claim/ack/retry 与 token fencing，不再以 Redis watermark 决定消费所有权；低 ID 晚提交和过期 lease recovery 都不会丢事件或允许旧 owner ack。durable bucket/lifecycle/full rebuild 使用 strict rebuild，锁忙或 fencing 返回错误并 fenced retry，恢复前不会 ACK。
+- Auth Cache Invalidation Outbox 固定 `delivery_stage, available_at, id` 顺序，使 primary pass 始终先于延迟 safety pass；migration 240 以 `_notx` `CREATE INDEX CONCURRENTLY` 建索引，runner 会删除同名 invalid index 后重试。stage 0/1 分别计数、记录 lag/error，Worker 停机时使用 detached 2 秒 context 释放整批未结清 claim；service 仅提交相对 delay，Repository 以 `statement_timestamp() + interval` 设置 second pass/retry 的 `available_at`。
+- API Key allow snapshot 版本提升到 v22，v21 及更早 snapshot 一律丢弃；首次正向 L1/L2 写入同时受 jitter 后 30 秒上限与不可序列化的进程内 monotonic deadline 约束。正向 L2 命中不提升到 L1，Redis 相对 TTL 是跨实例权威；缺失、过期或未来时间戳视为 miss 并回源，不删除或广播可能已被并发刷新的 L2 值。
+- 新增 `AuthorizationPropagationGuard`：数据库单快照分别统计 Auth primary、Auth safety pass、Scheduler 与 Expiry 的 pending、ready、oldest lag，并检查三个必需 Worker 与 expiry coordinator readiness。5 秒为 primary 健康目标，30 秒为扩大权限安全线；统计失败、Worker 缺失/停止、coordinator disabled/缺失/带角色或 lag 达线时返回稳定 `AUTHORIZATION_PROPAGATION_DEGRADED`。
+- Settings 只在有效开关状态从关闭变为开放时调用传播门；显式关闭和撤权始终可执行。ResourceMutation 提供 `ExpandsAccess` 契约供后续 Grant 命令显式声明，当前生产代码尚无 Grant 管理命令。Ops 新增 `GET /api/v1/admin/ops/authorization/propagation/health`，输出 target/safety、队列、Worker、`expiry_coordinator_ready` 和稳定降级原因；该安全入口不经过可选 Ops monitoring enabled 门禁，Ops disabled 时仍可读取 fail-closed 状态。
+
+### 自动化与动态验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| propagation service/repository/handler 聚焦 unit race 与 vet | 通过；覆盖 5 秒/30 秒边界、stage 分离、Worker/coordinator fail closed、Ops disabled 返回 200、OpsService 缺失返回 503 和 JSON 字段 |
+| expiry repository/worker 聚焦 unit race 与 vet | 通过；覆盖 claim/retry/release、停机 detached cleanup、错误清除、锁序和 generation request ID |
+| Auth Cache v22 TTL/monotonic/L2 clock-skew/interleaving/miniredis TTL 与 JSON 往返、Auth Outbox stage/claim/release/数据库相对时间与 migration 240 runner tests | 通过 |
+| Scheduler Outbox repository/service 默认测试、strict lock-busy retry、migration 239/241 runner、聚焦 race 与 vet | 通过 |
+| 默认标签全仓编译与 integration 标签全仓编译 | 通过；integration 仅证明编译，不代表 Testcontainers 动态执行 |
+| 本机 PostgreSQL 18 expiry repository 动态套件 | 通过；覆盖四来源 exact-once、副作用、lease recovery、rearm、orphan、audit rollback、parent-first 无死锁、coordinator 锁与 Stats readiness |
+| 本机 PostgreSQL 18 Scheduler commit-order/lease recovery 动态场景 | 通过 |
+| `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
+| `git diff --check` | 通过 |
+| `CI=1 go test -tags=integration ./internal/repository` | 未运行；本机无 Docker。不得把 integration 标签编译或本地 PostgreSQL harness 记录为 Testcontainers 门禁通过 |
+
+### 发布边界
+
+- 5 秒是 primary queue/Worker 健康目标，30 秒是禁止新增或恢复授权路径的安全线；当前没有为未迁移的数据面、WebSocket、异步任务或全链路发布窗口作出端到端 SLA 承诺。数据库 Policy/Scope 同步拒绝已到期来源；API Key 旧 allow snapshot 由 v22 拒绝 pre-v22 数据、首次写入 monotonic deadline、Redis 相对 TTL、rewrite 不续期和正向 L2 不提升 L1共同约束在 30 秒内。
+- 本切片没有新增普通用户资源路由、没有打开 ACL/RBAC Feature Flag、没有切换旧分组资格权威源。`ExpandsAccess` 是后续生产 Grant 命令必须显式采用的契约，不能把当前无调用方解释为分享入口已受完整验证。
+- Account/Group Grant 到期目前只递增版本、记录 durable event 并产生 Scheduler 事件。完整 `account_groups` 链接人/授权来源/Owner 批准/验证版本扩展属于任务 4.2，撤权、到期和角色变化后的关系闭包重算属于任务 4.4；1.11 不宣称这些关系已重算。
+- Docker/Testcontainers repository integration suite 仍须在 CI 或有 Docker 的机器以 `CI=1` 动态执行；本机未执行，不能记录为通过。

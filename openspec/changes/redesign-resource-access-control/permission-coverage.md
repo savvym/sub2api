@@ -1,6 +1,6 @@
 # Permission Coverage
 
-状态：Phase 0 覆盖基线已建立。1.9 已完成管理员帐号/分组入口及直接资源引用的 Actor 显式接线；1.10 已将下表明确标记的核心写命令接入事务内 Policy、版本、durable resource event 与适用 Outbox。读取、普通用户入口、专用 probe/worker 及未标记写路径仍仅为 `Actor 已接线；Policy 待接入`，当前 legacy/shadow 兼容不代表 ACL/RBAC 已启用。
+状态：Phase 0 覆盖基线已建立。1.9 已完成管理员帐号/分组入口及直接资源引用的 Actor 显式接线；1.10 已将下表明确标记的核心写命令接入事务内 Policy、版本、durable resource event 与适用 Outbox；1.11 新增受限到期 coordinator、传播健康门和可恢复 Outbox Worker。读取、普通用户入口、其余专用 probe/worker 及未标记写路径仍仅为 `Actor 已接线；Policy 待接入`，当前 legacy/shadow 兼容不代表 ACL/RBAC 已启用。
 
 ## 动作约定
 
@@ -60,7 +60,7 @@
 | --- | --- | --- | --- |
 | 可用分组 | `GET /groups/available` | legacy/shadow/acl 单一权威源 + 业务资格 | 待接入 |
 | API Key CRUD | user API Key handlers | Key Owner；绑定时和运行时检查 `group.use` | 待接入 |
-| 网关 HTTP/SSE | Chat/Responses/Claude/Gemini/Images/媒体 | Auth snapshot 当前版本；fallback/routing 最终资源 ACL | 待接入 |
+| 网关 HTTP/SSE | Chat/Responses/Claude/Gemini/Images/媒体 | Auth snapshot 当前版本；fallback/routing 最终资源 ACL | `group.use`/ACL consumer 待接入；1.11 已完成 v22 allow snapshot、首次写入 30 秒 monotonic deadline、rewrite 不续期及正向 L2 不提升 L1 |
 | Responses WS | 每个 `response.create` | 每 turn 重新检查版本，撤权后不复用帐号 | 待接入 |
 | 异步任务 | batch image/media jobs | 入队与执行前检查，结果按 Owner 投影 | 待接入 |
 | 派生读取 | usage/error/dashboard/search/export/monitor | user/group/account scope 一致，total 不泄漏 | 待接入 |
@@ -76,7 +76,16 @@
 
 后台运行态更新通常只需要受限 system capability，不得自动获得 `manage_access/delete/transfer/secret.export`。每条实现需在接线 PR 中补充具体 Actor、事务和测试责任文件。
 
-1.10 没有宣称上述后台路径已全部迁移。核心 HTTP 管理命令的事务协调不能替代 token refresh、quota/rate-limit、probe、CRS、monitor、scheduler worker 等路径逐项定义受限 Actor、Policy、版本和 Outbox 责任。
+| 后台链路 | Durable Actor / 权限边界 | 事务与传播责任 | 当前状态 |
+| --- | --- | --- | --- |
+| 授权到期协调 | 固定 `authorization_expiry_coordinator` Service Principal；必须 active 且零角色，仅用于审计归因 | 四类 role/Grant 来源按数据库时间收敛版本与 durable audit/event；Grant 到期 enqueue Scheduler | 1.11 已接入；coordinator 不就绪 fail closed |
+| Auth Cache Invalidation | 无业务资源授权；只消费 hashed cache key，不持久化 API Key 明文 | stage 0 primary + stage 1 safety、claim/retry/release 与多实例恢复；相对 delay 由数据库时间落到 `available_at` | 1.11 已接入；传播门观测两个 stage |
+| Scheduler Outbox | 不冒充管理员；只消费事务内既有 Scheduler event | PostgreSQL lease/token fencing/ack/retry；commit-order、lease recovery 与 durable delivery strict lock-busy retry | 1.11 已接入 Worker 恢复语义；完整关系重算待 4.2/4.4 |
+| 传播扩大权限门 | 无独立 Actor；基于数据库统计、Worker 状态和 coordinator readiness 作 fail-closed 判定 | 5 秒目标、30 秒安全线；只阻止扩权，不阻止关闭功能或撤权 | Settings 已接入；健康入口在 Ops disabled 时仍可读；ResourceMutation 提供 `ExpandsAccess` 契约，当前无 Grant 管理生产命令 |
+
+1.11 没有宣称上述其他后台路径已全部迁移。核心 HTTP 管理命令的事务协调和三个传播 Worker 不能替代 token refresh、quota/rate-limit、probe、CRS、monitor 等路径逐项定义受限 Actor、Policy、版本和 Outbox 责任。
+
+Account/Group Grant 到期在 1.11 只产生 Scheduler 事件并收敛资源版本。完整 `account_groups` 链接人、授权来源、Owner 批准、状态和验证版本仍属于任务 4.2；撤权、到期和角色变化后的关系闭包重算仍属于任务 4.4，不能把事件入队记录成关系重算已完成。
 
 ## 覆盖门禁
 

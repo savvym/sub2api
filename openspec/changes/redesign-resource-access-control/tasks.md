@@ -25,7 +25,7 @@
 - [x] 1.8 管理员 JWT 接入 User Actor，Admin API Key 接入独立 Service Principal Actor。
 - [x] 1.9 帐号/分组管理员入口显式传 Actor，保持响应和行为不变。
 - [x] 1.10 把安全关键资源写、durable audit、Auth Outbox、Scheduler Outbox 纳入同一事务。
-- [ ] 1.11 实现授权/角色到期协调器、同步到期拒绝、5 秒/30 秒指标与降级门。
+- [x] 1.11 实现授权/角色到期协调器、同步到期拒绝、5 秒/30 秒指标与降级门。
 - [ ] 1.12 完成跨租户、TOCTOU、SQL scope、模式组合和迁移测试；批准 Phase 1 退出。
 
 ## 2. 私有自助托管
