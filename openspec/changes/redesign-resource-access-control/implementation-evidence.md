@@ -75,7 +75,7 @@ CI=1 go test -tags=integration ./internal/repository
 
 ### 1.6a 当时未完成的门禁（已由下一节 1.6b 收口）
 
-- Docker/Testcontainers repository integration suite 未执行；必须在 CI 或有 Docker 的机器补跑。
+- Docker/Testcontainers repository integration suite 当时未执行；该阶段要求后续在 CI 或有 Docker 的机器补跑，最终动态结果见 1.12 CI 记录。
 - 本地测试库已完成只读预检，但不是生产数据；仍需对真实服务器只读数据运行同一脚本。
 - credentials/extra 与自助 outbound allowlist 已达到 Review Ready，尚待负责人批准，不得据此开放 Phase 2。
 
@@ -172,7 +172,7 @@ PGOPTIONS='-c default_transaction_read_only=on' \
 | 本地管理员登录与现有页面 API | 通过；`auth/me`、dashboard stats、groups、accounts 均为 200，未登录 dashboard 正确跳转登录页 |
 | 前端 auth guard、DashboardView 与 client 专项 | 通过，3 files / 55 tests |
 
-临时验证库 `sub2api_codex_setup_bootstrap_20260820_a7f4` 与 `sub2api_codex_install_lock_20260820_b3e9` 均已在验证后删除。Docker/Testcontainers 门禁状态不变，仍需在 CI 补跑。
+临时验证库 `sub2api_codex_setup_bootstrap_20260820_a7f4` 与 `sub2api_codex_install_lock_20260820_b3e9` 均已在验证后删除。该阶段 Docker/Testcontainers 门禁状态不变，仍需在 CI 补跑；最终动态结果见 1.12 CI 记录。
 
 ## 2026-08-20 - Policy 与 SQL Scope Foundation（1.6a）
 
@@ -276,7 +276,7 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 
 - 1.7b 管理入口、step-up、CAS/readiness 和事务内 durable audit 的代码缺口已由下一节收口；当前验证状态以 1.7b 记录为准。
 - RBAC transition 必须继续硬拒绝，直到 1.8 Actor Resolver 及全部授权 consumer 迁移完成；legacy↔shadow readiness 通过不等于 RBAC 可用。
-- 本机 PostgreSQL 18.6 动态验证已完成，但 Docker/Testcontainers repository integration suite 仍未执行；必须在 CI 或有 Docker 的机器运行 `CI=1 go test -tags=integration ./internal/repository`，不得把本机临时 harness 记录为 CI 等价门禁。
+- 本机 PostgreSQL 18.6 动态验证已完成，但该阶段 Docker/Testcontainers repository integration suite 尚未执行；要求后续在 CI 或有 Docker 的机器运行，不得把本机临时 harness 记录为 CI 等价门禁；最终动态结果见 1.12 CI 记录。
 
 ## 2026-08-20 - Role Authorization Mode Management（1.7b）
 
@@ -307,7 +307,7 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 
 ### 剩余外部验证
 
-- Docker/Testcontainers repository integration suite 仍待 CI 或有 Docker 的机器执行；本机没有 Docker。
+- 该阶段 Docker/Testcontainers repository integration suite 尚待 CI 或有 Docker 的机器执行；本机没有 Docker。最终动态结果见 1.12 CI 记录。
 
 ## 2026-08-21 - Trusted Runtime Actor Integration（1.8）
 
@@ -348,7 +348,7 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 
 - raw-scope upgrade fence 会阻止旧实例与新实例对同一 key 双重执行，但混合版本期间旧实例可能收到 fingerprint conflict；生产发布应优先同版本切换或维护窗，并观察幂等 conflict/store-unavailable 指标。
 - 扩大到相关 handler/service 包的 race 命令仍会命中两处既有测试辅助代码竞态：`grok_import_probe_test.go` 与后台 slog 共用 `bytes.Buffer`，以及 `channel_monitor_checker_body_test.go` 并发写共享 capture handler；两处首因均不在 1.8 diff。新增 1.8 并发用例已单独通过 race，但不能把全量 race 记为通过。
-- Docker/Testcontainers repository integration suite 仍待 CI 或有 Docker 的机器执行；本机 PostgreSQL 隔离库验证不冒充 CI 等价门禁。
+- 该阶段 Docker/Testcontainers repository integration suite 尚待 CI 或有 Docker 的机器执行；本机 PostgreSQL 隔离库验证不冒充 CI 等价门禁。最终动态结果见 1.12 CI 记录。
 
 ## 2026-08-21 - Admin Resource Actor Propagation（1.9）
 
@@ -408,14 +408,14 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 | `SUB2API_AUTHZ_POLICY_POSTGRES_ADMIN_DSN=... go test -tags=integration ./migrations -run '^TestGroupAuthorizationCacheInvalidationPostgres$' -count=1 -v` | PostgreSQL 18.6 通过；27 个子场景全部通过，临时库残留为 0 |
 | `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
 | 五个 1.10 OpenSpec 追踪文件 `git diff --check` | 通过 |
-| `CI=1 go test -tags=integration ./internal/repository` | 未运行；本机无 Docker。新增 Auth/Scheduler Outbox 故障注入场景已通过 integration 标签编译，动态执行待 CI |
+| `CI=1 go test -tags=integration ./internal/repository` | 当时未运行；本机无 Docker。新增 Auth/Scheduler Outbox 故障注入场景已通过 integration 标签编译；后续动态结果见 1.12 CI 记录 |
 
 ### 发布边界
 
 - OAuth、Privacy、probe 等外部网络副作用不能与 PostgreSQL 构成分布式事务。Privacy 网络调用完成后的本地持久化已作为独立 ResourceMutation 重新授权并写版本/event/outbox，但上游副作用无法因后续数据库失败而回滚。
 - 1.10 只完成适用 Auth/Scheduler Outbox 的原子 enqueue 与失败 rollback；Worker 幂等消费、lag 指标、多实例恢复、5 秒/30 秒传播 SLA、到期协调器和积压降级门仍属于 1.11 或后续切片。
 - 没有新增普通用户帐号/分组路由，没有启用 ACL/RBAC Feature Flag，没有切换旧分组资格权威源，也没有完成数据面、WebSocket、异步任务或全部后台 System/Service Principal 写路径。
-- repository Testcontainers 动态套件仍须在 Docker/CI 环境以 `CI=1` 执行；integration 标签编译通过不能记录为该门禁通过。
+- 该阶段 repository Testcontainers 动态套件尚须在 Docker/CI 环境执行；integration 标签编译通过不能记录为该门禁通过。最终动态结果见 1.12 CI 记录。
 
 ## 2026-08-24 - Bounded Authorization Propagation and Expiry Coordination（1.11）
 
@@ -444,14 +444,14 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 | 本机 PostgreSQL 18 Scheduler commit-order/lease recovery 动态场景 | 通过 |
 | `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
 | `git diff --check` | 通过 |
-| `CI=1 go test -tags=integration ./internal/repository` | 未运行；本机无 Docker。不得把 integration 标签编译或本地 PostgreSQL harness 记录为 Testcontainers 门禁通过 |
+| `CI=1 go test -tags=integration ./internal/repository` | 当时未运行；本机无 Docker。integration 标签编译或本地 PostgreSQL harness 不计为 Testcontainers 门禁；后续动态结果见 1.12 CI 记录 |
 
 ### 发布边界
 
 - 5 秒是 primary queue/Worker 健康目标，30 秒是禁止新增或恢复授权路径的安全线；当前没有为未迁移的数据面、WebSocket、异步任务或全链路发布窗口作出端到端 SLA 承诺。数据库 Policy/Scope 同步拒绝已到期来源；API Key 旧 allow snapshot 由 v22 拒绝 pre-v22 数据、首次写入 monotonic deadline、Redis 相对 TTL、rewrite 不续期和正向 L2 不提升 L1共同约束在 30 秒内。
 - 本切片没有新增普通用户资源路由、没有打开 ACL/RBAC Feature Flag、没有切换旧分组资格权威源。`ExpandsAccess` 是后续生产 Grant 命令必须显式采用的契约，不能把当前无调用方解释为分享入口已受完整验证。
 - Account/Group Grant 到期目前只递增版本、记录 durable event 并产生 Scheduler 事件。完整 `account_groups` 链接人/授权来源/Owner 批准/验证版本扩展属于任务 4.2，撤权、到期和角色变化后的关系闭包重算属于任务 4.4；1.11 不宣称这些关系已重算。
-- Docker/Testcontainers repository integration suite 仍须在 CI 或有 Docker 的机器以 `CI=1` 动态执行；本机未执行，不能记录为通过。
+- 该阶段 Docker/Testcontainers repository integration suite 尚须在 CI 或有 Docker 的机器动态执行；本机未执行，不能记录为通过。最终动态结果见 1.12 CI 记录。
 
 ## 2026-08-24 - Phase 1 Engineering Exit Verification（1.12）
 
@@ -464,7 +464,7 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 - 新增真实 PostgreSQL 跨租户全链矩阵，覆盖 User/Service Principal、Account/Group、搜索、排序、分页、total、详情 IDOR 404、陈旧主体/角色/开关 Scope，以及 Admin API Key code/status 失效。
 - 新增当前 Phase 1 管理员资源写面的双事务 TOCTOU 回归：两个不同管理员 Actor 携带同一 `access_version` 时只能有一个提交；SERIALIZABLE 重试使 mutation closure 可执行 1 或 2 次，竞争 loser 的事务尝试完整回滚，最终业务状态、版本、durable resource event 和 Scheduler Outbox 都恰好一次。真实 `AdminService.ClearAccountError` PostgreSQL 测试证明 production after-commit callback 只在提交后执行且恰好一次，通用 commit/rollback/panic 语义另由 coordinator 单测覆盖；普通 Owner/Grant 写入口尚未开放，其并发矩阵属于 Phase 2/3。
 - 新增 20,000 行 Account/Group 与大规模无关 Grant fixture 的 PostgreSQL EXPLAIN 门禁，明确要求 Owner、public、direct-user Grant、role Grant 四条稀疏索引路径，并禁止稀疏查询的 Account/Group 主表 Seq Scan；另覆盖 Account/Group 的 legacy admin 与 platform capability 全局旁路，要求资源关系在计划中恰好出现一次。
-- 新增从 migration 228 分段升级到当前版本、再重复 `ApplyMigrations` 的 Testcontainers 回归，覆盖存量数据、seed/backfill、trigger、在线索引和幂等；本机没有 Docker，因此仅完成代码审查和 `integration` 标签编译，未取得动态执行结果。
+- 新增从 migration 228 分段升级到当前版本、再重复 `ApplyMigrations` 的 Testcontainers 回归，覆盖存量数据、seed/backfill、trigger、在线索引和幂等；提交前本机没有 Docker，因此本地仅完成代码审查和 `integration` 标签编译，后续 GitHub Actions 动态执行结果见下方 CI 记录。
 - production `PolicyService` 的 `CheckCapability`、`CanCreate`、`Authorize` 与 `AccessibleScope` 在 shadow mode 并行计算 legacy/RBAC，observer 只记录比较且响应始终采用 legacy。管理员 JWT 与固定 Admin API Key 生产认证入口已接入 Policy，固定 API Key 的 legacy allow/RBAC deny 可被观察。日志字段仅包含固定枚举，不含主体、角色、Grant 或资源 ID；行为差异记 WARN，等价比较记 INFO，observer panic 不影响授权响应。当前交付的是可由外部系统聚合的结构化日志，没有独立进程内指标计数器。
 
 ### 自动化与动态验证
@@ -483,15 +483,26 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 | PostgreSQL 18.6 生产规模 SQL Scope EXPLAIN | 通过；四类稀疏索引路径均被采用且 Account/Group 主表无 Seq Scan；legacy admin/platform capability 的 Account/Group 全局计划均只访问资源关系一次 |
 | migration 242 contract、runner invalid-index retry 与 PostgreSQL index validity | 通过 |
 | production role shadow Policy/observer/管理员认证接线 unit 与聚焦 race | 通过；四个 Policy 入口保持 legacy 响应，结构化日志无 ID，observer panic 被隔离 |
-| 228→current 持久升级/reapply Testcontainers | 未运行；本机无 Docker。测试代码和 `integration` 标签编译通过，不得记录为动态通过 |
-| `CI=1 go test -tags=integration ./internal/repository` | 未运行；本机无 Docker，且当前没有 CI 结果链接 |
+| 228→current 持久升级/reapply Testcontainers | 通过；GitHub Actions 无 `-run` 过滤的完整 repository integration suite 包含 `TestResourceAccessControlUpgradeFrom228ThroughCurrent` |
+| CI repository Testcontainers 动态套件 | 通过；CI 实际执行 `make test-integration` → `go test -tags=integration ./...`，repository 非缓存运行 41.430s |
 | `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
 | `git diff --check` | 通过 |
 
+### CI Dynamic Verification
+
+| 字段 | 证据 |
+| --- | --- |
+| Workflow | GitHub Actions `CI` [Run 32711471080](https://github.com/savvym/sub2api/actions/runs/32711471080)，push event，attempt 1，结论 success |
+| Test job | [job 97383587468](https://github.com/savvym/sub2api/actions/runs/32711471080/job/97383587468)，Ubuntu runner，结论 success |
+| 被测提交 | `2d203b601c5d5b6578e91020bdbfbff4eb5bae6b` |
+| 工具链 | Go 1.26.6；Testcontainers harness 使用 PostgreSQL `18.1-alpine3.23`、Redis `8.4-alpine` |
+| 实际命令 | workflow 运行 `make test-integration`，Makefile 展开为 `go test -tags=integration ./...`；没有 `-run` 过滤 |
+| Repository 结果 | `ok github.com/Wei-Shaw/sub2api/internal/repository 41.430s`，输出无 `(cached)`；因此 integration-tag repository 全套动态执行，包含 228→current 持久升级/reapply 回归 |
+
 ### Phase 1 Exit Review
 
-- 1.12 当前已实现的本地验证项及 production role shadow 代码已通过，但不能宣称正式 Phase 1 退出；`tasks.md` 的 1.12 必须保持未勾选，任务进度保持 20/49。
+- 1.12 当前已实现的本地验证项、CI/Testcontainers 动态套件及 production role shadow 代码已通过，但不能宣称正式 Phase 1 退出；`tasks.md` 的 1.12 必须保持未勾选，任务进度保持 20/49。
 - Phase 0 的 0.4 credentials/extra 清单、0.5 自助平台 allowlist/SSRF/限频策略与 0.8 退出评审尚无批准链接；真实服务器只读 `data-preflight.sql` 结果也未归档。
-- CI/Docker 环境仍须动态运行完整 repository Testcontainers 套件，尤其是 228→current 持久升级/reapply 回归；本地 PostgreSQL harness 和标签编译不能替代该证据。
-- 目标环境仍为 `legacy`。正式退出前必须运行 role-mode readiness，按批准方案推进至 `shadow`，由日志系统聚合 production shadow 记录并归档具体差异指标、日志量与 sink `dropped_count`、观察窗口、回滚结果、PR/CI URL 和平台/认证/安全批准人。
+- CI/Docker 动态门禁已由 Run `32711471080` 满足；正式退出仍取决于外部安全评审、生产数据和目标环境证据，不因工程套件通过而自动批准。
+- 目标环境仍为 `legacy`。正式退出前必须运行 role-mode readiness，按批准方案推进至 `shadow`，由日志系统聚合 production shadow 记录并归档具体差异指标、日志量与 sink `dropped_count`、观察窗口、回滚结果、PR URL 和平台/认证/安全批准人。
 - SIMPLE Mode 限制是 Phase 1 临时发布护栏，不修改最终产品规格。只有完成 2.6 的 group `0`/平台默认组 `owner_user_id IS NULL` 隔离、生产规模验证和兼容矩阵复审后才可解除。

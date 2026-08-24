@@ -34,7 +34,7 @@
 | 存量热表索引并发创建且 invalid index 可重试 | 231 contract、runner sqlmock、PostgreSQL `indisvalid=true` | 通过 |
 | 不新增普通用户资源路由，现有行为等价 | 路由审查、后端完整单测、前端 1654 tests | 通过 |
 | SQL/Ent 一致且生成代码最新 | Ent schema tests + `make -C backend generate` | 通过 |
-| CI/Testcontainers repository integration | `CI=1 go test -tags=integration ./internal/repository` | 待实现（本机无 Docker） |
+| CI/Testcontainers repository integration | GitHub Actions push [Run 32711471080](https://github.com/savvym/sub2api/actions/runs/32711471080) / [test job 97383587468](https://github.com/savvym/sub2api/actions/runs/32711471080/job/97383587468)：`make test-integration` → `go test -tags=integration ./...` | 通过；SHA `2d203b601c5d5b6578e91020bdbfbff4eb5bae6b`，repository 非缓存运行 41.430s |
 
 ## Authorization Domain Contract 门禁
 
@@ -92,7 +92,7 @@
 | 成功 transition 调用 `SkipAudit` 避免重复；失败不 skip，仅进入现有异步 middleware best-effort 尝试审计，不承诺 durable | AuthorizationHandler + AuditLog middleware 聚焦 unit | 通过 |
 | 当前 1.7b 工作区完整后端 unit 与 OpenSpec strict validate | `make -C backend test-unit` + `openspec validate ... --strict` | 通过 |
 | 本地 HTTP 验证 GET、JWT TOTP step-up、Admin API Key 拒绝、CAS、成功审计与清理恢复 | 本地开发环境 API/数据库烟测 | 通过；结束时为 legacy fallback，临时状态已清理 |
-| CI/Testcontainers RoleRepository integration | `CI=1 go test -tags=integration ./internal/repository` | 待实现（本机 PostgreSQL 18.6 动态验证通过；本机无 Docker） |
+| CI/Testcontainers RoleRepository integration | GitHub Actions push Run `32711471080` 完整 integration suite；`make test-integration` → `go test -tags=integration ./...` | 通过；test job `97383587468`，repository 非缓存运行 41.430s |
 
 ## Resource Mutation Transaction 门禁（1.10）
 
@@ -101,7 +101,7 @@
 | `SERIALIZABLE`、已有未知隔离事务 fail closed、Actor/角色/资源固定锁序 | coordinator/repository unit + 聚焦 race | 通过 |
 | 事务内重解析 Actor，并对主体/角色快照、Policy 与 expected `access_version` 重校验 | coordinator table tests | 通过 |
 | 批量混入不可见、无权或版本变化目标时全拒绝且零副作用 | invisible batch、bulk rollback 与 snapshot tests | 通过 |
-| 业务写、版本、durable resource event 与 Scheduler Outbox 同事务；audit/outbox 失败整体回滚 | repository contract、Scheduler/Auth Outbox 故障注入 integration 场景 | contract 与标签编译通过；Testcontainers 动态待 CI |
+| 业务写、版本、durable resource event 与 Scheduler Outbox 同事务；audit/outbox 失败整体回滚 | repository contract、Scheduler/Auth Outbox 故障注入 integration 场景 | 通过；contract、本地标签编译及 CI/Testcontainers 动态套件均通过 |
 | Group 授权字段变化产生 hashed Auth Outbox 并随事务回滚 | migration 237 contract + PostgreSQL 18.6 隔离库动态测试 | 通过；27 个子场景全部通过，临时库残留为 0 |
 | no-op/replay 不写版本、event、durable marker 或 callback | coordinator + Account/Group duplicate tests | 通过 |
 | 外部缓存/网络 callback 仅在 commit 后执行，panic 被逐个隔离 | coordinator tests | 通过 |
@@ -109,7 +109,7 @@
 | 生产 Wire 注入真实 Resolver、Policy 与 ResourceMutationRepository | 默认/integration 标签全仓编译 + backend build | 通过 |
 | 公开 AdminService 构造缺少 coordinator 时 fail closed，不回退 legacy 直写 | constructor regression + API contract coordinator fixture | 通过 |
 | 完整 backend unit、相关 vet 与聚焦 service/repository race | `make -C backend test-unit` + `go vet` + `go test -race` | 通过 |
-| CI/Testcontainers ResourceMutationRepository integration | `CI=1 go test -tags=integration ./internal/repository` | 待 CI 执行（本机无 Docker；Scheduler/Auth Outbox 故障注入场景标签编译通过） |
+| CI/Testcontainers ResourceMutationRepository integration | GitHub Actions push Run `32711471080` 完整 integration suite；`make test-integration` → `go test -tags=integration ./...` | 通过；Scheduler/Auth Outbox 故障注入场景包含在无 `-run` 过滤的 repository suite 中 |
 
 ## Authorization Expiry 与 Propagation 门禁（1.11）
 
@@ -129,7 +129,7 @@
 | Settings 仅在有效 Feature Flag 状态扩大时要求传播健康；关闭功能和撤权不受积压阻塞；ResourceMutation 扩权必须显式设置 `ExpandsAccess` | settings/resource mutation unit contracts | 通过 |
 | Ops 健康入口暴露队列、Worker、target/safety、`expiry_coordinator_ready` 与稳定降级原因，且不因可选 Ops monitoring disabled 而隐藏安全状态 | `GET /api/v1/admin/ops/authorization/propagation/health` handler/route tests | 通过 |
 | 完整 `account_groups` 授权来源、验证版本和撤权/到期/角色变化关系重算 | 任务 4.2/4.4；1.11 只产生 durable Scheduler 事件 | 待实现 |
-| CI/Testcontainers 1.11 repository dynamic suite | `CI=1 go test -tags=integration ./internal/repository` | 待实现（本机无 Docker；integration 标签编译不等于动态执行） |
+| CI/Testcontainers 1.11 repository dynamic suite | GitHub Actions push Run `32711471080` 完整 integration suite；`make test-integration` → `go test -tags=integration ./...` | 通过；test job `97383587468`，SHA `2d203b601c5d5b6578e91020bdbfbff4eb5bae6b` |
 
 ## Phase 1 Exit Review（1.12）
 
@@ -143,14 +143,14 @@
 | SQL Scope 生产规模查询计划 | PostgreSQL 18.6、20,000 行 Account/Group 与大规模无关 Grant fixture；Owner、public、direct-user、role Grant 稀疏索引均命中，主表无 Seq Scan；Account/Group 的 legacy admin/platform capability 全局计划只访问资源关系一次 | 通过 |
 | migration 242 在线 public scope 索引 | SQL contract、`_notx` runner invalid-index retry 与本机 PostgreSQL 索引有效性/查询计划测试 | 通过 |
 | 当前 Phase 1 管理员写面 TOCTOU | 本机 PostgreSQL 18.6 两个不同管理员 Actor 双事务同版本并发；恰一提交/一冲突，SERIALIZABLE mutation closure 可执行 1 或 2 次且 loser 尝试完整回滚，最终业务状态、版本、durable event 与 Scheduler Outbox 恰好一次；真实 `AdminService.ClearAccountError` 测试证明 production after-commit callback 仅在提交后执行且恰好一次，通用语义另由 coordinator 单测覆盖 | 通过 |
-| 228 到当前版本持久升级、重复 apply | Testcontainers 回归代码与 `integration` 标签全仓编译已通过 | 待实现（本机无 Docker，动态升级/reapply 尚未执行） |
+| 228 到当前版本持久升级、重复 apply | GitHub Actions push Run `32711471080` 无 `-run` 过滤的完整 integration suite；包含 `TestResourceAccessControlUpgradeFrom228ThroughCurrent` | 通过；PostgreSQL `18.1-alpine3.23` Testcontainers 动态升级/reapply 成功 |
 | 完整 backend unit、聚焦 race/vet、默认与 integration 标签编译、build | 本地最终代码验证 | 通过 |
-| CI repository Testcontainers 动态套件 | `CI=1 go test -tags=integration ./internal/repository` | 待实现（本机无 Docker；无 CI 结果链接） |
+| CI repository Testcontainers 动态套件 | [Run 32711471080](https://github.com/savvym/sub2api/actions/runs/32711471080) / [test job 97383587468](https://github.com/savvym/sub2api/actions/runs/32711471080/job/97383587468)：`make test-integration` → `go test -tags=integration ./...`；Ubuntu、Go 1.26.6、PostgreSQL `18.1-alpine3.23`、Redis `8.4-alpine` | 通过；push、attempt 1、SHA `2d203b601c5d5b6578e91020bdbfbff4eb5bae6b`，repository 非缓存运行 41.430s |
 | production role shadow 差异记录能力 | `PolicyService` 四个入口并行计算 legacy/RBAC 且保持 legacy 响应；管理员 JWT/Admin API Key 生产入口接线；低基数、无 ID 的结构化 INFO/WARN 日志与 observer panic 隔离测试 | 通过（日志可由外部系统聚合；未新增独立进程内指标） |
 | Phase 0 安全决策与退出批准 | 0.4 credentials/extra、0.5 allowlist/SSRF/限频、0.8 Phase 0 exit | 待实现（Review Ready，尚无批准链接） |
 | 生产只读数据预检 | 对真实服务器运行 `data-preflight.sql` 并归档异常与回填规模 | 待实现 |
 | 目标环境 shadow readiness 与观察 | 专用 role-mode readiness、legacy→shadow 执行、具体差异指标、日志量与 sink `dropped_count`、观察窗口和回滚证据 | 待实现（当前部署仍为 legacy） |
-| PR/CI URL 与平台/认证/安全批准人 | 可追溯发布记录和最终批准 | 待实现 |
+| PR URL 与平台/认证/安全批准人 | 可追溯发布记录和最终批准；CI URL 已归档 | 待实现 |
 | Phase 1 正式退出结论 | 所有上述门禁完成后才能批准 | 待实现；1.12 保持未勾选，进度保持 20/49 |
 
 ## 标准命令
