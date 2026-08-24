@@ -93,7 +93,7 @@
 - 新增 Testcontainers 持久升级回归，从 migration 228 分段推进至当前版本并重复 `ApplyMigrations`，覆盖存量数据、seed/backfill、触发器、在线索引和幂等；本机无 Docker，随后由 GitHub Actions 完整 integration suite 动态验证通过。
 - GitHub Actions push Run `32711471080`（attempt 1）在 SHA `2d203b601c5d5b6578e91020bdbfbff4eb5bae6b`、Ubuntu runner 与 Go 1.26.6 上执行 `make test-integration`，实际为 `go test -tags=integration ./...`；PostgreSQL `18.1-alpine3.23`、Redis `8.4-alpine` Testcontainers harness 成功，`internal/repository` 非缓存运行 `41.430s`。该命令没有 `-run` 过滤，因而包含 228→current 持久升级/reapply 回归。
 - Draft PR #1 已提供统一评审入口；分支相对 `origin/main` ahead 17/behind 0，merge-tree 可干净合并，但改动规模为 477 个文件，因此必须按提交顺序评审并保持 Draft。
-- GitHub `Security Scan` workflow 在当前 fork 中为 `disabled_fork`。本机按 workflow 等价步骤执行 `govulncheck ./...`，可调用路径 0 个漏洞；前端 `pnpm audit --prod --audit-level=high` 经仓库例外校验通过。该本地结果不能冒充 GitHub workflow run，转 Ready 前仍需启用并执行 workflow 或取得有链接的批准豁免。
+- GitHub `Security Scan` workflow 已从当前 fork 的 `disabled_fork` 状态启用为 `active`。本机按 workflow 等价步骤执行 `govulncheck ./...`，可调用路径 0 个漏洞；前端 `pnpm audit --prod --audit-level=high` 经仓库例外校验通过。启用时当前 HEAD 尚无 GitHub workflow run，本地结果不能冒充 GitHub 证据；下一次 push/PR run 必须通过后才能关闭该门禁。
 - 新增只读 `credential-key-preflight.sql`，仅聚合 credentials/extra 的键名、平台/类型、软删除状态、帐号 status、JSON shape 和计数，不读取值或帐号 ID；当前没有生产连接配置，尚未执行或归档真实数据结果。
 
 ## 下一步

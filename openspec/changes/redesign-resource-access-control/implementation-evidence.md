@@ -507,7 +507,7 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 | 合并预检 | 建立 PR 时分支相对 `origin/main` ahead 17/behind 0；`git merge-tree --write-tree origin/main HEAD` 成功，无内容冲突 |
 | Backend security local equivalent | `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` 通过；可调用路径 0 个漏洞，依赖模块中不可达 finding 不计为代码受影响 |
 | Frontend security local equivalent | `pnpm audit --prod --audit-level=high --json` 输出经 `tools/check_pnpm_audit_exceptions.py` 与 `.github/audit-exceptions.yml` 校验通过 |
-| GitHub Security Scan | workflow 在当前 fork 中为 `disabled_fork`，没有本次 run；本地等价步骤不冒充 GitHub 证据，转 Ready 前须启用执行或取得有链接的批准豁免 |
+| GitHub Security Scan | workflow 已从当前 fork 的 `disabled_fork` 状态启用为 `active`；启用时当前 HEAD 尚无 GitHub run，本地等价步骤不冒充 GitHub 证据，转 Ready 前须取得成功 run |
 | Production credential-key preflight | 已新增只读 `credential-key-preflight.sql`，只输出文档名、软删除状态、帐号 status、平台/类型、键名、JSON shape 和计数；本地空实例以 `psql -v ON_ERROR_STOP=1` 执行通过，但本机无生产连接配置，未执行真实数据查询 |
 
 ### Phase 1 Exit Review
@@ -515,6 +515,6 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 - 1.12 当前已实现的本地验证项、CI/Testcontainers 动态套件及 production role shadow 代码已通过，但不能宣称正式 Phase 1 退出；`tasks.md` 的 1.12 必须保持未勾选，任务进度保持 20/49。
 - Phase 0 的 0.4 credentials/extra 清单、0.5 自助平台 allowlist/SSRF/限频策略与 0.8 退出评审尚无批准链接；真实服务器只读 `data-preflight.sql` 与 `credential-key-preflight.sql` 结果也未归档。
 - CI/Docker 动态门禁已由 Run `32711471080` 满足；正式退出仍取决于外部安全评审、生产数据和目标环境证据，不因工程套件通过而自动批准。
-- Draft PR #1 已建立但保持 Draft；GitHub Security Scan 尚未启用，本地等价扫描通过不能代替 workflow run 或有链接的批准豁免。
+- Draft PR #1 已建立但保持 Draft；GitHub Security Scan 已启用但尚待当前分支首次成功 run，本地等价扫描通过不能代替 GitHub 证据。
 - 目标环境仍为 `legacy`。正式退出前必须运行 role-mode readiness，按批准方案推进至 `shadow`，由日志系统聚合 production shadow 记录并归档具体差异指标、日志量与 sink `dropped_count`、观察窗口、回滚结果，以及平台/认证/安全批准人。
 - SIMPLE Mode 限制是 Phase 1 临时发布护栏，不修改最终产品规格。只有完成 2.6 的 group `0`/平台默认组 `owner_user_id IS NULL` 隔离、生产规模验证和兼容矩阵复审后才可解除。
