@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -160,6 +161,53 @@ func TestResourceAccessControlRuntimeSettings_EnabledConfiguration(t *testing.T)
 	}, svc.GetResourceAccessControlRuntimeSettings(context.Background()))
 }
 
+func TestResourceAccessControlRuntimeSettings_CompatibilityMatrix(t *testing.T) {
+	for _, runMode := range []struct {
+		name   string
+		value  string
+		simple bool
+	}{
+		{name: "standard", value: config.RunModeStandard},
+		{name: "simple", value: config.RunModeSimple, simple: true},
+	} {
+		runMode := runMode
+		for mask := 0; mask < 1<<5; mask++ {
+			mask := mask
+			t.Run(fmt.Sprintf("%s/%05b", runMode.name, mask), func(t *testing.T) {
+				storedMaster := mask&(1<<0) != 0
+				storedSelfService := mask&(1<<1) != 0
+				storedGroupSharing := mask&(1<<2) != 0
+				storedAccountSharing := mask&(1<<3) != 0
+				storedRoleGrants := mask&(1<<4) != 0
+				values := map[string]string{
+					SettingKeyResourceAccessControlEnabled:   fmt.Sprintf("%t", storedMaster),
+					SettingKeySelfServiceHostingEnabled:      fmt.Sprintf("%t", storedSelfService),
+					SettingKeyGroupSharingEnabled:            fmt.Sprintf("%t", storedGroupSharing),
+					SettingKeyAccountSharingEnabled:          fmt.Sprintf("%t", storedAccountSharing),
+					SettingKeyRoleBasedResourceGrantsEnabled: fmt.Sprintf("%t", storedRoleGrants),
+					SettingKeyRoleAuthorizationMode:          RoleAuthorizationModeShadow,
+				}
+
+				master := storedMaster
+				selfService := master && !runMode.simple && storedSelfService
+				want := ResourceAccessControlRuntimeSettings{
+					ResourceAccessControlEnabled:   master,
+					SelfServiceHostingEnabled:      selfService,
+					GroupSharingEnabled:            selfService && storedGroupSharing,
+					AccountSharingEnabled:          selfService && storedAccountSharing,
+					RoleBasedResourceGrantsEnabled: master && storedRoleGrants,
+					RoleAuthorizationMode:          RoleAuthorizationModeShadow,
+				}
+				svc := NewSettingService(
+					&resourceAccessControlSettingRepoStub{values: values},
+					&config.Config{RunMode: runMode.value},
+				)
+				require.Equal(t, want, svc.GetResourceAccessControlRuntimeSettings(context.Background()))
+			})
+		}
+	}
+}
+
 func TestResourceAccessControlRuntimeSettings_InvalidModeFallsBackToLegacy(t *testing.T) {
 	repo := &resourceAccessControlSettingRepoStub{values: map[string]string{
 		SettingKeyResourceAccessControlEnabled:   "true",
@@ -179,6 +227,30 @@ func TestResourceAccessControlRuntimeSettings_InvalidModeFallsBackToLegacy(t *te
 		RoleBasedResourceGrantsEnabled: true,
 		RoleAuthorizationMode:          RoleAuthorizationModeLegacy,
 	}, svc.GetResourceAccessControlRuntimeSettings(context.Background()))
+}
+
+func TestParseRoleAuthorizationModeRequiresCanonicalValue(t *testing.T) {
+	for _, testCase := range []struct {
+		name  string
+		value string
+		mode  string
+		valid bool
+	}{
+		{name: "missing", mode: RoleAuthorizationModeLegacy, valid: true},
+		{name: "legacy", value: RoleAuthorizationModeLegacy, mode: RoleAuthorizationModeLegacy, valid: true},
+		{name: "shadow", value: RoleAuthorizationModeShadow, mode: RoleAuthorizationModeShadow, valid: true},
+		{name: "rbac", value: RoleAuthorizationModeRBAC, mode: RoleAuthorizationModeRBAC, valid: true},
+		{name: "leading whitespace", value: " shadow", mode: RoleAuthorizationModeLegacy},
+		{name: "trailing whitespace", value: "rbac ", mode: RoleAuthorizationModeLegacy},
+		{name: "case mismatch", value: "RBAC", mode: RoleAuthorizationModeLegacy},
+		{name: "unknown", value: "acl", mode: RoleAuthorizationModeLegacy},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			mode, valid := parseRoleAuthorizationMode(testCase.value)
+			require.Equal(t, testCase.mode, mode)
+			require.Equal(t, testCase.valid, valid)
+		})
+	}
 }
 
 func TestResourceAccessControlRuntimeSettings_NonCanonicalBooleanFailsClosed(t *testing.T) {
@@ -202,6 +274,7 @@ func TestResourceAccessControlExpansionDetectionUsesEffectiveBeforeAndAfterState
 		current  map[string]string
 		settings SystemSettings
 		omitted  OmittedSettingKeys
+		runMode  string
 		expands  bool
 	}{
 		{
@@ -249,9 +322,25 @@ func TestResourceAccessControlExpansionDetectionUsesEffectiveBeforeAndAfterState
 			},
 			settings: SystemSettings{GroupSharingEnabled: true},
 		},
+		{
+			name: "simple mode keeps self service and sharing ineffective",
+			current: map[string]string{
+				SettingKeyResourceAccessControlEnabled: "true",
+			},
+			settings: SystemSettings{
+				ResourceAccessControlEnabled: true,
+				SelfServiceHostingEnabled:    true,
+				GroupSharingEnabled:          true,
+				AccountSharingEnabled:        true,
+			},
+			runMode: config.RunModeSimple,
+		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			svc := NewSettingService(&resourceAccessControlSettingRepoStub{values: testCase.current}, &config.Config{})
+			svc := NewSettingService(
+				&resourceAccessControlSettingRepoStub{values: testCase.current},
+				&config.Config{RunMode: testCase.runMode},
+			)
 			expands, err := svc.resourceAccessControlUpdateExpands(context.Background(), &testCase.settings, testCase.omitted)
 			require.NoError(t, err)
 			require.Equal(t, testCase.expands, expands)

@@ -16,7 +16,8 @@
 - Trusted ActorResolver 提交：`34e43155c`，已推送同一远程分支。
 - Trusted Runtime Actor Integration 提交：`631761288`，Admin Resource Actor Propagation 提交：`b55155000`，均已推送同一远程分支。
 - Transactional Resource Mutation Coordination 提交：`5b9060048`，已推送同一远程分支。
-- 任务进度：20/49。当前切片 1.11 已完成四类授权来源的 durable 到期协调、数据库时间同步拒绝、Auth/Scheduler Outbox 多实例恢复语义、API Key 正缓存 30 秒硬上限，以及 5 秒目标/30 秒安全门与运维健康面。下一开发切片为 1.12 跨租户、TOCTOU、SQL scope、模式组合和迁移测试及 Phase 1 退出评审。普通用户路由、ACL/RBAC 权威切换和完整 `account_groups` 关系重算仍未开放，Phase 0 尚未批准退出。
+- Bounded Authorization Propagation 提交：`1035f73a4`，已推送同一远程分支。
+- 任务进度：20/49。1.12 当前已实现的本地验证项已通过：跨租户全链、当前管理员写面 TOCTOU、SQL Scope 生产规模 EXPLAIN、64 组 Standard/SIMPLE 配置、Admin API Key fail-closed、production role shadow 脱敏结构化日志和 228→current 升级回归代码均已有自动化证据。正式 Phase 1 退出仍未批准，因此 1.12 保持未勾选；Phase 0 的 0.4/0.5/0.8、生产预检、CI/Testcontainers、目标环境 shadow 观察和批准人证据仍缺失。
 - 当前权威行为仍为旧 `users.role` 与旧分组资格；核心管理员写虽已调用 Policy，但 legacy/shadow 下只保持现有 JWT Admin 与固定 Admin API Key Service Principal 行为，不得解释为 ACL/RBAC 已启用。
 
 ## 已完成
@@ -82,24 +83,31 @@
 - API Key allow snapshot 提升到 v22 并拒绝 v21 及更早快照；首次正向 L1/L2 写入同时受 jitter 后 30 秒上限和不可序列化的进程内 monotonic deadline 约束。正向 L2 命中不提升到 L1，Redis 相对 TTL 保持跨实例权威；缺失、过期或未来时间戳只视为 miss 并回源，不删除或广播可能并发刷新的值。传播统计使用数据库时间分别报告 Auth primary/safety、Scheduler 与 Expiry 的 pending、ready 和 oldest lag。
 - `AuthorizationPropagationGuard` 将 5 秒作为健康目标、30 秒作为扩大权限安全门；统计不可用、必需 Worker 缺失/停止、到期 coordinator disabled/缺失/带任意角色或相关 lag 达到安全线时稳定 fail closed。Settings 只在有效状态扩大时调用该门，关闭功能和撤权不被积压阻塞；ResourceMutation 已提供显式 `ExpandsAccess` 契约，当前尚无 Grant 管理生产命令。
 - 新增 `GET /api/v1/admin/ops/authorization/propagation/health`，暴露数据库时间、队列、Worker、`expiry_coordinator_ready`、5 秒/30 秒判断与稳定降级原因；该安全入口不受可选 Ops monitoring 开关限制，Ops disabled 时仍返回 fail-closed 健康状态。1.11 聚焦 unit/race/vet、默认与 integration 标签编译，以及本机 PostgreSQL 18 的到期 exact-once、租约恢复、事务回滚、锁序和 Scheduler commit-order 场景已通过；Docker/Testcontainers repository 动态套件仍未运行。
+- 1.12 新增真实 Resolver→Policy→Scope→reader 的跨租户 PostgreSQL 矩阵，覆盖 User/Service Principal、Account/Group、搜索、排序、分页、total、404 IDOR、开关/角色版本/停用重校验、固定 Admin API Key legacy/shadow 旁路及 code/status 失效。
+- 稀疏 SQL Scope 已从逐行关联 OR 改为同一语句内的可索引候选 ID `UNION ALL`；20,000 行资源和大规模无关 Grant 的 PG18.6 EXPLAIN 门禁证明 Account/Group 的 Owner、public、direct-user、role-grant 索引均被采用，主资源表不走 Seq Scan。legacy admin/platform capability 全局旁路保留同一语句快照重校验，但不再生成资源候选自扫描；Account/Group 计划均确认资源关系只出现一次。migration 242 在线补齐 public scope 部分索引及 invalid-index retry。
+- SIMPLE Mode 现在同时在 SettingService、生产 PolicyStore 和 Scope 分支 fail closed；即使五个数据库原始开关全为 true，普通用户仍不能生成 Owner/ACL Scope，legacy 管理员治理保持兼容。Standard/SIMPLE × 五个 Feature Flag 的 64 组机械矩阵与 canonical role mode 解析已覆盖。
+- 当前 Phase 1 管理员写面新增真实双事务 TOCTOU 回归：两个不同管理员 Actor 携带同一 `access_version` 并发写，恰一提交/一版本冲突；SERIALIZABLE 重试使 mutation closure 可执行 1 或 2 次，竞争 loser 的事务尝试会完整回滚，最终业务状态、版本、durable event 和 Scheduler Outbox 均恰好一次。真实 `AdminService.ClearAccountError` PostgreSQL 测试证明生产 after-commit callback 只在提交后执行且恰好一次，通用 commit/rollback/panic 语义另由 coordinator 单测覆盖；普通 Owner/Grant 写尚未开放，其完整并发栈仍属于 Phase 2/3。
+- production `PolicyService` 的 capability/create/resource/scope 四个入口在 shadow mode 并行计算 legacy 与 RBAC，始终返回 legacy 结果；管理员 JWT 与固定 Admin API Key 生产认证入口已接入 Policy。差异以不含主体、角色、Grant、资源 ID 的低基数结构化日志记录，行为差异为 WARN、等价比较为 INFO，并隔离 observer panic；日志可由外部系统聚合，当前没有独立进程内指标计数器。
+- 新增 Testcontainers 持久升级回归，从 migration 228 分段推进至当前版本并重复 `ApplyMigrations`，覆盖存量数据、seed/backfill、触发器、在线索引和幂等；本机无 Docker，仅完成 integration 编译，动态结果不得标为通过。
 
 ## 下一步
 
 1. 由平台/认证/安全负责人复核并批准 0.4 credentials/extra 清单和 0.5 自助平台/出站 allowlist。
 2. 对真实服务器只读数据运行 `data-preflight.sql`，记录异常角色、名称冲突、孤立关系和回填规模。
-3. 在 Docker/CI 环境执行 `CI=1 go test -tags=integration ./internal/repository` 严格门禁。
-4. 下一开发切片进入 1.12：完成跨租户、TOCTOU、SQL scope、模式组合和迁移测试，并评审 Phase 1 退出。
+3. 在 Docker/CI 环境执行 `CI=1 go test -tags=integration ./internal/repository`，取得 228→current 持久升级及全部 repository Testcontainers 动态结果。
+4. 在目标环境运行 role-mode readiness，按批准方案推进 legacy→shadow，聚合 production shadow 结构化日志并记录具体差异指标、日志量与 sink `dropped_count`、观察窗口、回滚结果、PR/CI URL 和批准人；门禁全部满足后才能勾选 0.8/1.12 并进入 2.1。
 
 ## 阻塞与风险
 
 - 本机没有 Docker，带 `integration` tag 的 repository 测试无法获得 CI 等价覆盖；不带 `CI=1` 会静默跳过，禁止把它记录为通过。
+- 1.12 当前本地测试和 production role shadow 代码通过不等于正式 Phase 1 退出；仍缺 Phase 0 批准、生产预检、CI/Testcontainers、目标环境 shadow 观测和最终批准人，任务必须保持未勾选。
 - 本地 `sub2api` 只是空测试实例，仅有 1 个管理员和 1 个平台默认分组；本地预检不能替代真实服务器只读报告。
 - Phase 0 的 credentials/extra 与自助出站文档均为 Review Ready、尚未 Accepted；这是开放自助托管前的硬阻塞。
 - fresh setup 缺失兼容角色的问题已修复，本地管理员也已由 migration 232 补齐；真实服务器升级后仍必须通过专用 GET status/readiness 入口验证全量一致性。
 - 分组名称唯一索引本切片不修改，先完成大小写和 Owner 范围冲突预检。
 - 1.6 scoped reader 与 ActorResolver 已完成真实贯通测试，但尚无普通用户 Handler/路由；当前仍是 dark foundation，不能作为已开放的普通用户资源读取入口。
-- `role_authorization_mode` 当前仍没有授权 consumer；专用入口和 1.7b 动态门禁已完成，但部署环境仍必须先运行 readiness，且在 consumer 迁移前保持 `legacy`。本地烟测已恢复为缺失 setting 的 legacy fallback。
-- 1.7b 没有解除 RBAC 硬拒绝；必须等待 1.8 ActorResolver 和全部授权 consumer 迁移后才能另行开放，不能把 legacy↔shadow 管理入口记录成 RBAC 已交付。
+- `role_authorization_mode` 当前仅由 production Policy shadow 比较链路消费，管理员认证响应在 shadow 下仍由 legacy 决定；部署环境必须先运行 readiness，并在正式观察窗口前保持 `legacy`。本地烟测已恢复为缺失 setting 的 legacy fallback。
+- 1.7b 没有解除 RBAC 硬拒绝；1.8 ActorResolver 和管理员认证 shadow consumer 已完成，但其余授权 consumer 与外部门禁仍未完成，不能把 legacy↔shadow 管理入口或本地 shadow 记录能力解释为 RBAC 已交付。
 - 通用管理员 settings PUT 仍跨多个服务，不是单一数据库事务；`role_authorization_mode` 已从该路径移除，其余新开关当前没有 consumer，因此不阻塞 dark launch，但启用任何授权 consumer 前仍需独立原子配置命令。
 - 幂等升级 fence 允许新实例对新业务记录使用 Actor-qualified scope，并使仍写 raw scope 的旧实例 fail closed；混合版本期间旧请求可能收到冲突，因此发布仍应优先同版本切换或维护窗，不能宣称无感滚动升级。
 - 1.8 新增并发用例已通过定向 race；扩大到相关包的 race 命令仍会命中 `grok_import_probe_test.go` 和 `channel_monitor_checker_body_test.go` 两处不在本次 diff 的既有测试辅助代码竞态，不能宣称全量 race 已通过。

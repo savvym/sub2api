@@ -6,10 +6,11 @@
 
 1. Backend Mode 拒绝非管理员自助控制面。
 2. `resource_access_control_enabled=false` 时，所有新增自助/分享有效值均为 false。
-3. `self_service_hosting_enabled` 只开放私有托管，不隐含分享。
-4. group/account sharing 分别要求总 ACL + self-service（Owner 流程）+ 对应 sharing flag。
-5. role based Grant 还要求 `role_based_resource_grants_enabled`；关闭时已有角色 Grant 不得作为新允许源。
-6. `role_authorization_mode` 和每组 `authorization_mode` 决定唯一权威源，不使用 OR 放行。
+3. Phase 1 中 SIMPLE Mode 无论数据库原始值如何，都把 self-service、group sharing 和 account sharing 的有效值固定为 false；ACL 总开关和角色基础设施只保留 dark/shadow 能力。
+4. `self_service_hosting_enabled` 只开放私有托管，不隐含分享。
+5. group/account sharing 分别要求总 ACL + self-service（Owner 流程）+ 对应 sharing flag。
+6. role based Grant 还要求 `role_based_resource_grants_enabled`；关闭时已有角色 Grant 不得作为新允许源。
+7. `role_authorization_mode` 和每组 `authorization_mode` 决定唯一权威源，不使用 OR 放行。
 
 ## 模式矩阵
 
@@ -19,7 +20,9 @@
 | off | 任意 | off | 任意 | 完全保持 legacy 行为；不注册新普通用户资源路由 |
 | off | off | on | off | 可运行 shadow/管理员基础设施；普通用户无托管入口 |
 | off | off | on | on | 仅有能力/配额的 hoster 可创建私有资源 |
-| off | on | on | on | 开放前必须证明 group 0 只加载 owner=NULL，否则组合禁止启用 |
+| off | on | on | on | Phase 1 有效 self-service/sharing 强制关闭；完成 group 0 `owner_user_id IS NULL` 隔离并重新评审后才可解除 |
+
+SIMPLE Mode 的 Phase 1 限制是发布护栏，不修改最终产品语义。解除前必须完成任务 2.6 的 group `0`/平台默认组隔离、对应生产规模查询测试和兼容矩阵复审；仅修改数据库中的原始开关不能绕过该护栏。
 
 ## 分享开关
 

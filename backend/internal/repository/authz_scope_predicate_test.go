@@ -69,7 +69,7 @@ func (f fakeAccessibleScopeClaims) GrantAccessLevels() []authz.AccessLevel {
 	return append([]authz.AccessLevel(nil), f.grantAccessLevels...)
 }
 
-func TestAuthzScopeSQLPlanRevalidatesUserAndEveryAccountAccessSource(t *testing.T) {
+func TestAuthzScopeSQLPlanRevalidatesUserAndEverySparseAccountAccessSource(t *testing.T) {
 	t.Parallel()
 
 	scope := fakeAccessibleScopeClaims{
@@ -80,10 +80,8 @@ func TestAuthzScopeSQLPlanRevalidatesUserAndEveryAccountAccessSource(t *testing.
 		subjectID:               42,
 		subjectAuthzVersion:     7,
 		roleVersions:            map[int64]int64{9: 3, 2: 5},
-		capabilities:            []authz.Capability{authz.CapabilityPlatformResourceViewAll, authz.CapabilityAPIKeyCreate},
+		capabilities:            []authz.Capability{authz.CapabilityAPIKeyCreate},
 		roleMode:                authz.RoleAuthorizationModeRBAC,
-		platformCapability:      authz.CapabilityPlatformResourceViewAll,
-		hasPlatformCapability:   true,
 		includeOwner:            true,
 		includePublic:           true,
 		includeDirectUserGrants: true,
@@ -110,8 +108,7 @@ func TestAuthzScopeSQLPlanRevalidatesUserAndEveryAccountAccessSource(t *testing.
 		`jsonb_object_agg(active_roles.id::text, active_roles.authz_version)`,
 		`jsonb_agg(current_capabilities.code ORDER BY current_capabilities.code)`,
 		`policy_configuration.role_authorization_mode = ?`,
-		`WHERE code = ?`,
-		`account_row.owner_user_id = current_subject.id`,
+		`owner_resource.owner_user_id = current_subject.id`,
 		`policy_configuration.account_sharing_enabled`,
 		`FROM account_access_grants direct_grant`,
 		`direct_grant.grantee_user_id = current_subject.id`,
@@ -130,40 +127,103 @@ func TestAuthzScopeSQLPlanRevalidatesUserAndEveryAccountAccessSource(t *testing.
 	if strings.Contains(query, "expires_at > CURRENT_TIMESTAMP") {
 		t.Fatalf("scope SQL must use per-statement time, not transaction start\n%s", query)
 	}
-	if len(args) != 9 {
-		t.Fatalf("scope SQL args = %d, want 9: %#v", len(args), args)
+	if len(args) != 8 {
+		t.Fatalf("scope SQL args = %d, want 8: %#v", len(args), args)
 	}
-	if args[0] != int64(42) || args[1] != int64(7) || args[2] != string(authz.RoleAuthorizationModeRBAC) {
-		t.Fatalf("scope freshness args = %#v", args[:3])
+	if args[0] != int64(42) || args[4] != int64(7) || args[5] != string(authz.RoleAuthorizationModeRBAC) {
+		t.Fatalf("scope subject/freshness args = %#v", args)
 	}
-	if args[3] != `{"2":5,"9":3}` {
-		t.Fatalf("role version snapshot = %v", args[3])
+	if args[6] != `{"2":5,"9":3}` {
+		t.Fatalf("role version snapshot = %v", args[6])
 	}
-	if args[4] != `["api_key.create","platform.resource.view_all"]` {
-		t.Fatalf("capability snapshot = %v", args[4])
+	if args[7] != `["api_key.create"]` {
+		t.Fatalf("capability snapshot = %v", args[7])
 	}
-	if args[5] != string(authz.CapabilityPlatformResourceViewAll) {
-		t.Fatalf("platform bypass capability = %v", args[5])
+	if strings.Contains(query, `WHERE code = ?`) {
+		t.Fatalf("sparse scope unexpectedly included a platform bypass\n%s", query)
 	}
 }
 
-func TestAuthzScopeSQLPlanKeepsServicePrincipalToRoleAndPlatformSources(t *testing.T) {
+func TestAuthzScopeSQLPlanGlobalPlatformBypassSkipsSparseResourceSources(t *testing.T) {
 	t.Parallel()
 
 	scope := fakeAccessibleScopeClaims{
-		valid:                 true,
-		resourceType:          authz.ResourceTypeGroup,
-		action:                authz.ActionGroupView,
-		subjectKind:           authz.SubjectKindServicePrincipal,
-		subjectID:             17,
-		subjectAuthzVersion:   2,
-		roleVersions:          map[int64]int64{8: 1},
-		capabilities:          []authz.Capability{authz.CapabilityPlatformResourceManageAll},
-		roleMode:              authz.RoleAuthorizationModeRBAC,
-		platformCapability:    authz.CapabilityPlatformResourceManageAll,
-		hasPlatformCapability: true,
-		includeRoleGrants:     true,
-		grantAccessLevels:     []authz.AccessLevel{authz.AccessLevelConsumer, authz.AccessLevelMaintainer, authz.AccessLevelManager},
+		valid:                   true,
+		resourceType:            authz.ResourceTypeAccount,
+		action:                  authz.ActionAccountView,
+		subjectKind:             authz.SubjectKindUser,
+		subjectID:               42,
+		subjectAuthzVersion:     7,
+		roleVersions:            map[int64]int64{9: 3},
+		capabilities:            []authz.Capability{authz.CapabilityPlatformResourceViewAll},
+		roleMode:                authz.RoleAuthorizationModeRBAC,
+		platformCapability:      authz.CapabilityPlatformResourceViewAll,
+		hasPlatformCapability:   true,
+		includeOwner:            true,
+		includePublic:           true,
+		includeDirectUserGrants: true,
+		includeRoleGrants:       true,
+		publicAccessLevels:      []authz.AccessLevel{authz.AccessLevelViewer},
+		grantAccessLevels:       authz.AllAccessLevels(),
+	}
+	plan, err := newAuthzScopeSQLPlan(scope, authz.ResourceTypeAccount, authz.ActionAccountView)
+	if err != nil {
+		t.Fatalf("newAuthzScopeSQLPlan() error = %v", err)
+	}
+	query, args := plan.predicateSQL(authzScopeResourceColumns{
+		id:                `account_row.id`,
+		deletedAt:         `account_row.deleted_at`,
+		ownerUserID:       `account_row.owner_user_id`,
+		publicAccessLevel: `account_row.public_access_level`,
+	})
+
+	for _, fragment := range []string{
+		`account_row.deleted_at IS NULL AND EXISTS`,
+		`SELECT 1 FROM current_capabilities`,
+		`WHERE code = ?`,
+		`current_subject.authz_version = ?`,
+		`policy_configuration.role_authorization_mode = ?`,
+	} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("global platform scope SQL missing %q\n%s", fragment, query)
+		}
+	}
+	for _, forbidden := range []string{
+		`FROM accounts`,
+		`owner_resource`,
+		`public_resource`,
+		`direct_grant`,
+		`role_grant`,
+		`FROM LATERAL`,
+	} {
+		if strings.Contains(query, forbidden) {
+			t.Fatalf("global platform scope SQL included sparse source %q\n%s", forbidden, query)
+		}
+	}
+	if len(args) != 6 {
+		t.Fatalf("global platform scope SQL args = %d, want 6: %#v", len(args), args)
+	}
+	if args[0] != int64(42) || args[1] != string(authz.CapabilityPlatformResourceViewAll) ||
+		args[2] != int64(7) || args[3] != string(authz.RoleAuthorizationModeRBAC) ||
+		args[4] != `{"9":3}` || args[5] != `["platform.resource.view_all"]` {
+		t.Fatalf("global platform scope SQL args = %#v", args)
+	}
+}
+
+func TestAuthzScopeSQLPlanKeepsServicePrincipalRoleGrantSource(t *testing.T) {
+	t.Parallel()
+
+	scope := fakeAccessibleScopeClaims{
+		valid:               true,
+		resourceType:        authz.ResourceTypeGroup,
+		action:              authz.ActionGroupView,
+		subjectKind:         authz.SubjectKindServicePrincipal,
+		subjectID:           17,
+		subjectAuthzVersion: 2,
+		roleVersions:        map[int64]int64{8: 1},
+		roleMode:            authz.RoleAuthorizationModeRBAC,
+		includeRoleGrants:   true,
+		grantAccessLevels:   []authz.AccessLevel{authz.AccessLevelConsumer, authz.AccessLevelMaintainer, authz.AccessLevelManager},
 	}
 	plan, err := newAuthzScopeSQLPlan(scope, authz.ResourceTypeGroup, authz.ActionGroupView)
 	if err != nil {
@@ -223,7 +283,7 @@ func TestAuthzScopeSQLPlanSharingOffLeavesOnlyOwner(t *testing.T) {
 		ownerUserID:       `group_row.owner_user_id`,
 		publicAccessLevel: `group_row.public_access_level`,
 	})
-	if !strings.Contains(query, `group_row.owner_user_id = current_subject.id`) {
+	if !strings.Contains(query, `owner_resource.owner_user_id = current_subject.id`) {
 		t.Fatalf("owner branch missing\n%s", query)
 	}
 	for _, forbidden := range []string{"policy_configuration.group_sharing_enabled", "direct_grant", "role_grant", "public_access_level = ANY"} {
@@ -262,6 +322,54 @@ func TestAuthzScopeSQLPlanLegacyAdminRevalidatesCurrentLegacyRole(t *testing.T) 
 	})
 	if !strings.Contains(query, `current_subject.role = 'admin'`) {
 		t.Fatalf("legacy admin scope did not revalidate users.role\n%s", query)
+	}
+	for _, forbidden := range []string{`FROM accounts`, `bypass_resource`, `FROM LATERAL`} {
+		if strings.Contains(query, forbidden) {
+			t.Fatalf("legacy admin scope SQL included resource candidate source %q\n%s", forbidden, query)
+		}
+	}
+}
+
+func TestAuthzScopeSQLPlanAdminAPIKeyRevalidatesFixedPrincipalCode(t *testing.T) {
+	t.Parallel()
+
+	scope := fakeAccessibleScopeClaims{
+		valid:               true,
+		resourceType:        authz.ResourceTypeGroup,
+		action:              authz.ActionGroupView,
+		subjectKind:         authz.SubjectKindServicePrincipal,
+		subjectID:           11,
+		subjectAuthzVersion: 2,
+		roleVersions:        map[int64]int64{},
+		roleMode:            authz.RoleAuthorizationModeShadow,
+		legacyAdminBypass:   true,
+	}
+	plan, err := newAuthzScopeSQLPlan(scope, authz.ResourceTypeGroup, authz.ActionGroupView)
+	if err != nil {
+		t.Fatalf("newAuthzScopeSQLPlan() error = %v", err)
+	}
+	query, args := plan.predicateSQL(authzScopeResourceColumns{
+		id:                `group_row.id`,
+		deletedAt:         `group_row.deleted_at`,
+		ownerUserID:       `group_row.owner_user_id`,
+		publicAccessLevel: `group_row.public_access_level`,
+	})
+	for _, fragment := range []string{
+		`SELECT id, code, status, authz_version`,
+		`current_subject.code = 'admin_api_key'`,
+		`current_subject.status = 'active'`,
+	} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("admin API key scope SQL missing %q\n%s", fragment, query)
+		}
+	}
+	if len(args) != 5 {
+		t.Fatalf("admin API key scope SQL args = %d, want 5: %#v", len(args), args)
+	}
+	for _, forbidden := range []string{`FROM groups`, `bypass_resource`, `FROM LATERAL`} {
+		if strings.Contains(query, forbidden) {
+			t.Fatalf("admin API key scope SQL included resource candidate source %q\n%s", forbidden, query)
+		}
 	}
 }
 

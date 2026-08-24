@@ -64,8 +64,21 @@ func (s *PolicyService) AccessibleScope(ctx context.Context, actor Actor, resour
 	legacyBypass := hasLegacyAdminAuthority(actor, snapshot)
 	platformCapability, platformBypass := currentPlatformCapability(snapshot, minimum)
 	configuration := snapshot.Configuration()
+	featuresDisabled := !configuration.ResourceAccessControlEnabled() || !configuration.SelfServiceHostingEnabled()
+	if configuration.RoleMode() == RoleAuthorizationModeShadow {
+		_, rbacBypass := platformCapabilityForMode(snapshot, minimum, RoleAuthorizationModeRBAC)
+		s.observeRoleShadow(ctx, newRoleShadowComparison(
+			PolicyOperationAccessibleScope,
+			actor,
+			"",
+			resourceType,
+			minimum,
+			roleShadowScopeOutcome(legacyBypass, false, featuresDisabled),
+			roleShadowScopeOutcome(false, rbacBypass, featuresDisabled),
+		))
+	}
 	if !legacyBypass && !platformBypass &&
-		(!configuration.ResourceAccessControlEnabled() || !configuration.SelfServiceHostingEnabled()) {
+		featuresDisabled {
 		return AccessibleScope{}, ErrFeatureDisabled
 	}
 
@@ -84,7 +97,7 @@ func (s *PolicyService) AccessibleScope(ctx context.Context, actor Actor, resour
 		roleAuthorizationMode:    configuration.RoleMode(),
 		legacyAdminBypass:        legacyBypass,
 		platformCapabilityBypass: platformCapability,
-		includeOwner:             userSubject,
+		includeOwner:             userSubject && configuration.SelfServiceHostingEnabled(),
 		includePublicAccess:      userSubject && sharingEnabled && len(publicLevels) > 0,
 		includeDirectUserGrants:  userSubject && sharingEnabled && len(grantLevels) > 0,
 		includeRoleGrants:        sharingEnabled && configuration.RoleBasedResourceGrantsEnabled() && len(grantLevels) > 0,
@@ -96,6 +109,19 @@ func (s *PolicyService) AccessibleScope(ctx context.Context, actor Actor, resour
 		return AccessibleScope{}, invalidSnapshotError("accessible scope")
 	}
 	return scope, nil
+}
+
+func roleShadowScopeOutcome(legacyBypass, platformBypass, featuresDisabled bool) RoleShadowOutcome {
+	if legacyBypass {
+		return RoleShadowOutcome{Effect: RoleShadowEffectScopeGlobal, Source: MatchSourceLegacyAdmin}
+	}
+	if platformBypass {
+		return RoleShadowOutcome{Effect: RoleShadowEffectScopeGlobal, Source: MatchSourcePlatformCapability}
+	}
+	if featuresDisabled {
+		return RoleShadowOutcome{Effect: RoleShadowEffectDeny, DenyReason: DenyReasonFeatureDisabled}
+	}
+	return RoleShadowOutcome{Effect: RoleShadowEffectScopeFiltered}
 }
 
 func scopeDecisionError(decision Decision) error {
@@ -143,8 +169,22 @@ func (s AccessibleScope) Valid() bool {
 			return false
 		}
 	}
-	if s.legacyAdminBypass && (s.roleAuthorizationMode == RoleAuthorizationModeRBAC || s.subject.Kind() != SubjectKindUser) {
-		return false
+	if s.legacyAdminBypass {
+		if s.roleAuthorizationMode == RoleAuthorizationModeRBAC {
+			return false
+		}
+		switch s.subject.Kind() {
+		case SubjectKindUser:
+		case SubjectKindServicePrincipal:
+			// The only service-principal legacy bypass is the fixed Admin API
+			// Key compatibility identity, which ActorResolver requires to remain
+			// roleless and capability-free.
+			if len(s.roleVersions) != 0 || len(s.capabilities) != 0 {
+				return false
+			}
+		default:
+			return false
+		}
 	}
 	if s.platformCapabilityBypass != "" {
 		if s.roleAuthorizationMode != RoleAuthorizationModeRBAC || !s.platformCapabilityBypass.Valid() {

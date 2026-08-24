@@ -452,3 +452,46 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 - 本切片没有新增普通用户资源路由、没有打开 ACL/RBAC Feature Flag、没有切换旧分组资格权威源。`ExpandsAccess` 是后续生产 Grant 命令必须显式采用的契约，不能把当前无调用方解释为分享入口已受完整验证。
 - Account/Group Grant 到期目前只递增版本、记录 durable event 并产生 Scheduler 事件。完整 `account_groups` 链接人/授权来源/Owner 批准/验证版本扩展属于任务 4.2，撤权、到期和角色变化后的关系闭包重算属于任务 4.4；1.11 不宣称这些关系已重算。
 - Docker/Testcontainers repository integration suite 仍须在 CI 或有 Docker 的机器以 `CI=1` 动态执行；本机未执行，不能记录为通过。
+
+## 2026-08-24 - Phase 1 Engineering Exit Verification（1.12）
+
+### 实现范围
+
+- 将 Account/Group 稀疏 SQL Scope 从逐行相关 OR 子查询改为同一语句内的候选资源 ID `LATERAL UNION ALL`，再由资源主键连接候选集；Owner、public、直接用户 Grant 和角色 Grant 各自保留可索引分支，过期判断继续使用数据库 `statement_timestamp()`。legacy admin 与 platform capability 全局旁路改为同一快照重校验内的布尔条件，不再生成第二次 Account/Group 候选扫描。
+- migration 242 以 `_notx.sql` 和 `CREATE INDEX CONCURRENTLY` 为 Account/Group 增加 public access 部分索引；migration runner 对这两个索引提供与既有在线索引相同的 invalid-index 清理重试语义。
+- SIMPLE Mode 在 SettingService、生产 PolicyStore 与生成 Scope 三层把 self-service、group sharing 和 account sharing 的有效值强制为 false。数据库 raw flags 保留配置意图，legacy 管理员治理保持兼容，但普通用户不能据此获得 Owner/ACL Scope。
+- `role_authorization_mode` 只接受 canonical `legacy|shadow|rbac`；缺失/空值使用安全默认 `legacy`，带空白、大小写变体和其他 malformed 值按非法值回退 `legacy`。固定 `admin_api_key` Service Principal 在 legacy/shadow 的管理员兼容读取仍可用，但 SQL Scope 每次重新验证固定 code、active 状态和无角色约束。
+- 新增真实 PostgreSQL 跨租户全链矩阵，覆盖 User/Service Principal、Account/Group、搜索、排序、分页、total、详情 IDOR 404、陈旧主体/角色/开关 Scope，以及 Admin API Key code/status 失效。
+- 新增当前 Phase 1 管理员资源写面的双事务 TOCTOU 回归：两个不同管理员 Actor 携带同一 `access_version` 时只能有一个提交；SERIALIZABLE 重试使 mutation closure 可执行 1 或 2 次，竞争 loser 的事务尝试完整回滚，最终业务状态、版本、durable resource event 和 Scheduler Outbox 都恰好一次。真实 `AdminService.ClearAccountError` PostgreSQL 测试证明 production after-commit callback 只在提交后执行且恰好一次，通用 commit/rollback/panic 语义另由 coordinator 单测覆盖；普通 Owner/Grant 写入口尚未开放，其并发矩阵属于 Phase 2/3。
+- 新增 20,000 行 Account/Group 与大规模无关 Grant fixture 的 PostgreSQL EXPLAIN 门禁，明确要求 Owner、public、direct-user Grant、role Grant 四条稀疏索引路径，并禁止稀疏查询的 Account/Group 主表 Seq Scan；另覆盖 Account/Group 的 legacy admin 与 platform capability 全局旁路，要求资源关系在计划中恰好出现一次。
+- 新增从 migration 228 分段升级到当前版本、再重复 `ApplyMigrations` 的 Testcontainers 回归，覆盖存量数据、seed/backfill、trigger、在线索引和幂等；本机没有 Docker，因此仅完成代码审查和 `integration` 标签编译，未取得动态执行结果。
+- production `PolicyService` 的 `CheckCapability`、`CanCreate`、`Authorize` 与 `AccessibleScope` 在 shadow mode 并行计算 legacy/RBAC，observer 只记录比较且响应始终采用 legacy。管理员 JWT 与固定 Admin API Key 生产认证入口已接入 Policy，固定 API Key 的 legacy allow/RBAC deny 可被观察。日志字段仅包含固定枚举，不含主体、角色、Grant 或资源 ID；行为差异记 WARN，等价比较记 INFO，observer panic 不影响授权响应。当前交付的是可由外部系统聚合的结构化日志，没有独立进程内指标计数器。
+
+### 自动化与动态验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| `make -C backend generate` | 通过；生成代码保持最新 |
+| `make -C backend test-unit` | 通过 |
+| authz、SettingService、PolicyStore、SQL Scope 与 migration runner 聚焦 unit/race | 通过 |
+| 跨租户全链与 ResourceMutation TOCTOU PostgreSQL 聚焦 race | 通过 |
+| 相关 authz/service/repository/migration 包 `go vet -tags=unit` | 通过 |
+| 默认标签全仓编译与 `integration` 标签全仓编译 | 通过；仅证明编译，不代表 Testcontainers 动态执行 |
+| `make -C backend build` | 通过；生产 Wire 生成与注入可编译 |
+| frontend ESLint、完整 Vitest、TypeScript/production build | 通过；无 frontend 代码改动，build 仅有既有 chunk/dynamic-import 警告 |
+| PostgreSQL 18.6 PolicyStore expiry、scoped reader、跨租户、Admin API Key、SIMPLE Mode 与 TOCTOU 动态套件 | 通过 |
+| PostgreSQL 18.6 生产规模 SQL Scope EXPLAIN | 通过；四类稀疏索引路径均被采用且 Account/Group 主表无 Seq Scan；legacy admin/platform capability 的 Account/Group 全局计划均只访问资源关系一次 |
+| migration 242 contract、runner invalid-index retry 与 PostgreSQL index validity | 通过 |
+| production role shadow Policy/observer/管理员认证接线 unit 与聚焦 race | 通过；四个 Policy 入口保持 legacy 响应，结构化日志无 ID，observer panic 被隔离 |
+| 228→current 持久升级/reapply Testcontainers | 未运行；本机无 Docker。测试代码和 `integration` 标签编译通过，不得记录为动态通过 |
+| `CI=1 go test -tags=integration ./internal/repository` | 未运行；本机无 Docker，且当前没有 CI 结果链接 |
+| `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
+| `git diff --check` | 通过 |
+
+### Phase 1 Exit Review
+
+- 1.12 当前已实现的本地验证项及 production role shadow 代码已通过，但不能宣称正式 Phase 1 退出；`tasks.md` 的 1.12 必须保持未勾选，任务进度保持 20/49。
+- Phase 0 的 0.4 credentials/extra 清单、0.5 自助平台 allowlist/SSRF/限频策略与 0.8 退出评审尚无批准链接；真实服务器只读 `data-preflight.sql` 结果也未归档。
+- CI/Docker 环境仍须动态运行完整 repository Testcontainers 套件，尤其是 228→current 持久升级/reapply 回归；本地 PostgreSQL harness 和标签编译不能替代该证据。
+- 目标环境仍为 `legacy`。正式退出前必须运行 role-mode readiness，按批准方案推进至 `shadow`，由日志系统聚合 production shadow 记录并归档具体差异指标、日志量与 sink `dropped_count`、观察窗口、回滚结果、PR/CI URL 和平台/认证/安全批准人。
+- SIMPLE Mode 限制是 Phase 1 临时发布护栏，不修改最终产品规格。只有完成 2.6 的 group `0`/平台默认组 `owner_user_id IS NULL` 隔离、生产规模验证和兼容矩阵复审后才可解除。

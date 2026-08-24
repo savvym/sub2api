@@ -10,6 +10,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/authz"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
 type authzPolicyQueryer interface {
@@ -17,8 +18,9 @@ type authzPolicyQueryer interface {
 }
 
 type authzPolicyStore struct {
-	client  *dbent.Client
-	queryer authzPolicyQueryer
+	client     *dbent.Client
+	queryer    authzPolicyQueryer
+	simpleMode bool
 }
 
 var (
@@ -26,8 +28,11 @@ var (
 	_ authz.ActorResolverStore = (*authzPolicyStore)(nil)
 )
 
-func NewAuthzPolicyStore(client *dbent.Client) authz.PolicyStore {
-	return &authzPolicyStore{client: client}
+func NewAuthzPolicyStore(client *dbent.Client, cfg *config.Config) authz.PolicyStore {
+	return &authzPolicyStore{
+		client:     client,
+		simpleMode: cfg != nil && cfg.RunMode == config.RunModeSimple,
+	}
 }
 
 func NewAuthzActorResolverStore(client *dbent.Client) authz.ActorResolverStore {
@@ -55,6 +60,7 @@ func (s *authzPolicyStore) LoadSubjectSnapshot(ctx context.Context, subject auth
 	if err != nil {
 		return authz.SubjectSnapshot{}, err
 	}
+	s.applyRuntimeConfiguration(&document)
 	return document.subjectSnapshot(subject)
 }
 
@@ -79,6 +85,7 @@ func (s *authzPolicyStore) LoadServicePrincipalSubjectSnapshotByCode(ctx context
 	if err != nil {
 		return authz.SubjectSnapshot{}, err
 	}
+	s.applyRuntimeConfiguration(&document)
 	if document.SubjectID <= 0 || !document.Subject.Exists {
 		return authz.SubjectSnapshot{}, authz.ErrInvalidPolicySnapshot
 	}
@@ -112,11 +119,21 @@ func (s *authzPolicyStore) LoadResourceAccessSnapshot(ctx context.Context, subje
 	if err != nil {
 		return authz.ResourceAccessSnapshot{}, err
 	}
+	s.applyRuntimeConfiguration(&document)
 	subjectSnapshot, err := document.subjectSnapshot(subject)
 	if err != nil {
 		return authz.ResourceAccessSnapshot{}, err
 	}
 	return document.resourceSnapshot(subjectSnapshot, resource)
+}
+
+func (s *authzPolicyStore) applyRuntimeConfiguration(document *rawAuthzPolicyDocument) {
+	if s == nil || document == nil || !s.simpleMode {
+		return
+	}
+	document.Configuration.SelfServiceHostingEnabled = false
+	document.Configuration.GroupSharingEnabled = false
+	document.Configuration.AccountSharingEnabled = false
 }
 
 func (s *authzPolicyStore) queryerForContext(ctx context.Context) authzPolicyQueryer {

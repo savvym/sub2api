@@ -88,6 +88,7 @@
 - 多个有效来源提供相同最高访问级别时，审计归因固定为 public、直接用户 Grant、角色 Grant；同类 Grant 选择最小 Grant ID，角色 Grant 再以最小 Role ID 决定，避免查询计划改变审计结果。
 - `group_sharing_enabled` 或 `account_sharing_enabled` 的有效值关闭时，对应资源已有 public 和直接用户 Grant 立即停止放行，但不删除数据；重新开启后只恢复仍未过期且主体有效的来源。角色 Grant 还必须同时满足 `role_based_resource_grants_enabled`。
 - 总开关或 self-service 有效值关闭时，Owner/ACL 自助放行 fail closed；存量 legacy 管理员治理仍按阶段权威源兼容，不能把这一兼容扩大为普通用户放行。
+- 在任务 2.6 完成 group `0` 与平台默认组的 `owner_user_id IS NULL` 隔离前，SIMPLE Mode 必须在 Setting、Policy 和 SQL Scope 边界把 self-service 及两类 sharing 的有效值强制为 false；数据库原始 true 值只保留配置意图，不能产生普通用户允许。解除该临时发布护栏必须重新评审兼容矩阵。
 - System Actor 默认不能通过通用 `CheckCapability`、`CanCreate` 或 `Authorize`。需要持久授权写入的 Worker 必须使用 Service Principal；未来只读 Worker 逐项评审并维护显式 allowlist，不提供全局系统旁路。
 
 ## Risks / Trade-offs
