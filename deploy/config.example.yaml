@@ -672,8 +672,8 @@ api_key_auth_cache:
   # L1 cache TTL (seconds)
   # L1 缓存 TTL（秒）
   l1_ttl_seconds: 15
-  # L2 cache TTL (seconds), stored in Redis
-  # L2 缓存 TTL（秒），Redis 中存储
+  # L2 cache TTL (seconds), stored in Redis; positive auth snapshots are capped to a 30-second absolute lifetime
+  # L2 缓存 TTL（秒），Redis 中存储；正向鉴权快照运行时仍受首次创建起 30 秒绝对上限约束
   l2_ttl_seconds: 300
   # Negative cache TTL (seconds)
   # 负缓存 TTL（秒）

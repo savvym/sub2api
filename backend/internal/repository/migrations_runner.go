@@ -63,6 +63,10 @@ const usageLogsEffectiveModelIndexesMigration = "226_add_usage_log_effective_mod
 const usageLogsEffectiveRequestedModelIndex = "idx_usage_logs_effective_requested_model_created"
 const usageLogsEffectiveUpstreamModelIndex = "idx_usage_logs_effective_upstream_model_created"
 const resourceAccessControlFoundationIndexesMigration = "231_resource_access_control_foundation_indexes_notx.sql"
+const authCacheInvalidationPriorityIndexMigration = "240_auth_cache_invalidation_priority_index_notx.sql"
+const authCacheInvalidationPriorityIndex = "idx_auth_cache_invalidation_outbox_stage_available"
+const schedulerOutboxClaimIndexMigration = "241_scheduler_outbox_claim_index_notx.sql"
+const schedulerOutboxClaimIndex = "idx_scheduler_outbox_claimable"
 
 var resourceAccessControlFoundationIndexes = [...]string{
 	"idx_accounts_owner_user_id",
@@ -321,6 +325,10 @@ func prepareNonTransactionalMigration(ctx context.Context, db migrationConnectio
 			}
 		}
 		return nil
+	case authCacheInvalidationPriorityIndexMigration:
+		return dropInvalidIndexIfPresent(ctx, db, authCacheInvalidationPriorityIndex)
+	case schedulerOutboxClaimIndexMigration:
+		return dropInvalidIndexIfPresent(ctx, db, schedulerOutboxClaimIndex)
 	default:
 		return nil
 	}

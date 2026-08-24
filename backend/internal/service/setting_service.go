@@ -121,6 +121,7 @@ type SettingService struct {
 	defaultSubGroupReader       DefaultSubscriptionGroupReader
 	proxyRepo                   ProxyRepository // for resolving websearch provider proxy URLs
 	cfg                         *config.Config
+	authorizationPropagation    *AuthorizationPropagationGuard
 	onUpdate                    func() // Callback when settings are updated (for cache invalidation)
 	version                     string // Application version
 	webSearchManagerBuilder     WebSearchManagerBuilder
@@ -297,6 +298,13 @@ func (s *SettingService) SetDefaultSubscriptionGroupReader(reader DefaultSubscri
 // SetProxyRepository injects a proxy repo for resolving websearch provider proxy URLs.
 func (s *SettingService) SetProxyRepository(repo ProxyRepository) {
 	s.proxyRepo = repo
+}
+
+func (s *SettingService) SetAuthorizationPropagationGuard(guard *AuthorizationPropagationGuard) {
+	if s == nil {
+		return
+	}
+	s.authorizationPropagation = guard
 }
 
 func (s *SettingService) LoadForwardedClientIPSettings(ctx context.Context) error {

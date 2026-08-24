@@ -231,7 +231,7 @@ func (p authzScopeSQLPlan) predicateSQL(columns authzScopeResourceColumns) (stri
 				WHERE direct_grant.%s = %s
 				  AND direct_grant.grantee_user_id = current_subject.id
 				  AND direct_grant.access_level = ANY(?::text[])
-				  AND (direct_grant.expires_at IS NULL OR direct_grant.expires_at > CURRENT_TIMESTAMP)
+				  AND (direct_grant.expires_at IS NULL OR direct_grant.expires_at > statement_timestamp())
 			)
 		)`, sharingFlag, grantTable, resourceIDColumn, columns.id))
 		args = append(args, pq.Array(p.grantAccessLevels))
@@ -248,7 +248,7 @@ func (p authzScopeSQLPlan) predicateSQL(columns authzScopeResourceColumns) (stri
 				JOIN active_roles ON active_roles.id = role_grant.grantee_role_id
 				WHERE role_grant.%s = %s
 				  AND role_grant.access_level = ANY(?::text[])
-				  AND (role_grant.expires_at IS NULL OR role_grant.expires_at > CURRENT_TIMESTAMP)
+				  AND (role_grant.expires_at IS NULL OR role_grant.expires_at > statement_timestamp())
 			)
 		)`, sharingFlag, grantTable, resourceIDColumn, columns.id))
 		args = append(args, pq.Array(p.grantAccessLevels))
@@ -306,7 +306,7 @@ func (p authzScopeSQLPlan) subjectSQL() (subjectRow, activeRoles, activeConditio
 			FROM user_roles assignment
 			JOIN roles role ON role.id = assignment.role_id
 			JOIN current_subject ON current_subject.id = assignment.user_id
-			WHERE assignment.expires_at IS NULL OR assignment.expires_at > CURRENT_TIMESTAMP
+			WHERE assignment.expires_at IS NULL OR assignment.expires_at > statement_timestamp()
 		`, `current_subject.status = 'active' AND current_subject.deleted_at IS NULL`, `current_subject.role = 'admin'`
 	case authz.SubjectKindServicePrincipal:
 		return `
@@ -318,7 +318,7 @@ func (p authzScopeSQLPlan) subjectSQL() (subjectRow, activeRoles, activeConditio
 			FROM service_principal_roles assignment
 			JOIN roles role ON role.id = assignment.role_id
 			JOIN current_subject ON current_subject.id = assignment.service_principal_id
-			WHERE assignment.expires_at IS NULL OR assignment.expires_at > CURRENT_TIMESTAMP
+			WHERE assignment.expires_at IS NULL OR assignment.expires_at > statement_timestamp()
 		`, `current_subject.status = 'active'`, `FALSE`
 	default:
 		return `SELECT NULL::bigint AS id WHERE FALSE`, `SELECT NULL::bigint AS id, NULL::bigint AS authz_version WHERE FALSE`, `FALSE`, `FALSE`

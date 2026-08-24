@@ -743,6 +743,57 @@ func TestResourceMutationCoordinatorDoesNotVersionAuthorizationOnlyTargets(t *te
 	require.Equal(t, mutatedKey, repo.events[0].Key)
 }
 
+func TestResourceMutationCoordinatorBlocksOnlyAccessExpansionWhenPropagationIsDegraded(t *testing.T) {
+	actor := adminResourceUserTestActor(t)
+	_, subjectSnapshot, resourceSnapshot := resourceMutationPolicyFixtures(t, actor, true)
+	repo := &resourceMutationRepositoryStub{states: make(map[ResourceMutationKey]ResourceMutationState)}
+	coordinator := NewResourceMutationCoordinator(
+		repo,
+		resourceMutationResolverStub{actor: actor},
+		authz.NewPolicyService(resourceMutationPolicyStoreStub{subject: subjectSnapshot, resource: resourceSnapshot}),
+	)
+	coordinator.propagationGuard = newAuthorizationPropagationGuard(
+		authorizationPropagationStatsStub{err: errors.New("stats unavailable")},
+		authorizationPropagationWorkerStub{name: "auth_cache_invalidation", running: true},
+		authorizationPropagationWorkerStub{name: "scheduler_outbox", running: true},
+		authorizationPropagationWorkerStub{name: "authorization_expiry", running: true},
+	)
+
+	mutateCalls := 0
+	err := coordinator.Execute(context.Background(), actor, ResourceMutationCommand{
+		ExpandsAccess: true,
+	}, func(context.Context) ([]CreatedResourceMutation, error) {
+		mutateCalls++
+		return nil, nil
+	})
+	require.ErrorIs(t, err, ErrAuthorizationPropagationDegraded)
+	require.Zero(t, mutateCalls)
+	require.Empty(t, repo.calls)
+
+	err = coordinator.Execute(context.Background(), actor, ResourceMutationCommand{}, func(context.Context) ([]CreatedResourceMutation, error) {
+		mutateCalls++
+		return nil, errResourceMutationNoop
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, mutateCalls)
+	require.Equal(t, []string{"tx", "actor", "resources"}, repo.calls)
+}
+
+func TestResourceMutationCoordinatorExpansionFailsClosedWithoutPropagationGuard(t *testing.T) {
+	actor := adminResourceUserTestActor(t)
+	_, subjectSnapshot, resourceSnapshot := resourceMutationPolicyFixtures(t, actor, true)
+	coordinator := NewResourceMutationCoordinator(
+		&resourceMutationRepositoryStub{states: make(map[ResourceMutationKey]ResourceMutationState)},
+		resourceMutationResolverStub{actor: actor},
+		authz.NewPolicyService(resourceMutationPolicyStoreStub{subject: subjectSnapshot, resource: resourceSnapshot}),
+	)
+
+	err := coordinator.Execute(context.Background(), actor, ResourceMutationCommand{ExpandsAccess: true}, func(context.Context) ([]CreatedResourceMutation, error) {
+		return nil, nil
+	})
+	require.ErrorIs(t, err, ErrAuthorizationPropagationDegraded)
+}
+
 func TestResourceMutationAuditTraceIsBounded(t *testing.T) {
 	ctx := WithResourceMutationAuditTrace(context.Background(), ResourceMutationAuditTrace{
 		Method:      strings.Repeat("m", 20),

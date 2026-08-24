@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/lib/pq"
 )
 
 type authCacheInvalidationOutboxRepository struct {
@@ -34,9 +35,12 @@ func (r *authCacheInvalidationOutboxRepository) Claim(ctx context.Context, worke
 		WITH candidates AS (
 			SELECT id
 			FROM auth_cache_invalidation_outbox
-			WHERE available_at <= NOW()
-			  AND (claimed_at IS NULL OR claimed_at < NOW() - ($3 * INTERVAL '1 second'))
-			ORDER BY id ASC
+				WHERE available_at <= statement_timestamp()
+				  AND (
+					claimed_at IS NULL
+					OR claimed_at < statement_timestamp() - ($3 * INTERVAL '1 second')
+				  )
+				ORDER BY delivery_stage ASC, available_at ASC, id ASC
 			LIMIT $2
 			FOR UPDATE SKIP LOCKED
 		)
@@ -66,16 +70,16 @@ func (r *authCacheInvalidationOutboxRepository) Claim(ctx context.Context, worke
 	return events, nil
 }
 
-func (r *authCacheInvalidationOutboxRepository) ScheduleSecondPass(ctx context.Context, id int64, workerID string, availableAt time.Time) error {
+func (r *authCacheInvalidationOutboxRepository) ScheduleSecondPass(ctx context.Context, id int64, workerID string, delay time.Duration) error {
 	result, err := r.db.ExecContext(ctx, `
 		UPDATE auth_cache_invalidation_outbox
 		SET delivery_stage = 1,
-			available_at = $3,
+			available_at = statement_timestamp() + ($3 * INTERVAL '1 millisecond'),
 			last_error = NULL,
 			claimed_at = NULL,
 			claimed_by = NULL
 		WHERE id = $1 AND claimed_by = $2 AND delivery_stage = 0
-	`, id, workerID, availableAt)
+	`, id, workerID, delay.Milliseconds())
 	if err != nil {
 		return err
 	}
@@ -107,16 +111,16 @@ func (r *authCacheInvalidationOutboxRepository) DeleteClaimed(ctx context.Contex
 	return nil
 }
 
-func (r *authCacheInvalidationOutboxRepository) RetryClaimed(ctx context.Context, id int64, workerID string, availableAt time.Time, lastError string) error {
+func (r *authCacheInvalidationOutboxRepository) RetryClaimed(ctx context.Context, id int64, workerID string, delay time.Duration, lastError string) error {
 	result, err := r.db.ExecContext(ctx, `
 		UPDATE auth_cache_invalidation_outbox
 		SET attempts = attempts + 1,
-			available_at = $3,
+			available_at = statement_timestamp() + ($3 * INTERVAL '1 millisecond'),
 			last_error = $4,
 			claimed_at = NULL,
 			claimed_by = NULL
 		WHERE id = $1 AND claimed_by = $2
-	`, id, workerID, availableAt, lastError)
+	`, id, workerID, delay.Milliseconds(), lastError)
 	if err != nil {
 		return err
 	}
@@ -130,30 +134,106 @@ func (r *authCacheInvalidationOutboxRepository) RetryClaimed(ctx context.Context
 	return nil
 }
 
+func (r *authCacheInvalidationOutboxRepository) ReleaseClaims(
+	ctx context.Context,
+	workerID string,
+	eventIDs []int64,
+) error {
+	if r == nil || r.db == nil || ctx == nil || workerID == "" {
+		return errors.New("invalid auth cache invalidation claim release")
+	}
+	if len(eventIDs) == 0 {
+		return nil
+	}
+	for _, eventID := range eventIDs {
+		if eventID <= 0 {
+			return errors.New("invalid auth cache invalidation claim release")
+		}
+	}
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE auth_cache_invalidation_outbox
+		SET claimed_at = NULL,
+			claimed_by = NULL
+		WHERE claimed_by = $1
+		  AND id = ANY($2::BIGINT[])
+	`, workerID, pq.Array(eventIDs))
+	return err
+}
+
 func (r *authCacheInvalidationOutboxRepository) Stats(ctx context.Context) (service.AuthCacheInvalidationOutboxStats, error) {
 	var (
-		stats     service.AuthCacheInvalidationOutboxStats
-		oldest    sql.NullTime
-		lastError sql.NullString
+		stats           service.AuthCacheInvalidationOutboxStats
+		oldest          sql.NullTime
+		lastError       sql.NullString
+		stage0Oldest    sql.NullTime
+		stage0LastError sql.NullString
+		stage1Oldest    sql.NullTime
+		stage1LastError sql.NullString
 	)
 	err := r.db.QueryRowContext(ctx, `
-		SELECT COUNT(*), MIN(created_at), COALESCE(MAX(attempts), 0),
+		SELECT
+			COUNT(*),
+			MIN(created_at),
+			COALESCE(MAX(attempts), 0),
 			(SELECT last_error
 			 FROM auth_cache_invalidation_outbox
 			 WHERE last_error IS NOT NULL
 			 ORDER BY available_at DESC, id DESC
+			 LIMIT 1),
+			COUNT(*) FILTER (WHERE delivery_stage = 0),
+			MIN(created_at) FILTER (WHERE delivery_stage = 0),
+			COALESCE(MAX(attempts) FILTER (WHERE delivery_stage = 0), 0),
+			(SELECT last_error
+			 FROM auth_cache_invalidation_outbox
+			 WHERE delivery_stage = 0 AND last_error IS NOT NULL
+			 ORDER BY available_at DESC, id DESC
+			 LIMIT 1),
+			COUNT(*) FILTER (WHERE delivery_stage = 1),
+			MIN(created_at) FILTER (WHERE delivery_stage = 1),
+			COALESCE(MAX(attempts) FILTER (WHERE delivery_stage = 1), 0),
+			(SELECT last_error
+			 FROM auth_cache_invalidation_outbox
+			 WHERE delivery_stage = 1 AND last_error IS NOT NULL
+			 ORDER BY available_at DESC, id DESC
 			 LIMIT 1)
 		FROM auth_cache_invalidation_outbox
-	`).Scan(&stats.Pending, &oldest, &stats.MaxAttempts, &lastError)
+	`).Scan(
+		&stats.Pending,
+		&oldest,
+		&stats.MaxAttempts,
+		&lastError,
+		&stats.Stage0.Pending,
+		&stage0Oldest,
+		&stats.Stage0.MaxAttempts,
+		&stage0LastError,
+		&stats.Stage1.Pending,
+		&stage1Oldest,
+		&stats.Stage1.MaxAttempts,
+		&stage1LastError,
+	)
 	if err != nil {
 		return stats, err
 	}
-	if oldest.Valid {
-		value := oldest.Time
-		stats.OldestCreatedAt = &value
-	}
-	if lastError.Valid {
-		stats.LastError = lastError.String
-	}
+	stats.OldestCreatedAt = authCacheInvalidationNullableTime(oldest)
+	stats.LastError = authCacheInvalidationNullableString(lastError)
+	stats.Stage0.OldestCreatedAt = authCacheInvalidationNullableTime(stage0Oldest)
+	stats.Stage0.LastError = authCacheInvalidationNullableString(stage0LastError)
+	stats.Stage1.OldestCreatedAt = authCacheInvalidationNullableTime(stage1Oldest)
+	stats.Stage1.LastError = authCacheInvalidationNullableString(stage1LastError)
 	return stats, nil
+}
+
+func authCacheInvalidationNullableTime(value sql.NullTime) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	timestamp := value.Time
+	return &timestamp
+}
+
+func authCacheInvalidationNullableString(value sql.NullString) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.String
 }

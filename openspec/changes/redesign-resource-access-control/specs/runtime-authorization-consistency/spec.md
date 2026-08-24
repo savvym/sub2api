@@ -21,7 +21,7 @@ API Key 创建或更新时 SHALL 检查 Owner 当前的 `group.use` 与业务资
 - **THEN** 消费 MUST 幂等并最终生成同一授权/调度状态
 
 ### Requirement: 撤权和到期必须满足有界传播
-主动撤权 SHALL 以 99.9% 在 5 秒内收敛为目标；任何 ACL allow cache TTL MUST 不超过 30 秒。`expires_at <= now` 必须在同步 Policy 判定中立即视为无效，协调器只负责版本、审计、缓存和关系的最终收敛。
+主动撤权 SHALL 以 99.9% 在 5 秒内收敛为目标；任何 ACL allow cache TTL MUST 不超过 30 秒。API Key 正向 allow snapshot 的 30 秒窗口 MUST 从首次权威快照创建起算，rewrite、缓存层迁移或跨实例读取 MUST NOT 重置或延长该窗口；pre-v22、缺失创建时间、已到期或相对读取实例处于未来的 snapshot MUST 视为 miss 并重新检查权威源。`expires_at <= now` 必须在同步 Policy 判定中立即视为无效，协调器只负责版本、审计、缓存和关系的最终收敛。
 
 #### Scenario: 协调器延迟处理到期 Grant
 - **WHEN** 当前时间已经到达 expires_at 但后台任务尚未运行
@@ -32,6 +32,12 @@ API Key 创建或更新时 SHALL 检查 Owner 当前的 `group.use` 与业务资
 - **WHEN** 失效延迟超过安全阈值
 - **THEN** 系统 MUST 禁止扩大分享并对无法确认的新允许 fail closed
 - **THEN** 恢复后 MUST 重放和对账而不是丢弃事件
+
+#### Scenario: 跨实例读取或重写正向 API Key 快照
+- **WHEN** v22 allow snapshot 已写入 L1/L2，随后同一 snapshot 被重写或由另一实例从 L2 读取
+- **THEN** 总允许生存期 MUST 仍受首次创建起 30 秒绝对窗口约束，rewrite MUST NOT 续期
+- **THEN** 接收实例 MUST NOT 依据本机墙钟把正向 L2 命中提升为新的 L1 deadline，跨实例期限必须保留 Redis 相对 TTL 的权威性
+- **THEN** 无效 L2 旧读 MUST 只触发权威回源，MUST NOT 无条件删除 L2 或广播失效而覆盖可能已并发刷新的新值
 
 ### Requirement: 长连接、重试和异步任务不得跨越撤权边界
 Responses WebSocket 的每个新 turn、粘性会话 retry/fallback 和 queued 异步任务 SHALL 在选择/复用帐号前检查当前授权版本。连接建立时的允许 MUST NOT 永久延续到后续工作。

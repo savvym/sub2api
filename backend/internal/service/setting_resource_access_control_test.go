@@ -196,6 +196,112 @@ func TestResourceAccessControlRuntimeSettings_NonCanonicalBooleanFailsClosed(t *
 	}, svc.GetResourceAccessControlRuntimeSettings(context.Background()))
 }
 
+func TestResourceAccessControlExpansionDetectionUsesEffectiveBeforeAndAfterState(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		current  map[string]string
+		settings SystemSettings
+		omitted  OmittedSettingKeys
+		expands  bool
+	}{
+		{
+			name: "master activates stored grants",
+			current: map[string]string{
+				SettingKeyResourceAccessControlEnabled:   "false",
+				SettingKeySelfServiceHostingEnabled:      "true",
+				SettingKeyGroupSharingEnabled:            "true",
+				SettingKeyAccountSharingEnabled:          "true",
+				SettingKeyRoleBasedResourceGrantsEnabled: "true",
+			},
+			settings: SystemSettings{
+				ResourceAccessControlEnabled:   true,
+				SelfServiceHostingEnabled:      true,
+				GroupSharingEnabled:            true,
+				AccountSharingEnabled:          true,
+				RoleBasedResourceGrantsEnabled: true,
+			},
+			expands: true,
+		},
+		{
+			name: "omitted true field preserves disabled state",
+			current: map[string]string{
+				SettingKeyResourceAccessControlEnabled: "false",
+			},
+			settings: SystemSettings{ResourceAccessControlEnabled: true},
+			omitted:  OmittedSettingKeys{SettingKeyResourceAccessControlEnabled: {}},
+		},
+		{
+			name: "disabling all features is restrictive",
+			current: map[string]string{
+				SettingKeyResourceAccessControlEnabled:   "true",
+				SettingKeySelfServiceHostingEnabled:      "true",
+				SettingKeyGroupSharingEnabled:            "true",
+				SettingKeyAccountSharingEnabled:          "true",
+				SettingKeyRoleBasedResourceGrantsEnabled: "true",
+			},
+			settings: SystemSettings{},
+		},
+		{
+			name: "enabling group storage while master remains off is not effective expansion",
+			current: map[string]string{
+				SettingKeyResourceAccessControlEnabled: "false",
+				SettingKeyGroupSharingEnabled:          "false",
+			},
+			settings: SystemSettings{GroupSharingEnabled: true},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			svc := NewSettingService(&resourceAccessControlSettingRepoStub{values: testCase.current}, &config.Config{})
+			expands, err := svc.resourceAccessControlUpdateExpands(context.Background(), &testCase.settings, testCase.omitted)
+			require.NoError(t, err)
+			require.Equal(t, testCase.expands, expands)
+		})
+	}
+}
+
+func TestAdminResourceAccessControlUpdateBlocksOnlyExpansionDuringPropagationDegradation(t *testing.T) {
+	degradedGuard := newAuthorizationPropagationGuard(
+		authorizationPropagationStatsStub{err: errors.New("stats unavailable")},
+		authorizationPropagationWorkerStub{name: "auth_cache_invalidation", running: true},
+		authorizationPropagationWorkerStub{name: "scheduler_outbox", running: true},
+		authorizationPropagationWorkerStub{name: "authorization_expiry", running: true},
+	)
+	actor := adminResourceUserTestActor(t)
+
+	t.Run("expansion is rejected before write", func(t *testing.T) {
+		repo := &resourceAccessControlSettingRepoStub{values: map[string]string{
+			SettingKeyResourceAccessControlEnabled: "false",
+		}}
+		svc := NewSettingService(repo, &config.Config{})
+		svc.SetAuthorizationPropagationGuard(degradedGuard)
+		err := svc.AdminUpdateSettingsWithAuthSourceDefaultsOmitting(
+			context.Background(), actor,
+			&SystemSettings{ResourceAccessControlEnabled: true},
+			&AuthSourceDefaultSettings{}, nil,
+		)
+		require.ErrorIs(t, err, ErrAuthorizationPropagationDegraded)
+		require.Nil(t, repo.updates)
+	})
+
+	t.Run("restriction remains available", func(t *testing.T) {
+		repo := &resourceAccessControlSettingRepoStub{values: map[string]string{
+			SettingKeyResourceAccessControlEnabled:   "true",
+			SettingKeySelfServiceHostingEnabled:      "true",
+			SettingKeyGroupSharingEnabled:            "true",
+			SettingKeyAccountSharingEnabled:          "true",
+			SettingKeyRoleBasedResourceGrantsEnabled: "true",
+		}}
+		svc := NewSettingService(repo, &config.Config{})
+		svc.SetAuthorizationPropagationGuard(degradedGuard)
+		err := svc.AdminUpdateSettingsWithAuthSourceDefaultsOmitting(
+			context.Background(), actor, &SystemSettings{}, &AuthSourceDefaultSettings{}, nil,
+		)
+		require.NoError(t, err)
+		require.Equal(t, "false", repo.updates[SettingKeyResourceAccessControlEnabled])
+		require.Equal(t, "false", repo.updates[SettingKeyGroupSharingEnabled])
+	})
+}
+
 func TestResourceAccessControlSettings_DefaultParsingAndPersistence(t *testing.T) {
 	t.Run("missing values parse to safe defaults", func(t *testing.T) {
 		svc := NewSettingService(&resourceAccessControlSettingRepoStub{

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"strconv"
 	"strings"
 )
 
@@ -25,6 +26,74 @@ var resourceAccessControlSettingKeys = []string{
 	SettingKeyAccountSharingEnabled,
 	SettingKeyRoleBasedResourceGrantsEnabled,
 	SettingKeyRoleAuthorizationMode,
+}
+
+type resourceAccessControlExpansionState struct {
+	master     bool
+	selfServe  bool
+	groupShare bool
+	acctShare  bool
+	roleGrants bool
+}
+
+func (s *SettingService) resourceAccessControlUpdateExpands(
+	ctx context.Context,
+	settings *SystemSettings,
+	omitted OmittedSettingKeys,
+) (bool, error) {
+	if settings == nil {
+		return false, nil
+	}
+	requested := map[string]bool{
+		SettingKeyResourceAccessControlEnabled:   settings.ResourceAccessControlEnabled,
+		SettingKeySelfServiceHostingEnabled:      settings.SelfServiceHostingEnabled,
+		SettingKeyGroupSharingEnabled:            settings.GroupSharingEnabled,
+		SettingKeyAccountSharingEnabled:          settings.AccountSharingEnabled,
+		SettingKeyRoleBasedResourceGrantsEnabled: settings.RoleBasedResourceGrantsEnabled,
+	}
+
+	current, err := s.settingRepo.GetMultiple(ctx, resourceAccessControlSettingKeys)
+	if err != nil {
+		// A true value may activate a stored authorization path. When the previous
+		// state is unknown, treat it as an expansion candidate; explicit false-only
+		// updates remain available for emergency restriction.
+		for key, enabled := range requested {
+			if _, skip := omitted[key]; !skip && enabled {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+
+	proposed := make(map[string]string, len(current)+len(requested))
+	for key, value := range current {
+		proposed[key] = value
+	}
+	for key, enabled := range requested {
+		if _, skip := omitted[key]; skip {
+			continue
+		}
+		proposed[key] = strconv.FormatBool(enabled)
+	}
+	before := resourceAccessControlExpansionStateFromValues(current)
+	after := resourceAccessControlExpansionStateFromValues(proposed)
+	return (!before.master && after.master) ||
+		(!before.selfServe && after.selfServe) ||
+		(!before.groupShare && after.groupShare) ||
+		(!before.acctShare && after.acctShare) ||
+		(!before.roleGrants && after.roleGrants), nil
+}
+
+func resourceAccessControlExpansionStateFromValues(values map[string]string) resourceAccessControlExpansionState {
+	master := values[SettingKeyResourceAccessControlEnabled] == "true"
+	selfServe := master && values[SettingKeySelfServiceHostingEnabled] == "true"
+	return resourceAccessControlExpansionState{
+		master:     master,
+		selfServe:  selfServe,
+		groupShare: selfServe && values[SettingKeyGroupSharingEnabled] == "true",
+		acctShare:  selfServe && values[SettingKeyAccountSharingEnabled] == "true",
+		roleGrants: master && values[SettingKeyRoleBasedResourceGrantsEnabled] == "true",
+	}
 }
 
 // GetResourceAccessControlRuntimeSettings returns the effective feature state.

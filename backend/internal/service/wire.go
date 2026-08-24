@@ -725,6 +725,7 @@ func ProvideOpsService(
 	settingService *SettingService,
 	authCacheInvalidationWorker *AuthCacheInvalidationWorker,
 	apiKeyService *APIKeyService,
+	authorizationPropagation *AuthorizationPropagationGuard,
 ) *OpsService {
 	svc := NewOpsService(
 		opsRepo,
@@ -747,6 +748,7 @@ func ProvideOpsService(
 	}
 	svc.authCacheInvalidationWorker = authCacheInvalidationWorker
 	svc.apiKeyService = apiKeyService
+	svc.authorizationPropagation = authorizationPropagation
 	svc.StartRuntimeSettingsRefresh(context.Background())
 	return svc
 }
@@ -765,10 +767,17 @@ func ProvideOpsIngressRejectAggregator(opsRepo OpsRepository, opsService *OpsSer
 }
 
 // ProvideSettingService wires SettingService with group reader and proxy repo.
-func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, cfg *config.Config) *SettingService {
+func ProvideSettingService(
+	settingRepo SettingRepository,
+	groupRepo GroupRepository,
+	proxyRepo ProxyRepository,
+	cfg *config.Config,
+	authorizationPropagation *AuthorizationPropagationGuard,
+) *SettingService {
 	svc := NewSettingService(settingRepo, cfg)
 	svc.SetDefaultSubscriptionGroupReader(groupRepo)
 	svc.SetProxyRepository(proxyRepo)
+	svc.SetAuthorizationPropagationGuard(authorizationPropagation)
 	if err := svc.LoadForwardedClientIPSettings(context.Background()); err != nil {
 		logger.LegacyPrintf("service.setting", "Warning: load forwarded client IP settings failed: %v", err)
 	}
@@ -827,7 +836,9 @@ var ProviderSet = wire.NewSet(
 	// Core services
 	ProvideAuthService,
 	ProvideResourcePolicy,
-	NewResourceMutationCoordinator,
+	ProvideResourceMutationCoordinator,
+	ProvideAuthorizationExpiryWorker,
+	ProvideAuthorizationPropagationGuard,
 	NewRoleService,
 	NewPasskeyService,
 	NewUserService,

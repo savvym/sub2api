@@ -1239,7 +1239,7 @@ role_based_resource_grants_enabled
 - 多实例 L1/L2 缓存不会继续接受已撤销权限。
 - Outbox 积压恢复后最终状态正确，重复消费幂等。
 - 分享变化不改变无关分组的调度快照。
-- API Key 鉴权快照版本升级后不会读取 v20 旧结构。
+- API Key 鉴权快照升级到 v22 后拒绝所有 pre-v22 结构；首次写入起 30 秒绝对窗口、进程内 monotonic deadline、rewrite 不续期和正向 L2 不提升 L1 共同阻止跨实例续命。
 - Grant 在 `expires_at` 到点后即使缓存未自然过期也会被拒绝。
 - WebSocket 下一 turn、queued 异步任务和撤权后的 retry/fallback 遵循 13.4 的检查点。
 - 撤销 Account Grant 会同步移除无其他依据的 `account_groups`，并刷新新旧 Scheduler bucket。

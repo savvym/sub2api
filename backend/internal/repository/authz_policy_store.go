@@ -444,7 +444,7 @@ active_roles AS (
 	FROM service_principal_roles spr
 	JOIN subject_row sr ON sr.id = spr.service_principal_id
 	JOIN roles r ON r.id = spr.role_id
-	WHERE spr.expires_at IS NULL OR spr.expires_at > CURRENT_TIMESTAMP
+	WHERE spr.expires_at IS NULL OR spr.expires_at > statement_timestamp()
 ),
 current_capabilities AS (
 	SELECT DISTINCT p.code
@@ -531,7 +531,7 @@ func authzSubjectCTEs(kind authz.SubjectKind) (subjectRow, activeRoles string) {
 			FROM user_roles ur
 			JOIN roles r ON r.id = ur.role_id
 			WHERE ur.user_id = $1
-			  AND (ur.expires_at IS NULL OR ur.expires_at > CURRENT_TIMESTAMP)
+			  AND (ur.expires_at IS NULL OR ur.expires_at > statement_timestamp())
 		`
 	case authz.SubjectKindServicePrincipal:
 		return `
@@ -543,7 +543,7 @@ func authzSubjectCTEs(kind authz.SubjectKind) (subjectRow, activeRoles string) {
 			FROM service_principal_roles spr
 			JOIN roles r ON r.id = spr.role_id
 			WHERE spr.service_principal_id = $1
-			  AND (spr.expires_at IS NULL OR spr.expires_at > CURRENT_TIMESTAMP)
+			  AND (spr.expires_at IS NULL OR spr.expires_at > statement_timestamp())
 		`
 	default:
 		return `SELECT NULL::bigint AS id WHERE FALSE`, `SELECT NULL::bigint AS id, NULL::bigint AS authz_version WHERE FALSE`
@@ -595,7 +595,7 @@ func authzResourceCTEs(kind authz.SubjectKind, resourceType authz.ResourceType) 
 			FROM %s
 			WHERE %s = $2
 			  AND grantee_user_id = $1
-			  AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+			  AND (expires_at IS NULL OR expires_at > statement_timestamp())
 		`, grantTable, resourceIDColumn)
 	} else {
 		userGrants = `SELECT NULL::bigint AS id, NULL::text AS access_level WHERE FALSE`
@@ -605,7 +605,7 @@ func authzResourceCTEs(kind authz.SubjectKind, resourceType authz.ResourceType) 
 		FROM %s grants
 		JOIN active_roles ar ON ar.id = grants.grantee_role_id
 		WHERE grants.%s = $2
-		  AND (grants.expires_at IS NULL OR grants.expires_at > CURRENT_TIMESTAMP)
+		  AND (grants.expires_at IS NULL OR grants.expires_at > statement_timestamp())
 	`, grantTable, resourceIDColumn)
 	return resourceRow, userGrants, roleGrants
 }

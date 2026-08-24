@@ -654,8 +654,8 @@ func TestAuthzPolicyStorePropagatesSQLAndRowErrors(t *testing.T) {
 }
 
 func TestAuthzPolicyStoreSQLUsesStrictDatabaseExpiryBoundary(t *testing.T) {
-	strictExpiry := regexp.MustCompile(`expires_at\s*>\s*CURRENT_TIMESTAMP`)
-	inclusiveExpiry := regexp.MustCompile(`expires_at\s*>=\s*CURRENT_TIMESTAMP`)
+	strictExpiry := regexp.MustCompile(`expires_at\s*>\s*statement_timestamp\(\)`)
+	inclusiveExpiry := regexp.MustCompile(`expires_at\s*>=\s*statement_timestamp\(\)`)
 
 	subjectTests := []struct {
 		name string
@@ -701,6 +701,18 @@ func TestAuthzPolicyStoreSQLUsesStrictDatabaseExpiryBoundary(t *testing.T) {
 				t.Fatalf("service principal query must not load direct user grants:\n%s", query)
 			}
 		})
+	}
+
+	for _, query := range []string{
+		buildSubjectSnapshotSQL(authz.SubjectKindUser),
+		buildSubjectSnapshotSQL(authz.SubjectKindServicePrincipal),
+		buildServicePrincipalSubjectSnapshotByCodeSQL(),
+		buildResourceSnapshotSQL(authz.SubjectKindUser, authz.ResourceTypeAccount),
+		buildResourceSnapshotSQL(authz.SubjectKindServicePrincipal, authz.ResourceTypeGroup),
+	} {
+		if strings.Contains(query, "expires_at > CURRENT_TIMESTAMP") {
+			t.Fatalf("authorization expiry must use per-statement time, not transaction start:\n%s", query)
+		}
 	}
 }
 

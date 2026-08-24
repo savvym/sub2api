@@ -1,6 +1,6 @@
 # 当前进度
 
-更新时间：2026-08-21
+更新时间：2026-08-24
 
 ## 当前状态
 
@@ -15,7 +15,8 @@
 - RoleService Core 提交：`4a1617e8d`，Guarded Role Mode API 提交：`0201ae488`，均已推送同一远程分支。
 - Trusted ActorResolver 提交：`34e43155c`，已推送同一远程分支。
 - Trusted Runtime Actor Integration 提交：`631761288`，Admin Resource Actor Propagation 提交：`b55155000`，均已推送同一远程分支。
-- 任务进度：19/49。当前切片 1.10 已完成核心 Account/Group 管理写命令的事务协调：在 PostgreSQL `SERIALIZABLE` 事务内重解析 Actor、重校验角色与资源版本、执行 Policy，并原子提交业务写、`access_version`、`resource_authorization_events` 和适用 Auth/Scheduler Outbox。下一开发切片为 1.11 到期协调器、同步到期拒绝与传播指标。普通用户路由、ACL/RBAC 权威切换和传播 SLA 仍未开放，Phase 0 尚未批准退出。
+- Transactional Resource Mutation Coordination 提交：`5b9060048`，已推送同一远程分支。
+- 任务进度：20/49。当前切片 1.11 已完成四类授权来源的 durable 到期协调、数据库时间同步拒绝、Auth/Scheduler Outbox 多实例恢复语义、API Key 正缓存 30 秒硬上限，以及 5 秒目标/30 秒安全门与运维健康面。下一开发切片为 1.12 跨租户、TOCTOU、SQL scope、模式组合和迁移测试及 Phase 1 退出评审。普通用户路由、ACL/RBAC 权威切换和完整 `account_groups` 关系重算仍未开放，Phase 0 尚未批准退出。
 - 当前权威行为仍为旧 `users.role` 与旧分组资格；核心管理员写虽已调用 Policy，但 legacy/shadow 下只保持现有 JWT Admin 与固定 Admin API Key Service Principal 行为，不得解释为 ACL/RBAC 已启用。
 
 ## 已完成
@@ -75,13 +76,19 @@
 - 本地 Redis/缓存/网络动作延迟到数据库提交后；单个 callback panic 被隔离，不会把已提交写伪装成 HTTP 失败，也不会阻止后续 callback。
 - 平台资源由 JWT 管理员创建时记录 `created_by_user_id`；Admin API Key 创建时 creator 保持为空，通过 Service Principal durable event 归因，不伪造自然人。
 - 1.10 已通过完整 `make -C backend test-unit`、聚焦 authz/service/repository/handler race、相关 vet、默认标签全仓编译、integration 标签全仓编译、backend build 和 migration 237 PostgreSQL 18.6 动态测试；repository `CI=1` Testcontainers 动态套件因本机无 Docker 仍未运行。
+- migration 238 新增 `authorization_expiry_jobs`、四类来源 trigger/backfill 和零角色 `authorization_expiry_coordinator` Service Principal；数据库 Policy/Scope 使用 `statement_timestamp()` 严格拒绝已到期角色与 Grant。协调器以可恢复租约处理到期，在同一 `SERIALIZABLE` 事务中递增主体/资源版本、写 durable audit/resource event，并为 Account/Group Grant 到期产生 Scheduler 事件。
+- Scheduler Outbox 已改为 PostgreSQL `SKIP LOCKED` claim、lease token fencing、ack/retry 和过期租约恢复，不再以 Redis watermark 决定消费所有权；durable delivery 对 bucket/lifecycle/full rebuild 使用 strict 语义，锁忙或 fencing 会 retry 而不是 ACK。migration 239 的新增 CHECK 使用 `NOT VALID`，claim 索引拆到 migration 241 以 `_notx` `CREATE INDEX CONCURRENTLY` 在线创建，runner 会清理同名 invalid index 后重试。
+- Auth Outbox 固定优先处理 stage 0，并分别观测 primary 与延迟 safety pass，停机时以 detached 2 秒 context 释放未结清 claim；service 只传相对 delay，second pass/retry 的 `available_at` 由数据库 `statement_timestamp() + interval` 生成。
+- API Key allow snapshot 提升到 v22 并拒绝 v21 及更早快照；首次正向 L1/L2 写入同时受 jitter 后 30 秒上限和不可序列化的进程内 monotonic deadline 约束。正向 L2 命中不提升到 L1，Redis 相对 TTL 保持跨实例权威；缺失、过期或未来时间戳只视为 miss 并回源，不删除或广播可能并发刷新的值。传播统计使用数据库时间分别报告 Auth primary/safety、Scheduler 与 Expiry 的 pending、ready 和 oldest lag。
+- `AuthorizationPropagationGuard` 将 5 秒作为健康目标、30 秒作为扩大权限安全门；统计不可用、必需 Worker 缺失/停止、到期 coordinator disabled/缺失/带任意角色或相关 lag 达到安全线时稳定 fail closed。Settings 只在有效状态扩大时调用该门，关闭功能和撤权不被积压阻塞；ResourceMutation 已提供显式 `ExpandsAccess` 契约，当前尚无 Grant 管理生产命令。
+- 新增 `GET /api/v1/admin/ops/authorization/propagation/health`，暴露数据库时间、队列、Worker、`expiry_coordinator_ready`、5 秒/30 秒判断与稳定降级原因；该安全入口不受可选 Ops monitoring 开关限制，Ops disabled 时仍返回 fail-closed 健康状态。1.11 聚焦 unit/race/vet、默认与 integration 标签编译，以及本机 PostgreSQL 18 的到期 exact-once、租约恢复、事务回滚、锁序和 Scheduler commit-order 场景已通过；Docker/Testcontainers repository 动态套件仍未运行。
 
 ## 下一步
 
 1. 由平台/认证/安全负责人复核并批准 0.4 credentials/extra 清单和 0.5 自助平台/出站 allowlist。
 2. 对真实服务器只读数据运行 `data-preflight.sql`，记录异常角色、名称冲突、孤立关系和回填规模。
 3. 在 Docker/CI 环境执行 `CI=1 go test -tags=integration ./internal/repository` 严格门禁。
-4. 下一开发切片进入 1.11：实现授权/角色到期协调器、同步到期拒绝、5 秒/30 秒指标与降级门。
+4. 下一开发切片进入 1.12：完成跨租户、TOCTOU、SQL scope、模式组合和迁移测试，并评审 Phase 1 退出。
 
 ## 阻塞与风险
 
@@ -98,7 +105,9 @@
 - 1.8 新增并发用例已通过定向 race；扩大到相关包的 race 命令仍会命中 `grok_import_probe_test.go` 和 `channel_monitor_checker_body_test.go` 两处不在本次 diff 的既有测试辅助代码竞态，不能宣称全量 race 已通过。
 - 1.10 只完成核心 Account/Group 管理写命令的事务内 Policy、版本、durable event 与适用 Outbox；读取、普通用户入口、ACL/RBAC 权威切换和旧分组资格 consumer 均未改变，不能把本切片解释为资源分享已开放。
 - OAuth/privacy/probe 等外部网络动作无法与 PostgreSQL 形成分布式原子事务；Privacy 的本地持久化已作为独立 ResourceMutation 重新授权并写版本/事件，但不能宣称上游副作用可因本地提交失败而回滚。
-- 1.10 证明的是适用 Auth/Scheduler Outbox 的原子 enqueue 与 rollback，不包含 Worker 幂等消费、lag 指标、多实例恢复、5 秒/30 秒传播 SLA 或到期协调器。
+- 1.11 的 5 秒是传播健康目标，30 秒是禁止扩大权限的安全线；它们不是对尚未迁移的数据面、WebSocket 或异步任务作出的端到端 SLA 承诺。权威 Policy/Scope 会按数据库时间同步拒绝到期来源；API Key 旧 allow snapshot 由 v22 拒绝 pre-v22 数据、首次写入 monotonic deadline、Redis 相对 TTL、rewrite 不续期和正向 L2 不提升 L1 共同约束在 30 秒内。
+- 1.11 对 Account/Group Grant 到期只递增资源版本、写 durable event 并产生 Scheduler 事件；完整 `account_groups` 授权来源/验证版本扩展及撤权、到期、角色变化后的关系闭包重算仍属于任务 4.2/4.4，不能把 Scheduler 事件等同于关系已重算。
+- `ResourceMutationCommand.ExpandsAccess` 已建立 fail-closed 契约，但当前没有 Grant 管理生产命令；后续新增或恢复授权路径必须显式标记，不能依赖调用方默认值绕过传播门。
 - Usage/Ops/Dashboard 等派生 scope、RateLimit/CRS/probe 等专用后台写、Channel Monitor Run/History/worker、Ops alert event/evaluator 与 Payment retry/refund 事务履约仍待后续切片；新增全新资源前缀时仍必须同步扩展入口分类和事务覆盖清单。
 
 ## 续作检查

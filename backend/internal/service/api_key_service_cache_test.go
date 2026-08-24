@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -125,9 +126,11 @@ func (s *authRepoStub) GetRateLimitData(ctx context.Context, id int64) (*APIKeyR
 }
 
 type authCacheStub struct {
-	getAuthCache   func(ctx context.Context, key string) (*APIKeyAuthCacheEntry, error)
-	setAuthKeys    []string
-	deleteAuthKeys []string
+	getAuthCache    func(ctx context.Context, key string) (*APIKeyAuthCacheEntry, error)
+	deleteAuthCache func(ctx context.Context, key string) error
+	setAuthKeys     []string
+	setAuthTTLs     []time.Duration
+	deleteAuthKeys  []string
 }
 
 func (s *authCacheStub) GetCreateAttemptCount(ctx context.Context, userID int64) (int, error) {
@@ -159,11 +162,171 @@ func (s *authCacheStub) GetAuthCache(ctx context.Context, key string) (*APIKeyAu
 
 func (s *authCacheStub) SetAuthCache(ctx context.Context, key string, entry *APIKeyAuthCacheEntry, ttl time.Duration) error {
 	s.setAuthKeys = append(s.setAuthKeys, key)
+	s.setAuthTTLs = append(s.setAuthTTLs, ttl)
 	return nil
+}
+
+func TestAPIKeyAuthPositiveTTLNeverExceedsHardLimitAfterJitter(t *testing.T) {
+	for _, configured := range []time.Duration{time.Second, 30 * time.Second, 5 * time.Minute} {
+		cfg := apiKeyAuthCacheConfig{jitterPercent: 100}
+		for range 1_000 {
+			ttl := cfg.positiveTTL(configured)
+			require.Positive(t, ttl)
+			require.LessOrEqual(t, ttl, apiKeyAuthPositiveTTLMax)
+		}
+	}
+}
+
+func TestAPIKeyAuthPositiveSnapshotTTLNeverOutlivesItsAbsoluteDeadline(t *testing.T) {
+	createdAt := time.Date(2026, time.August, 24, 1, 2, 3, 0, time.UTC)
+	snapshot := &APIKeyAuthSnapshot{
+		Version:             apiKeyAuthSnapshotVersion,
+		CacheCreatedAt:      createdAt,
+		localCacheExpiresAt: createdAt.Add(apiKeyAuthPositiveTTLMax),
+	}
+	cfg := apiKeyAuthCacheConfig{}
+
+	require.Equal(t, apiKeyAuthPositiveTTLMax, cfg.positiveSnapshotTTL(snapshot, 5*time.Minute, createdAt))
+	require.Equal(t, 5*time.Second, cfg.positiveSnapshotTTL(snapshot, 5*time.Minute, createdAt.Add(25*time.Second)))
+	require.Equal(t, 500*time.Millisecond, cfg.positiveSnapshotTTL(snapshot, 5*time.Minute, createdAt.Add(29500*time.Millisecond)))
+	require.Zero(t, cfg.positiveSnapshotTTL(snapshot, 5*time.Minute, createdAt.Add(apiKeyAuthPositiveTTLMax)))
+	require.Zero(t, cfg.positiveSnapshotTTL(snapshot, 5*time.Minute, createdAt.Add(-time.Nanosecond)),
+		"a snapshot timestamp from a clock ahead of this instance must fail closed")
+	restored := *snapshot
+	restored.localCacheExpiresAt = time.Time{}
+	require.Zero(t, cfg.positiveSnapshotTTL(&restored, 5*time.Minute, createdAt),
+		"a deserialized L2 snapshot must not acquire a new process-local TTL")
+	skewCapped := *snapshot
+	skewNow := createdAt.Add(5 * time.Second)
+	skewCapped.localCacheExpiresAt = skewNow.Add(2 * time.Second)
+	require.Equal(t, 2*time.Second, cfg.positiveSnapshotTTL(&skewCapped, 5*time.Minute, skewNow),
+		"the monotonic deadline must cap a longer wall-clock estimate")
+
+	jittered := apiKeyAuthCacheConfig{jitterPercent: 100}
+	for range 1_000 {
+		ttl := jittered.positiveSnapshotTTL(snapshot, 5*time.Minute, createdAt.Add(25*time.Second))
+		require.Positive(t, ttl)
+		require.LessOrEqual(t, ttl, 5*time.Second)
+	}
+}
+
+func TestAPIKeyServicePositiveAuthCacheCapsBothTiersAtThirtySeconds(t *testing.T) {
+	cache := &authCacheStub{}
+	svc := NewAPIKeyService(nil, nil, nil, nil, nil, cache, &config.Config{
+		APIKeyAuth: config.APIKeyAuthCacheConfig{
+			L1Size:        100,
+			L1TTLSeconds:  300,
+			L2TTLSeconds:  300,
+			JitterPercent: 100,
+		},
+	})
+	now := time.Now()
+	entry := &APIKeyAuthCacheEntry{Snapshot: &APIKeyAuthSnapshot{
+		Version:             apiKeyAuthSnapshotVersion,
+		CacheCreatedAt:      now.UTC(),
+		localCacheExpiresAt: now.Add(apiKeyAuthPositiveTTLMax),
+	}}
+
+	for i := range 100 {
+		cacheKey := svc.authCacheKey(fmt.Sprintf("positive-ttl-%d", i))
+		svc.setAuthCacheEntry(context.Background(), cacheKey, entry, svc.authCfg.l2TTL)
+	}
+	svc.authCacheL1.Wait()
+
+	require.Len(t, cache.setAuthTTLs, 100)
+	for _, ttl := range cache.setAuthTTLs {
+		require.Positive(t, ttl)
+		require.LessOrEqual(t, ttl, apiKeyAuthPositiveTTLMax)
+	}
+	observedL1 := 0
+	for i := range 100 {
+		cacheKey := svc.authCacheKey(fmt.Sprintf("positive-ttl-%d", i))
+		if ttl, ok := svc.authCacheL1.GetTTL(cacheKey); ok {
+			observedL1++
+			require.Positive(t, ttl)
+			require.LessOrEqual(t, ttl, apiKeyAuthPositiveTTLMax)
+		}
+	}
+	require.Positive(t, observedL1)
+}
+
+func TestAPIKeyServicePositiveEntryRewriteCannotRenewAbsoluteLifetime(t *testing.T) {
+	cache := &authCacheStub{}
+	svc := NewAPIKeyService(nil, nil, nil, nil, nil, cache, &config.Config{
+		APIKeyAuth: config.APIKeyAuthCacheConfig{
+			L1Size:       100,
+			L1TTLSeconds: 300,
+			L2TTLSeconds: 300,
+		},
+	})
+	now := time.Now()
+	entry := &APIKeyAuthCacheEntry{Snapshot: &APIKeyAuthSnapshot{
+		Version:             apiKeyAuthSnapshotVersion,
+		CacheCreatedAt:      now.UTC().Add(-25 * time.Second),
+		localCacheExpiresAt: now.Add(5 * time.Second),
+	}}
+	cacheKey := svc.authCacheKey("absolute-rewrite")
+	remainingBefore := positiveAuthSnapshotRemaining(entry.Snapshot, time.Now())
+
+	svc.setAuthCacheEntry(context.Background(), cacheKey, entry, svc.authCfg.l2TTL)
+	svc.setAuthCacheEntry(context.Background(), cacheKey, entry, svc.authCfg.l2TTL)
+	svc.authCacheL1.Wait()
+
+	require.Len(t, cache.setAuthTTLs, 2)
+	require.Positive(t, cache.setAuthTTLs[0])
+	require.LessOrEqual(t, cache.setAuthTTLs[0], remainingBefore)
+	require.LessOrEqual(t, cache.setAuthTTLs[1], cache.setAuthTTLs[0],
+		"rewriting the same snapshot must consume, not renew, its lifetime")
+	l1TTL, ok := svc.authCacheL1.GetTTL(cacheKey)
+	require.True(t, ok)
+	require.Positive(t, l1TTL)
+	require.LessOrEqual(t, l1TTL, remainingBefore)
+}
+
+func TestAPIKeyServiceL2PositiveHitIsNotPromotedAcrossClockSkew(t *testing.T) {
+	var l2Reads atomic.Int32
+	receiverNow := time.Now().UTC()
+	actualAge := 15 * time.Second
+	creatorClockAhead := 10 * time.Second
+	entry := &APIKeyAuthCacheEntry{Snapshot: &APIKeyAuthSnapshot{
+		Version:        apiKeyAuthSnapshotVersion,
+		CacheCreatedAt: receiverNow.Add(-(actualAge - creatorClockAhead)),
+	}}
+	wallRemaining := positiveAuthSnapshotRemaining(entry.Snapshot, receiverNow)
+	require.Greater(t, wallRemaining, apiKeyAuthPositiveTTLMax-actualAge,
+		"the receiver's wall clock underestimates the snapshot's real age")
+	cache := &authCacheStub{getAuthCache: func(context.Context, string) (*APIKeyAuthCacheEntry, error) {
+		l2Reads.Add(1)
+		return entry, nil
+	}}
+	svc := NewAPIKeyService(nil, nil, nil, nil, nil, cache, &config.Config{
+		APIKeyAuth: config.APIKeyAuthCacheConfig{
+			L1Size:       100,
+			L1TTLSeconds: 300,
+			L2TTLSeconds: 300,
+		},
+	})
+	cacheKey := svc.authCacheKey("clock-skew-no-promotion")
+
+	got, ok := svc.getAuthCacheEntry(context.Background(), cacheKey)
+	require.True(t, ok)
+	require.Same(t, entry, got)
+	svc.authCacheL1.Wait()
+	_, promoted := svc.authCacheL1.Get(cacheKey)
+	require.False(t, promoted,
+		"a receiver cannot safely promote a positive L2 hit using another instance's wall clock")
+
+	got, ok = svc.getAuthCacheEntry(context.Background(), cacheKey)
+	require.True(t, ok)
+	require.Same(t, entry, got)
+	require.Equal(t, int32(2), l2Reads.Load())
 }
 
 func (s *authCacheStub) DeleteAuthCache(ctx context.Context, key string) error {
 	s.deleteAuthKeys = append(s.deleteAuthKeys, key)
+	if s.deleteAuthCache != nil {
+		return s.deleteAuthCache(ctx, key)
+	}
 	return nil
 }
 
@@ -193,11 +356,12 @@ func TestAPIKeyService_GetByKey_UsesL2Cache(t *testing.T) {
 	groupID := int64(9)
 	cacheEntry := &APIKeyAuthCacheEntry{
 		Snapshot: &APIKeyAuthSnapshot{
-			Version:  apiKeyAuthSnapshotVersion,
-			APIKeyID: 1,
-			UserID:   2,
-			GroupID:  &groupID,
-			Status:   StatusActive,
+			Version:        apiKeyAuthSnapshotVersion,
+			CacheCreatedAt: time.Now().UTC(),
+			APIKeyID:       1,
+			UserID:         2,
+			GroupID:        &groupID,
+			Status:         StatusActive,
 			User: APIKeyAuthUserSnapshot{
 				ID:          2,
 				Status:      StatusActive,
@@ -230,6 +394,93 @@ func TestAPIKeyService_GetByKey_UsesL2Cache(t *testing.T) {
 	require.Equal(t, groupID, apiKey.Group.ID)
 	require.True(t, apiKey.Group.ModelRoutingEnabled)
 	require.Equal(t, map[string][]int64{"claude-opus-*": {1, 2}}, apiKey.Group.ModelRouting)
+}
+
+func TestAPIKeyService_GetByKeyEvictsInvalidPositiveLifetimeAndReloads(t *testing.T) {
+	now := time.Now().UTC()
+	tests := []struct {
+		name      string
+		createdAt time.Time
+	}{
+		{name: "missing deadline"},
+		{name: "expired", createdAt: now.Add(-apiKeyAuthPositiveTTLMax - time.Second)},
+		{name: "future clock", createdAt: now.Add(time.Hour)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var repoCalls atomic.Int32
+			stale := &APIKeyAuthCacheEntry{Snapshot: &APIKeyAuthSnapshot{
+				Version:        apiKeyAuthSnapshotVersion,
+				CacheCreatedAt: tt.createdAt,
+				APIKeyID:       1,
+				UserID:         2,
+				Status:         StatusActive,
+			}}
+			cache := &authCacheStub{getAuthCache: func(context.Context, string) (*APIKeyAuthCacheEntry, error) {
+				return stale, nil
+			}}
+			repo := &authRepoStub{getByKeyForAuth: func(context.Context, string) (*APIKey, error) {
+				repoCalls.Add(1)
+				return &APIKey{
+					ID: 42, UserID: 7, Status: StatusActive,
+					User: &User{ID: 7, Status: StatusActive, Role: RoleUser, Balance: 10, Concurrency: 2},
+				}, nil
+			}}
+			svc := NewAPIKeyService(repo, nil, nil, nil, nil, cache, &config.Config{
+				APIKeyAuth: config.APIKeyAuthCacheConfig{
+					L1Size:       100,
+					L1TTLSeconds: 300,
+					L2TTLSeconds: 300,
+				},
+			})
+			cacheKey := svc.authCacheKey("invalid-positive-" + tt.name)
+			require.True(t, svc.authCacheL1.SetWithTTL(cacheKey, stale, 1, time.Minute))
+			svc.authCacheL1.Wait()
+
+			apiKey, err := svc.GetByKey(context.Background(), "invalid-positive-"+tt.name)
+			require.NoError(t, err)
+			require.Equal(t, int64(42), apiKey.ID)
+			require.Equal(t, int32(1), repoCalls.Load())
+			require.Empty(t, cache.deleteAuthKeys,
+				"a stale reader must not delete a newer L2 value written after its read")
+			require.Equal(t, []string{cacheKey}, cache.setAuthKeys)
+			require.Len(t, cache.setAuthTTLs, 1)
+			require.Positive(t, cache.setAuthTTLs[0])
+			require.LessOrEqual(t, cache.setAuthTTLs[0], apiKeyAuthPositiveTTLMax)
+		})
+	}
+}
+
+func TestAPIKeyService_InvalidL2ReadDoesNotDeleteConcurrentNewerSnapshot(t *testing.T) {
+	stale := &APIKeyAuthCacheEntry{Snapshot: &APIKeyAuthSnapshot{Version: apiKeyAuthSnapshotVersion}}
+	newer := &APIKeyAuthCacheEntry{Snapshot: &APIKeyAuthSnapshot{
+		Version:        apiKeyAuthSnapshotVersion,
+		CacheCreatedAt: time.Now().UTC(),
+	}}
+	current := stale
+	cache := &authCacheStub{}
+	cache.getAuthCache = func(context.Context, string) (*APIKeyAuthCacheEntry, error) {
+		read := current
+		// Model a concurrent writer replacing the value after Redis served the
+		// stale bytes but before this reader acts on them.
+		current = newer
+		return read, nil
+	}
+	cache.deleteAuthCache = func(context.Context, string) error {
+		current = nil
+		return nil
+	}
+	svc := NewAPIKeyService(nil, nil, nil, nil, nil, cache, &config.Config{
+		APIKeyAuth: config.APIKeyAuthCacheConfig{L2TTLSeconds: 300},
+	})
+
+	entry, ok := svc.getAuthCacheEntry(context.Background(), svc.authCacheKey("stale-reader"))
+
+	require.False(t, ok)
+	require.Nil(t, entry)
+	require.Same(t, newer, current, "the concurrent replacement must survive the stale read")
+	require.Empty(t, cache.deleteAuthKeys)
 }
 
 func TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig(t *testing.T) {

@@ -24,5 +24,17 @@ func (s *SettingService) AdminUpdateSettingsWithAuthSourceDefaultsOmitting(ctx c
 	if err := ValidateAdminResourceActor(actor); err != nil {
 		return err
 	}
+	expandsAccess, err := s.resourceAccessControlUpdateExpands(ctx, settings, omitted)
+	if err != nil {
+		return err
+	}
+	if expandsAccess {
+		if s == nil || s.authorizationPropagation == nil {
+			return ErrAuthorizationPropagationDegraded
+		}
+		if err := s.authorizationPropagation.RequireExpansion(ctx); err != nil {
+			return err
+		}
+	}
 	return s.UpdateSettingsWithAuthSourceDefaultsOmitting(ctx, settings, authDefaults, omitted)
 }
