@@ -12,6 +12,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/authz"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
 func TestAuthzPolicyStoreLoadsUserSubjectSnapshotWithOneStatement(t *testing.T) {
@@ -60,6 +61,49 @@ func TestAuthzPolicyStoreLoadsUserSubjectSnapshotWithOneStatement(t *testing.T) 
 	}
 	assertFullyEnabledPolicyConfiguration(t, snapshot.Configuration())
 	assertAuthzPolicyStoreExpectations(t, mock)
+}
+
+func TestAuthzPolicyStoreSimpleModeMasksSelfServiceAndSharing(t *testing.T) {
+	store, mock := newAuthzPolicyStoreSQLMock(t)
+	store.simpleMode = true
+	subject := mustAuthzSubjectRef(t, authz.SubjectKindUser, 42)
+	payload := mustAuthzPolicyJSON(t, rawAuthzPolicyDocument{
+		Subject: rawAuthzSubject{
+			Exists:       true,
+			Active:       true,
+			AuthzVersion: 1,
+		},
+		Configuration: fullyEnabledRawAuthzConfiguration(),
+	})
+	mock.ExpectQuery(buildSubjectSnapshotSQL(authz.SubjectKindUser)).
+		WithArgs(subject.ID()).
+		WillReturnRows(sqlmock.NewRows([]string{"document"}).AddRow(payload)).
+		RowsWillBeClosed()
+
+	snapshot, err := store.LoadSubjectSnapshot(context.Background(), subject)
+	if err != nil {
+		t.Fatalf("load simple-mode subject snapshot: %v", err)
+	}
+	configuration := snapshot.Configuration()
+	if !configuration.Valid() || !configuration.ResourceAccessControlEnabled() ||
+		configuration.SelfServiceHostingEnabled() ||
+		configuration.SharingEnabled(authz.ResourceTypeAccount) ||
+		configuration.SharingEnabled(authz.ResourceTypeGroup) ||
+		!configuration.RoleBasedResourceGrantsEnabled() {
+		t.Fatalf("unexpected simple-mode policy configuration: %+v", configuration)
+	}
+	assertAuthzPolicyStoreExpectations(t, mock)
+}
+
+func TestNewAuthzPolicyStoreUsesConfiguredRunMode(t *testing.T) {
+	standard, ok := NewAuthzPolicyStore(nil, &config.Config{RunMode: config.RunModeStandard}).(*authzPolicyStore)
+	if !ok || standard.simpleMode {
+		t.Fatalf("standard policy store = %#v, want simple mode disabled", standard)
+	}
+	simple, ok := NewAuthzPolicyStore(nil, &config.Config{RunMode: config.RunModeSimple}).(*authzPolicyStore)
+	if !ok || !simple.simpleMode {
+		t.Fatalf("simple policy store = %#v, want simple mode enabled", simple)
+	}
 }
 
 func TestAuthzPolicyStoreLoadsServicePrincipalSubjectSnapshotWithOneStatement(t *testing.T) {
@@ -567,7 +611,7 @@ func TestAuthzPolicyStoreRejectsNilQueryer(t *testing.T) {
 		store authz.PolicyStore
 	}{
 		{name: "nil test queryer", store: newAuthzPolicyStoreWithQueryer(nil)},
-		{name: "nil production client", store: NewAuthzPolicyStore(nil)},
+		{name: "nil production client", store: NewAuthzPolicyStore(nil, &config.Config{})},
 	}
 
 	for _, testStore := range stores {

@@ -20,8 +20,9 @@ func NewAdminAuthMiddleware(
 	settingService *service.SettingService,
 	auditService *service.AuditLogService,
 	actorResolver authz.Resolver,
+	resourcePolicy authz.ResourcePolicy,
 ) AdminAuthMiddleware {
-	return AdminAuthMiddleware(adminAuth(authService, userService, settingService, auditService, actorResolver))
+	return AdminAuthMiddleware(adminAuth(authService, userService, settingService, auditService, actorResolver, resourcePolicy))
 }
 
 type adminAPIKeyReader interface {
@@ -42,6 +43,7 @@ func adminAuth(
 	settingService *service.SettingService,
 	auditService *service.AuditLogService,
 	actorResolver authz.Resolver,
+	resourcePolicy authz.ResourcePolicy,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// WebSocket upgrade requests cannot set Authorization headers in browsers.
@@ -50,7 +52,7 @@ func adminAuth(
 		//   Sec-WebSocket-Protocol: sub2api-admin, jwt.<token>
 		if isWebSocketUpgradeRequest(c) {
 			if token := extractJWTFromWebSocketSubprotocol(c); token != "" {
-				if !validateJWTForAdmin(c, token, authService, userService, settingService, auditService, actorResolver) {
+				if !validateJWTForAdmin(c, token, authService, userService, settingService, auditService, actorResolver, resourcePolicy) {
 					return
 				}
 				c.Next()
@@ -61,7 +63,7 @@ func adminAuth(
 		// 检查 x-api-key header（Admin API Key 认证）
 		apiKey := c.GetHeader("x-api-key")
 		if apiKey != "" {
-			if !validateAdminAPIKey(c, apiKey, settingService, userService, actorResolver) {
+			if !validateAdminAPIKey(c, apiKey, settingService, userService, actorResolver, resourcePolicy) {
 				return
 			}
 			c.Next()
@@ -78,7 +80,7 @@ func adminAuth(
 					AbortWithError(c, 401, "UNAUTHORIZED", "Authorization required")
 					return
 				}
-				if !validateJWTForAdmin(c, token, authService, userService, settingService, auditService, actorResolver) {
+				if !validateJWTForAdmin(c, token, authService, userService, settingService, auditService, actorResolver, resourcePolicy) {
 					return
 				}
 				c.Next()
@@ -136,6 +138,7 @@ func validateAdminAPIKey(
 	settingService adminAPIKeyReader,
 	userService firstAdminReader,
 	actorResolver authz.Resolver,
+	resourcePolicy authz.ResourcePolicy,
 ) bool {
 	storedKey, err := settingService.GetAdminAPIKey(c.Request.Context())
 	if err != nil {
@@ -171,6 +174,9 @@ func validateAdminAPIKey(
 		AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
 		return false
 	}
+	if !authorizeAdminActor(c, actor, resourcePolicy) {
+		return false
+	}
 	setRequestActor(c, actor)
 
 	// 获取真实的管理员用户
@@ -199,6 +205,7 @@ func validateJWTForAdmin(
 	settingService *service.SettingService,
 	auditService *service.AuditLogService,
 	actorResolver authz.Resolver,
+	resourcePolicy authz.ResourcePolicy,
 ) bool {
 	// 验证 JWT token
 	claims, err := authService.ValidateToken(token)
@@ -239,14 +246,10 @@ func validateJWTForAdmin(
 		AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
 		return false
 	}
-	actor, err := actorResolver.ResolveLegacyAdminUser(c.Request.Context(), user.ID)
+	actor, err := actorResolver.ResolveUser(c.Request.Context(), user.ID, authz.AuthMethodJWT)
 	if err != nil {
 		if errors.Is(err, authz.ErrActorInactive) {
 			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
-			return false
-		}
-		if errors.Is(err, authz.ErrPolicyAccessDenied) {
-			AbortWithError(c, 403, "FORBIDDEN", "Admin access required")
 			return false
 		}
 		AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
@@ -255,6 +258,9 @@ func validateJWTForAdmin(
 	resolvedUserID, ok := actor.UserID()
 	if !ok || resolvedUserID != user.ID || actor.AuthMethod() != authz.AuthMethodJWT {
 		AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
+		return false
+	}
+	if !authorizeAdminActor(c, actor, resourcePolicy) {
 		return false
 	}
 	setRequestActor(c, actor)
@@ -268,5 +274,47 @@ func validateJWTForAdmin(
 	c.Set(ContextKeySessionID, claims.SessionID)
 	c.Set("auth_method", string(authz.AuthMethodJWT))
 
+	return true
+}
+
+func authorizeAdminActor(c *gin.Context, actor authz.Actor, resourcePolicy authz.ResourcePolicy) bool {
+	if c == nil || c.Request == nil || resourcePolicy == nil {
+		if c != nil {
+			AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
+		}
+		return false
+	}
+	decision, err := resourcePolicy.CheckCapability(
+		c.Request.Context(),
+		actor,
+		authz.CapabilityPlatformResourceManageAll,
+	)
+	if err != nil {
+		AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
+		return false
+	}
+	if !decision.Allowed() {
+		switch decision.DenyReason() {
+		case authz.DenyReasonActorInactive:
+			if actor.AuthMethod() == authz.AuthMethodAdminAPIKey {
+				AbortWithError(c, 401, "INVALID_ADMIN_KEY", "Invalid admin API key")
+			} else {
+				AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
+			}
+			return false
+		case authz.DenyReasonSessionInvalid:
+			if actor.AuthMethod() == authz.AuthMethodAdminAPIKey {
+				AbortWithError(c, 401, "INVALID_ADMIN_KEY", "Invalid admin API key")
+			} else {
+				AbortWithError(c, 401, "TOKEN_REVOKED", "Authorization state has changed")
+			}
+			return false
+		case authz.DenyReasonAuthorizationDataUnavailable, authz.DenyReasonInvalidDecision:
+			AbortWithError(c, 503, "AUTHORIZATION_UNAVAILABLE", "Authorization service is unavailable")
+			return false
+		}
+		AbortWithError(c, 403, "FORBIDDEN", "Admin access required")
+		return false
+	}
 	return true
 }

@@ -67,6 +67,7 @@ const authCacheInvalidationPriorityIndexMigration = "240_auth_cache_invalidation
 const authCacheInvalidationPriorityIndex = "idx_auth_cache_invalidation_outbox_stage_available"
 const schedulerOutboxClaimIndexMigration = "241_scheduler_outbox_claim_index_notx.sql"
 const schedulerOutboxClaimIndex = "idx_scheduler_outbox_claimable"
+const resourcePublicAccessScopeIndexesMigration = "242_resource_public_access_scope_indexes_notx.sql"
 
 var resourceAccessControlFoundationIndexes = [...]string{
 	"idx_accounts_owner_user_id",
@@ -74,6 +75,11 @@ var resourceAccessControlFoundationIndexes = [...]string{
 	"idx_groups_owner_user_id",
 	"idx_groups_created_by_user_id",
 	"idx_groups_authorization_mode",
+}
+
+var resourcePublicAccessScopeIndexes = [...]string{
+	"idx_accounts_public_access_level",
+	"idx_groups_public_access_level",
 }
 
 type migrationChecksumCompatibilityRule struct {
@@ -329,6 +335,13 @@ func prepareNonTransactionalMigration(ctx context.Context, db migrationConnectio
 		return dropInvalidIndexIfPresent(ctx, db, authCacheInvalidationPriorityIndex)
 	case schedulerOutboxClaimIndexMigration:
 		return dropInvalidIndexIfPresent(ctx, db, schedulerOutboxClaimIndex)
+	case resourcePublicAccessScopeIndexesMigration:
+		for _, indexName := range resourcePublicAccessScopeIndexes {
+			if err := dropInvalidIndexIfPresent(ctx, db, indexName); err != nil {
+				return err
+			}
+		}
+		return nil
 	default:
 		return nil
 	}

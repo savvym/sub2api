@@ -43,10 +43,10 @@ func TestAdminAuthJWTValidatesTokenVersion(t *testing.T) {
 		},
 	}
 	userService := service.NewUserService(userRepo, nil, nil, nil)
-	actorResolver, _ := newMiddlewareActorResolver(t, map[int64]*service.User{admin.ID: admin})
+	actorResolver, actorStore := newMiddlewareActorResolver(t, map[int64]*service.User{admin.ID: admin})
 
 	router := gin.New()
-	router.Use(gin.HandlerFunc(NewAdminAuthMiddleware(authService, userService, nil, nil, actorResolver)))
+	router.Use(gin.HandlerFunc(NewAdminAuthMiddleware(authService, userService, nil, nil, actorResolver, authz.NewPolicyService(actorStore))))
 	router.GET("/t", func(c *gin.Context) {
 		actor, hasActor := authz.ActorFromContext(c.Request.Context())
 		actorUserID, _ := actor.UserID()
@@ -166,7 +166,7 @@ func TestAdminAuthJWTUsesCurrentResolverSnapshotForAdminGate(t *testing.T) {
 	)
 
 	router := gin.New()
-	router.Use(gin.HandlerFunc(NewAdminAuthMiddleware(authService, userService, nil, nil, actorResolver)))
+	router.Use(gin.HandlerFunc(NewAdminAuthMiddleware(authService, userService, nil, nil, actorResolver, authz.NewPolicyService(actorStore))))
 	router.GET("/t", func(c *gin.Context) { c.Status(http.StatusOK) })
 	token, err := authService.GenerateToken(context.Background(), compatibilityUser)
 	require.NoError(t, err)
@@ -200,7 +200,7 @@ func TestAdminAuthJWTAuthorizationUnavailable(t *testing.T) {
 	actorStore.userErr = errors.New("database unavailable")
 
 	router := gin.New()
-	router.Use(gin.HandlerFunc(NewAdminAuthMiddleware(authService, userService, nil, nil, actorResolver)))
+	router.Use(gin.HandlerFunc(NewAdminAuthMiddleware(authService, userService, nil, nil, actorResolver, authz.NewPolicyService(actorStore))))
 	router.GET("/t", func(c *gin.Context) { c.Status(http.StatusOK) })
 	token, err := authService.GenerateToken(context.Background(), admin)
 	require.NoError(t, err)
@@ -234,6 +234,97 @@ func (s *stubFirstAdminReader) GetFirstAdmin(context.Context) (*service.User, er
 	return s.admin, s.err
 }
 
+type middlewareRoleShadowObserver struct {
+	comparisons []authz.RoleShadowComparison
+}
+
+func (o *middlewareRoleShadowObserver) ObserveRoleShadow(_ context.Context, comparison authz.RoleShadowComparison) {
+	o.comparisons = append(o.comparisons, comparison)
+}
+
+func TestAdminAuthRoleShadowUsesLegacyGateAndObservesRBAC(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, testCase := range []struct {
+		name           string
+		legacyAdmin    bool
+		capabilities   []authz.Capability
+		expectedCode   int
+		legacyEffect   authz.RoleShadowEffect
+		rbacEffect     authz.RoleShadowEffect
+		mismatch       bool
+		provenanceOnly bool
+	}{
+		{
+			name:         "legacy deny rbac allow remains forbidden",
+			capabilities: []authz.Capability{authz.CapabilityPlatformResourceManageAll},
+			expectedCode: http.StatusForbidden,
+			legacyEffect: authz.RoleShadowEffectDeny,
+			rbacEffect:   authz.RoleShadowEffectAllow,
+			mismatch:     true,
+		},
+		{
+			name:           "legacy admin and rbac admin remains allowed",
+			legacyAdmin:    true,
+			capabilities:   []authz.Capability{authz.CapabilityPlatformResourceManageAll},
+			expectedCode:   http.StatusOK,
+			legacyEffect:   authz.RoleShadowEffectAllow,
+			rbacEffect:     authz.RoleShadowEffectAllow,
+			provenanceOnly: true,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := &config.Config{JWT: config.JWTConfig{Secret: "test-secret", ExpireHour: 1}}
+			authService := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil, nil, nil)
+			role := service.RoleUser
+			if testCase.legacyAdmin {
+				role = service.RoleAdmin
+			}
+			user := &service.User{
+				ID: 71, Email: "shadow@example.com", Role: role,
+				Status: service.StatusActive, TokenVersion: 1,
+			}
+			userRepo := &stubUserRepo{getByID: func(context.Context, int64) (*service.User, error) {
+				clone := *user
+				return &clone, nil
+			}}
+			userService := service.NewUserService(userRepo, nil, nil, nil)
+			actorResolver, actorStore := newMiddlewareActorResolver(t, nil)
+			actorStore.userSnapshots[user.ID] = mustMiddlewareSubjectSnapshotWithAuthorization(
+				t,
+				authz.SubjectKindUser,
+				user.ID,
+				true,
+				true,
+				testCase.legacyAdmin,
+				authz.RoleAuthorizationModeShadow,
+				testCase.capabilities,
+			)
+			observer := &middlewareRoleShadowObserver{}
+			policy := authz.NewPolicyServiceWithShadowObserver(actorStore, observer)
+
+			router := gin.New()
+			router.Use(gin.HandlerFunc(NewAdminAuthMiddleware(authService, userService, nil, nil, actorResolver, policy)))
+			router.GET("/t", func(c *gin.Context) { c.Status(http.StatusOK) })
+			token, err := authService.GenerateToken(context.Background(), user)
+			require.NoError(t, err)
+			request := httptest.NewRequest(http.MethodGet, "/t", nil)
+			request.Header.Set("Authorization", "Bearer "+token)
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+
+			require.Equal(t, testCase.expectedCode, response.Code)
+			require.Len(t, observer.comparisons, 1)
+			comparison := observer.comparisons[0]
+			require.Equal(t, authz.PolicyOperationCheckCapability, comparison.Operation)
+			require.Equal(t, authz.CapabilityPlatformResourceManageAll, comparison.Capability)
+			require.Equal(t, testCase.legacyEffect, comparison.Legacy.Effect)
+			require.Equal(t, testCase.rbacEffect, comparison.RBAC.Effect)
+			require.Equal(t, testCase.mismatch, comparison.BehaviorMismatch)
+			require.Equal(t, testCase.provenanceOnly, comparison.ProvenanceChanged)
+		})
+	}
+}
+
 func TestValidateAdminAPIKeySetsServicePrincipalActorAndCompatibilitySubject(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	admin := &service.User{
@@ -244,12 +335,23 @@ func TestValidateAdminAPIKeySetsServicePrincipalActorAndCompatibilitySubject(t *
 		Concurrency: 3,
 	}
 	actorResolver, actorStore := newMiddlewareActorResolver(t, map[int64]*service.User{admin.ID: admin})
-	actorStore.setServicePrincipal(t, authz.AdminAPIKeyServicePrincipalCode, 91, true, true)
+	actorStore.servicePrincipalSnapshots[authz.AdminAPIKeyServicePrincipalCode] = mustMiddlewareSubjectSnapshotWithAuthorization(
+		t,
+		authz.SubjectKindServicePrincipal,
+		91,
+		true,
+		true,
+		false,
+		authz.RoleAuthorizationModeShadow,
+		nil,
+	)
+	observer := &middlewareRoleShadowObserver{}
+	policy := authz.NewPolicyServiceWithShadowObserver(actorStore, observer)
 	adminReader := &stubFirstAdminReader{admin: admin}
 
 	router := gin.New()
 	router.GET("/t", func(c *gin.Context) {
-		if !validateAdminAPIKey(c, c.GetHeader("x-api-key"), stubAdminAPIKeyReader{key: "secret"}, adminReader, actorResolver) {
+		if !validateAdminAPIKey(c, c.GetHeader("x-api-key"), stubAdminAPIKeyReader{key: "secret"}, adminReader, actorResolver, policy) {
 			return
 		}
 		actor, hasActor := authz.ActorFromContext(c.Request.Context())
@@ -279,6 +381,12 @@ func TestValidateAdminAPIKeySetsServicePrincipalActorAndCompatibilitySubject(t *
 	require.Contains(t, w.Body.String(), `"subject_user_id":1`)
 	require.Equal(t, 1, actorStore.servicePrincipalCalls)
 	require.Equal(t, 1, adminReader.calls)
+	require.Len(t, observer.comparisons, 1)
+	comparison := observer.comparisons[0]
+	require.True(t, comparison.BehaviorMismatch)
+	require.Equal(t, authz.AuthMethodAdminAPIKey, comparison.AuthMethod)
+	require.Equal(t, authz.RoleShadowEffectAllow, comparison.Legacy.Effect)
+	require.Equal(t, authz.RoleShadowEffectDeny, comparison.RBAC.Effect)
 }
 
 func TestValidateAdminAPIKeyRejectsMissingAndDisabledPrincipalIdentically(t *testing.T) {
@@ -297,7 +405,7 @@ func TestValidateAdminAPIKeyRejectsMissingAndDisabledPrincipalIdentically(t *tes
 			adminReader := &stubFirstAdminReader{admin: &service.User{ID: 1}}
 			router := gin.New()
 			router.GET("/t", func(c *gin.Context) {
-				if validateAdminAPIKey(c, c.GetHeader("x-api-key"), stubAdminAPIKeyReader{key: "secret"}, adminReader, actorResolver) {
+				if validateAdminAPIKey(c, c.GetHeader("x-api-key"), stubAdminAPIKeyReader{key: "secret"}, adminReader, actorResolver, authz.NewPolicyService(actorStore)) {
 					c.Status(http.StatusOK)
 				}
 			})
@@ -324,7 +432,7 @@ func TestValidateAdminAPIKeyAuthorizationUnavailable(t *testing.T) {
 	adminReader := &stubFirstAdminReader{admin: &service.User{ID: 1}}
 	router := gin.New()
 	router.GET("/t", func(c *gin.Context) {
-		if validateAdminAPIKey(c, c.GetHeader("x-api-key"), stubAdminAPIKeyReader{key: "secret"}, adminReader, actorResolver) {
+		if validateAdminAPIKey(c, c.GetHeader("x-api-key"), stubAdminAPIKeyReader{key: "secret"}, adminReader, actorResolver, authz.NewPolicyService(actorStore)) {
 			c.Status(http.StatusOK)
 		}
 	})
@@ -346,7 +454,7 @@ func TestValidateAdminAPIKeyRejectsWrongKeyBeforeResolvingActor(t *testing.T) {
 	adminReader := &stubFirstAdminReader{admin: &service.User{ID: 1}}
 	router := gin.New()
 	router.GET("/t", func(c *gin.Context) {
-		if validateAdminAPIKey(c, c.GetHeader("x-api-key"), stubAdminAPIKeyReader{key: "secret"}, adminReader, actorResolver) {
+		if validateAdminAPIKey(c, c.GetHeader("x-api-key"), stubAdminAPIKeyReader{key: "secret"}, adminReader, actorResolver, authz.NewPolicyService(actorStore)) {
 			c.Status(http.StatusOK)
 		}
 	})

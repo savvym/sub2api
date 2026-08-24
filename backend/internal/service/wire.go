@@ -27,8 +27,8 @@ func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthCli
 	return svc
 }
 
-func ProvideResourcePolicy(store authz.PolicyStore) authz.ResourcePolicy {
-	return authz.NewPolicyService(store)
+func ProvideResourcePolicy(store authz.PolicyStore, shadowObserver authz.RoleShadowObserver) authz.ResourcePolicy {
+	return authz.NewPolicyServiceWithShadowObserver(store, shadowObserver)
 }
 
 // BuildInfo contains build information
@@ -804,6 +804,7 @@ func ProvideAPIKeyService(
 var ProviderSet = wire.NewSet(
 	// Core services
 	ProvideAuthService,
+	NewAuthorizationRoleShadowObserver,
 	ProvideResourcePolicy,
 	ProvideResourceMutationCoordinator,
 	ProvideAuthorizationExpiryWorker,

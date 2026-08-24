@@ -47,7 +47,23 @@ func (s *middlewareActorResolverStore) LoadSubjectSnapshot(_ context.Context, su
 	if s.userErr != nil {
 		return authz.SubjectSnapshot{}, s.userErr
 	}
+	if subject.Kind() == authz.SubjectKindServicePrincipal {
+		for _, snapshot := range s.servicePrincipalSnapshots {
+			if snapshot.Subject() == subject {
+				return snapshot, nil
+			}
+		}
+		return authz.SubjectSnapshot{}, authz.ErrSubjectNotFound
+	}
 	return s.userSnapshots[subject.ID()], nil
+}
+
+func (s *middlewareActorResolverStore) LoadResourceAccessSnapshot(
+	context.Context,
+	authz.SubjectRef,
+	authz.ResourceRef,
+) (authz.ResourceAccessSnapshot, error) {
+	return authz.ResourceAccessSnapshot{}, authz.ErrInvalidPolicySnapshot
 }
 
 func (s *middlewareActorResolverStore) LoadServicePrincipalSubjectSnapshotByCode(_ context.Context, code string) (authz.SubjectSnapshot, error) {
@@ -90,11 +106,33 @@ func mustMiddlewareSubjectSnapshot(
 	active bool,
 	legacyAdmin bool,
 ) authz.SubjectSnapshot {
+	return mustMiddlewareSubjectSnapshotWithAuthorization(
+		t,
+		kind,
+		id,
+		exists,
+		active,
+		legacyAdmin,
+		authz.RoleAuthorizationModeLegacy,
+		nil,
+	)
+}
+
+func mustMiddlewareSubjectSnapshotWithAuthorization(
+	t testing.TB,
+	kind authz.SubjectKind,
+	id int64,
+	exists bool,
+	active bool,
+	legacyAdmin bool,
+	roleMode authz.RoleAuthorizationMode,
+	capabilities []authz.Capability,
+) authz.SubjectSnapshot {
 	t.Helper()
 	subject, err := authz.NewSubjectRef(kind, id)
 	require.NoError(t, err)
 	configuration, err := authz.NewPolicyConfiguration(authz.PolicyConfigurationInput{
-		RoleAuthorizationMode: authz.RoleAuthorizationModeLegacy,
+		RoleAuthorizationMode: roleMode,
 	})
 	require.NoError(t, err)
 
@@ -104,6 +142,7 @@ func mustMiddlewareSubjectSnapshot(
 		Active:             active,
 		CurrentLegacyAdmin: legacyAdmin,
 		Configuration:      configuration,
+		Capabilities:       capabilities,
 	}
 	if exists {
 		input.AuthzVersion = 1

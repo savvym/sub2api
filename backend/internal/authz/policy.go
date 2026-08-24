@@ -13,13 +13,18 @@ type ResourcePolicy interface {
 }
 
 type PolicyService struct {
-	store PolicyStore
+	store          PolicyStore
+	shadowObserver RoleShadowObserver
 }
 
 var _ ResourcePolicy = (*PolicyService)(nil)
 
 func NewPolicyService(store PolicyStore) *PolicyService {
 	return &PolicyService{store: store}
+}
+
+func NewPolicyServiceWithShadowObserver(store PolicyStore, observer RoleShadowObserver) *PolicyService {
+	return &PolicyService{store: store, shadowObserver: observer}
 }
 
 func (s *PolicyService) CheckCapability(ctx context.Context, actor Actor, capability Capability) (Decision, error) {
@@ -44,7 +49,21 @@ func (s *PolicyService) CheckCapability(ctx context.Context, actor Actor, capabi
 	if decision := validateCurrentSubject(actor, subject, snapshot); !decision.Allowed() {
 		return decision, nil
 	}
-	return capabilityDecision(actor, snapshot, capability), nil
+	legacy := capabilityDecisionForMode(actor, snapshot, capability, RoleAuthorizationModeLegacy)
+	if snapshot.Configuration().RoleMode() == RoleAuthorizationModeShadow {
+		rbac := capabilityDecisionForMode(actor, snapshot, capability, RoleAuthorizationModeRBAC)
+		s.observeRoleShadow(ctx, newRoleShadowComparison(
+			PolicyOperationCheckCapability,
+			actor,
+			capability,
+			"",
+			"",
+			roleShadowDecisionOutcome(legacy),
+			roleShadowDecisionOutcome(rbac),
+		))
+		return legacy, nil
+	}
+	return capabilityDecisionForMode(actor, snapshot, capability, snapshot.Configuration().RoleMode()), nil
 }
 
 func (s *PolicyService) CanCreate(ctx context.Context, actor Actor, resourceType ResourceType) (Decision, error) {
@@ -71,17 +90,21 @@ func (s *PolicyService) CanCreate(ctx context.Context, actor Actor, resourceType
 		return decision, nil
 	}
 
-	decision := capabilityDecision(actor, snapshot, capability)
-	if !decision.Allowed() {
-		return decision, nil
+	legacy := canCreateDecisionForMode(actor, snapshot, capability, RoleAuthorizationModeLegacy)
+	if snapshot.Configuration().RoleMode() == RoleAuthorizationModeShadow {
+		rbac := canCreateDecisionForMode(actor, snapshot, capability, RoleAuthorizationModeRBAC)
+		s.observeRoleShadow(ctx, newRoleShadowComparison(
+			PolicyOperationCanCreate,
+			actor,
+			capability,
+			resourceType,
+			"",
+			roleShadowDecisionOutcome(legacy),
+			roleShadowDecisionOutcome(rbac),
+		))
+		return legacy, nil
 	}
-	configuration := snapshot.Configuration()
-	if !configuration.ResourceAccessControlEnabled() || !configuration.SelfServiceHostingEnabled() {
-		if !hasPlatformManagementAuthority(actor, snapshot) {
-			return deny(DenyReasonFeatureDisabled), nil
-		}
-	}
-	return decision, nil
+	return canCreateDecisionForMode(actor, snapshot, capability, snapshot.Configuration().RoleMode()), nil
 }
 
 func (s *PolicyService) Authorize(ctx context.Context, actor Actor, action Action, ref ResourceRef) (Decision, error) {
@@ -117,8 +140,33 @@ func (s *PolicyService) Authorize(ctx context.Context, actor Actor, action Actio
 		return decision, nil
 	}
 
-	legacyBypass := hasLegacyAdminAuthority(actor, subjectSnapshot)
-	platformCapability, platformBypass := currentPlatformCapability(subjectSnapshot, action)
+	legacyDecision, legacyErr := authorizeDecisionForMode(actor, snapshot, action, ref, RoleAuthorizationModeLegacy)
+	if subjectSnapshot.Configuration().RoleMode() == RoleAuthorizationModeShadow {
+		rbacDecision, _ := authorizeDecisionForMode(actor, snapshot, action, ref, RoleAuthorizationModeRBAC)
+		s.observeRoleShadow(ctx, newRoleShadowComparison(
+			PolicyOperationAuthorize,
+			actor,
+			"",
+			ref.Type(),
+			action,
+			roleShadowDecisionOutcome(legacyDecision),
+			roleShadowDecisionOutcome(rbacDecision),
+		))
+		return legacyDecision, legacyErr
+	}
+	return authorizeDecisionForMode(actor, snapshot, action, ref, subjectSnapshot.Configuration().RoleMode())
+}
+
+func authorizeDecisionForMode(
+	actor Actor,
+	snapshot ResourceAccessSnapshot,
+	action Action,
+	ref ResourceRef,
+	roleMode RoleAuthorizationMode,
+) (Decision, error) {
+	subjectSnapshot := snapshot.SubjectSnapshot()
+	legacyBypass := hasLegacyAdminAuthorityForMode(actor, subjectSnapshot, roleMode)
+	platformCapability, platformBypass := platformCapabilityForMode(subjectSnapshot, action, roleMode)
 	configuration := subjectSnapshot.Configuration()
 	if !legacyBypass && !platformBypass &&
 		(!configuration.ResourceAccessControlEnabled() || !configuration.SelfServiceHostingEnabled()) {
@@ -170,7 +218,7 @@ func (s *PolicyService) Authorize(ctx context.Context, actor Actor, action Actio
 		return deny(DenyReasonAuthorizationDataUnavailable), matchErr
 	}
 	if !found {
-		if hasCurrentPlatformVisibility(subjectSnapshot, ref.Type()) {
+		if hasPlatformVisibilityForMode(subjectSnapshot, ref.Type(), roleMode) {
 			return deny(DenyReasonInsufficientAccess), nil
 		}
 		return deny(DenyReasonNoMatchingAccess), nil
@@ -256,10 +304,13 @@ func equalCapabilities(left, right []Capability) bool {
 }
 
 func capabilityDecision(actor Actor, snapshot SubjectSnapshot, capability Capability) Decision {
-	mode := snapshot.Configuration().RoleMode()
+	return capabilityDecisionForMode(actor, snapshot, capability, authoritativeRoleMode(snapshot.Configuration().RoleMode()))
+}
+
+func capabilityDecisionForMode(actor Actor, snapshot SubjectSnapshot, capability Capability, mode RoleAuthorizationMode) Decision {
 	switch mode {
-	case RoleAuthorizationModeLegacy, RoleAuthorizationModeShadow:
-		if hasLegacyAdminAuthority(actor, snapshot) && legacyAdminCapabilityAllowed(capability) {
+	case RoleAuthorizationModeLegacy:
+		if hasLegacyAdminAuthorityForMode(actor, snapshot, mode) && legacyAdminCapabilityAllowed(capability) {
 			return allow(legacyAdminMatch())
 		}
 		if actor.Kind() == SubjectKindUser && capability == CapabilityAPIKeyCreate {
@@ -280,9 +331,26 @@ func capabilityDecision(actor Actor, snapshot SubjectSnapshot, capability Capabi
 	return allow(match)
 }
 
+func canCreateDecisionForMode(actor Actor, snapshot SubjectSnapshot, capability Capability, mode RoleAuthorizationMode) Decision {
+	decision := capabilityDecisionForMode(actor, snapshot, capability, mode)
+	if !decision.Allowed() {
+		return decision
+	}
+	configuration := snapshot.Configuration()
+	if !configuration.ResourceAccessControlEnabled() || !configuration.SelfServiceHostingEnabled() {
+		if !hasPlatformManagementAuthorityForMode(actor, snapshot, mode) {
+			return deny(DenyReasonFeatureDisabled)
+		}
+	}
+	return decision
+}
+
 func hasLegacyAdminAuthority(actor Actor, snapshot SubjectSnapshot) bool {
-	mode := snapshot.Configuration().RoleMode()
-	if mode != RoleAuthorizationModeLegacy && mode != RoleAuthorizationModeShadow {
+	return hasLegacyAdminAuthorityForMode(actor, snapshot, authoritativeRoleMode(snapshot.Configuration().RoleMode()))
+}
+
+func hasLegacyAdminAuthorityForMode(actor Actor, snapshot SubjectSnapshot, mode RoleAuthorizationMode) bool {
+	if mode != RoleAuthorizationModeLegacy {
 		return false
 	}
 	if actor.hasLegacyAdminBypass() && snapshot.CurrentLegacyAdmin() {
@@ -299,7 +367,11 @@ func hasLegacyAdminAuthority(actor Actor, snapshot SubjectSnapshot) bool {
 }
 
 func currentPlatformCapability(snapshot SubjectSnapshot, action Action) (Capability, bool) {
-	if snapshot.Configuration().RoleMode() != RoleAuthorizationModeRBAC {
+	return platformCapabilityForMode(snapshot, action, snapshot.Configuration().RoleMode())
+}
+
+func platformCapabilityForMode(snapshot SubjectSnapshot, action Action, mode RoleAuthorizationMode) (Capability, bool) {
+	if mode != RoleAuthorizationModeRBAC {
 		return "", false
 	}
 	for _, capability := range platformCapabilitiesForAction(action) {
@@ -311,6 +383,10 @@ func currentPlatformCapability(snapshot SubjectSnapshot, action Action) (Capabil
 }
 
 func hasCurrentPlatformVisibility(snapshot SubjectSnapshot, resourceType ResourceType) bool {
+	return hasPlatformVisibilityForMode(snapshot, resourceType, snapshot.Configuration().RoleMode())
+}
+
+func hasPlatformVisibilityForMode(snapshot SubjectSnapshot, resourceType ResourceType, mode RoleAuthorizationMode) bool {
 	var viewAction Action
 	switch resourceType {
 	case ResourceTypeAccount:
@@ -320,16 +396,27 @@ func hasCurrentPlatformVisibility(snapshot SubjectSnapshot, resourceType Resourc
 	default:
 		return false
 	}
-	_, ok := currentPlatformCapability(snapshot, viewAction)
+	_, ok := platformCapabilityForMode(snapshot, viewAction, mode)
 	return ok
 }
 
 func hasPlatformManagementAuthority(actor Actor, snapshot SubjectSnapshot) bool {
-	if hasLegacyAdminAuthority(actor, snapshot) {
+	return hasPlatformManagementAuthorityForMode(actor, snapshot, authoritativeRoleMode(snapshot.Configuration().RoleMode()))
+}
+
+func hasPlatformManagementAuthorityForMode(actor Actor, snapshot SubjectSnapshot, mode RoleAuthorizationMode) bool {
+	if hasLegacyAdminAuthorityForMode(actor, snapshot, mode) {
 		return true
 	}
-	return snapshot.Configuration().RoleMode() == RoleAuthorizationModeRBAC &&
+	return mode == RoleAuthorizationModeRBAC &&
 		snapshot.HasCapability(CapabilityPlatformResourceManageAll)
+}
+
+func authoritativeRoleMode(mode RoleAuthorizationMode) RoleAuthorizationMode {
+	if mode == RoleAuthorizationModeShadow {
+		return RoleAuthorizationModeLegacy
+	}
+	return mode
 }
 
 type rankedAccessMatch struct {

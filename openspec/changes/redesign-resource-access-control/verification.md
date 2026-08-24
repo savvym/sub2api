@@ -131,6 +131,28 @@
 | 完整 `account_groups` 授权来源、验证版本和撤权/到期/角色变化关系重算 | 任务 4.2/4.4；1.11 只产生 durable Scheduler 事件 | 待实现 |
 | CI/Testcontainers 1.11 repository dynamic suite | `CI=1 go test -tags=integration ./internal/repository` | 待实现（本机无 Docker；integration 标签编译不等于动态执行） |
 
+## Phase 1 Exit Review（1.12）
+
+本表区分本地 dark-foundation 工程验证与正式阶段批准。任何一项外部门禁仍为待实现时，1.12 都不得勾选，也不得开始 Phase 2 发布。
+
+| 门禁 | 证据 | 状态 |
+| --- | --- | --- |
+| User/Service Principal 跨租户 Account/Group 全链隔离 | 本机 PostgreSQL 18.6 真实 `Resolver -> Policy -> Scope -> reader` 矩阵；覆盖搜索、排序、分页、total 与详情 IDOR 404 | 通过 |
+| 旧 Scope 重校验与固定 Admin API Key fail closed | 本机 PostgreSQL 18.6 动态测试；覆盖开关、角色版本、主体停用，以及 `admin_api_key` code/status 变化 | 通过 |
+| SIMPLE Mode 发布护栏与模式组合 | SettingService、生产 PolicyStore、Scope 三层 fail closed；Standard/SIMPLE x 5 个 Feature Flag 的 64 组测试，并验证数据库 raw flags 仍可为 true | 通过 |
+| SQL Scope 生产规模查询计划 | PostgreSQL 18.6、20,000 行 Account/Group 与大规模无关 Grant fixture；Owner、public、direct-user、role Grant 稀疏索引均命中，主表无 Seq Scan；Account/Group 的 legacy admin/platform capability 全局计划只访问资源关系一次 | 通过 |
+| migration 242 在线 public scope 索引 | SQL contract、`_notx` runner invalid-index retry 与本机 PostgreSQL 索引有效性/查询计划测试 | 通过 |
+| 当前 Phase 1 管理员写面 TOCTOU | 本机 PostgreSQL 18.6 两个不同管理员 Actor 双事务同版本并发；恰一提交/一冲突，SERIALIZABLE mutation closure 可执行 1 或 2 次且 loser 尝试完整回滚，最终业务状态、版本、durable event 与 Scheduler Outbox 恰好一次；真实 `AdminService.ClearAccountError` 测试证明 production after-commit callback 仅在提交后执行且恰好一次，通用语义另由 coordinator 单测覆盖 | 通过 |
+| 228 到当前版本持久升级、重复 apply | Testcontainers 回归代码与 `integration` 标签全仓编译已通过 | 待实现（本机无 Docker，动态升级/reapply 尚未执行） |
+| 完整 backend unit、聚焦 race/vet、默认与 integration 标签编译、build | 本地最终代码验证 | 通过 |
+| CI repository Testcontainers 动态套件 | `CI=1 go test -tags=integration ./internal/repository` | 待实现（本机无 Docker；无 CI 结果链接） |
+| production role shadow 差异记录能力 | `PolicyService` 四个入口并行计算 legacy/RBAC 且保持 legacy 响应；管理员 JWT/Admin API Key 生产入口接线；低基数、无 ID 的结构化 INFO/WARN 日志与 observer panic 隔离测试 | 通过（日志可由外部系统聚合；未新增独立进程内指标） |
+| Phase 0 安全决策与退出批准 | 0.4 credentials/extra、0.5 allowlist/SSRF/限频、0.8 Phase 0 exit | 待实现（Review Ready，尚无批准链接） |
+| 生产只读数据预检 | 对真实服务器运行 `data-preflight.sql` 并归档异常与回填规模 | 待实现 |
+| 目标环境 shadow readiness 与观察 | 专用 role-mode readiness、legacy→shadow 执行、具体差异指标、日志量与 sink `dropped_count`、观察窗口和回滚证据 | 待实现（当前部署仍为 legacy） |
+| PR/CI URL 与平台/认证/安全批准人 | 可追溯发布记录和最终批准 | 待实现 |
+| Phase 1 正式退出结论 | 所有上述门禁完成后才能批准 | 待实现；1.12 保持未勾选，进度保持 20/49 |
+
 ## 标准命令
 
 ```bash

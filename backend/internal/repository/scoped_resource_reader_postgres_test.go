@@ -54,35 +54,34 @@ func TestScopedResourceReaderPostgres(t *testing.T) {
 		t, ctx, tx, grantorID, subjectID, otherUserID, roleID,
 	)
 
-	subject := mustAuthzSubjectRef(t, authz.SubjectKindUser, subjectID)
-	snapshot, err := newAuthzPolicyStoreWithQueryer(tx).LoadSubjectSnapshot(ctx, subject)
+	store := newAuthzPolicyStoreWithQueryer(tx)
+	actor, err := authz.NewActorResolver(store).ResolveUser(ctx, subjectID, authz.AuthMethodJWT)
 	if err != nil {
-		t.Fatalf("load scoped-reader subject snapshot: %v", err)
+		t.Fatalf("resolve scoped-reader actor: %v", err)
 	}
-	if !snapshot.Valid() || !snapshot.Exists() || !snapshot.Active() {
-		t.Fatalf("unexpected scoped-reader subject snapshot: %+v", snapshot)
+	if !actor.Valid() {
+		t.Fatalf("resolved scoped-reader actor is invalid: %+v", actor)
+	}
+	policy := authz.NewPolicyService(store)
+	accountScope, err := policy.AccessibleScope(ctx, actor, authz.ResourceTypeAccount, authz.ActionAccountView)
+	if err != nil {
+		t.Fatalf("build trusted account scope: %v", err)
+	}
+	groupScope, err := policy.AccessibleScope(ctx, actor, authz.ResourceTypeGroup, authz.ActionGroupView)
+	if err != nil {
+		t.Fatalf("build trusted group scope: %v", err)
 	}
 
 	recorder := &authzPolicyPostgresQueryRecorder{delegate: tx}
 	driver := entsql.NewDriver(dialect.Postgres, entsql.Conn{ExecQuerier: recorder})
 	client := dbent.NewClient(dbent.Driver(driver))
 	reader := NewScopedResourceReader(client)
-	accountClaims := newAuthzPolicyPostgresViewClaims(
-		snapshot,
-		authz.ResourceTypeAccount,
-		authz.ActionAccountView,
-	)
-	groupClaims := newAuthzPolicyPostgresViewClaims(
-		snapshot,
-		authz.ResourceTypeGroup,
-		authz.ActionGroupView,
-	)
 
 	t.Run("accounts", func(t *testing.T) {
-		assertScopedResourceReaderAccountBehavior(t, ctx, reader, recorder, accountClaims, accounts)
+		assertScopedResourceReaderAccountBehavior(t, ctx, reader, recorder, accountScope, accounts)
 	})
 	t.Run("groups", func(t *testing.T) {
-		assertScopedResourceReaderGroupBehavior(t, ctx, reader, recorder, groupClaims, groups)
+		assertScopedResourceReaderGroupBehavior(t, ctx, reader, recorder, groupScope, groups)
 	})
 
 	if _, err := tx.ExecContext(ctx, `
@@ -93,7 +92,7 @@ func TestScopedResourceReaderPostgres(t *testing.T) {
 		t.Fatalf("make scoped-reader subject snapshot stale: %v", err)
 	}
 
-	accountItems, accountPage, err := reader.listAccessibleAccounts(ctx, accountClaims, service.AccountReadQuery{
+	accountItems, accountPage, err := reader.listAccessibleAccounts(ctx, accountScope, service.AccountReadQuery{
 		Pagination: pagination.PaginationParams{Page: 1, PageSize: 10, SortBy: "id", SortOrder: "asc"},
 	})
 	if err != nil {
@@ -103,7 +102,7 @@ func TestScopedResourceReaderPostgres(t *testing.T) {
 		t.Fatalf("stale account scope remained usable: items=%+v page=%+v", accountItems, accountPage)
 	}
 
-	groupItems, groupPage, err := reader.listAccessibleGroups(ctx, groupClaims, service.GroupReadQuery{
+	groupItems, groupPage, err := reader.listAccessibleGroups(ctx, groupScope, service.GroupReadQuery{
 		Pagination: pagination.PaginationParams{Page: 1, PageSize: 10, SortBy: "id", SortOrder: "asc"},
 	})
 	if err != nil {
@@ -231,7 +230,7 @@ func assertScopedResourceReaderAccountBehavior(
 	ctx context.Context,
 	reader *scopedResourceReader,
 	recorder *authzPolicyPostgresQueryRecorder,
-	claims authzPolicyPostgresViewClaims,
+	claims accessibleScopeClaims,
 	fixture scopedResourceReaderFixture,
 ) {
 	t.Helper()
@@ -288,7 +287,7 @@ func assertScopedResourceReaderGroupBehavior(
 	ctx context.Context,
 	reader *scopedResourceReader,
 	recorder *authzPolicyPostgresQueryRecorder,
-	claims authzPolicyPostgresViewClaims,
+	claims accessibleScopeClaims,
 	fixture scopedResourceReaderFixture,
 ) {
 	t.Helper()

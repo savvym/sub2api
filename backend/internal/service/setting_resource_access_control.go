@@ -4,7 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"strconv"
-	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
 // ResourceAccessControlRuntimeSettings is the effective, fail-closed view of
@@ -75,8 +76,9 @@ func (s *SettingService) resourceAccessControlUpdateExpands(
 		}
 		proposed[key] = strconv.FormatBool(enabled)
 	}
-	before := resourceAccessControlExpansionStateFromValues(current)
-	after := resourceAccessControlExpansionStateFromValues(proposed)
+	selfServiceAllowed := s.resourceAccessControlSelfServiceAllowed()
+	before := resourceAccessControlExpansionStateFromValues(current, selfServiceAllowed)
+	after := resourceAccessControlExpansionStateFromValues(proposed, selfServiceAllowed)
 	return (!before.master && after.master) ||
 		(!before.selfServe && after.selfServe) ||
 		(!before.groupShare && after.groupShare) ||
@@ -84,9 +86,9 @@ func (s *SettingService) resourceAccessControlUpdateExpands(
 		(!before.roleGrants && after.roleGrants), nil
 }
 
-func resourceAccessControlExpansionStateFromValues(values map[string]string) resourceAccessControlExpansionState {
+func resourceAccessControlExpansionStateFromValues(values map[string]string, selfServiceAllowed bool) resourceAccessControlExpansionState {
 	master := values[SettingKeyResourceAccessControlEnabled] == "true"
-	selfServe := master && values[SettingKeySelfServiceHostingEnabled] == "true"
+	selfServe := master && selfServiceAllowed && values[SettingKeySelfServiceHostingEnabled] == "true"
 	return resourceAccessControlExpansionState{
 		master:     master,
 		selfServe:  selfServe,
@@ -96,11 +98,17 @@ func resourceAccessControlExpansionStateFromValues(values map[string]string) res
 	}
 }
 
+func (s *SettingService) resourceAccessControlSelfServiceAllowed() bool {
+	return s == nil || s.cfg == nil || s.cfg.RunMode != config.RunModeSimple
+}
+
 // GetResourceAccessControlRuntimeSettings returns the effective feature state.
 // Missing or unreadable settings fail closed. Advanced resource features are
 // effective only while the master resource access control switch is enabled;
-// sharing also requires self-service hosting. Backend Mode routing remains a
-// separate, higher-priority guard.
+// sharing also requires self-service hosting. SIMPLE Mode keeps the dark ACL
+// and role-grant infrastructure available but disables self-service and
+// sharing until its global scheduling queries isolate tenant-owned accounts.
+// Backend Mode routing remains a separate, higher-priority guard.
 func (s *SettingService) GetResourceAccessControlRuntimeSettings(ctx context.Context) ResourceAccessControlRuntimeSettings {
 	closed := ResourceAccessControlRuntimeSettings{
 		RoleAuthorizationMode: RoleAuthorizationModeLegacy,
@@ -115,8 +123,7 @@ func (s *SettingService) GetResourceAccessControlRuntimeSettings(ctx context.Con
 		return closed
 	}
 
-	masterEnabled := values[SettingKeyResourceAccessControlEnabled] == "true"
-	selfServiceEnabled := masterEnabled && values[SettingKeySelfServiceHostingEnabled] == "true"
+	effective := resourceAccessControlExpansionStateFromValues(values, s.resourceAccessControlSelfServiceAllowed())
 	roleAuthorizationMode, validMode := parseRoleAuthorizationMode(values[SettingKeyRoleAuthorizationMode])
 	if !validMode {
 		slog.Warn("invalid role authorization mode; falling back to legacy",
@@ -124,11 +131,11 @@ func (s *SettingService) GetResourceAccessControlRuntimeSettings(ctx context.Con
 		)
 	}
 	return ResourceAccessControlRuntimeSettings{
-		ResourceAccessControlEnabled:   masterEnabled,
-		SelfServiceHostingEnabled:      selfServiceEnabled,
-		GroupSharingEnabled:            selfServiceEnabled && values[SettingKeyGroupSharingEnabled] == "true",
-		AccountSharingEnabled:          selfServiceEnabled && values[SettingKeyAccountSharingEnabled] == "true",
-		RoleBasedResourceGrantsEnabled: masterEnabled && values[SettingKeyRoleBasedResourceGrantsEnabled] == "true",
+		ResourceAccessControlEnabled:   effective.master,
+		SelfServiceHostingEnabled:      effective.selfServe,
+		GroupSharingEnabled:            effective.groupShare,
+		AccountSharingEnabled:          effective.acctShare,
+		RoleBasedResourceGrantsEnabled: effective.roleGrants,
 		RoleAuthorizationMode:          roleAuthorizationMode,
 	}
 }
@@ -139,7 +146,7 @@ func normalizeRoleAuthorizationMode(value string) string {
 }
 
 func parseRoleAuthorizationMode(value string) (string, bool) {
-	switch strings.TrimSpace(value) {
+	switch value {
 	case "", RoleAuthorizationModeLegacy:
 		return RoleAuthorizationModeLegacy, true
 	case RoleAuthorizationModeShadow:

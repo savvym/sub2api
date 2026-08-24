@@ -168,7 +168,9 @@ func TestAccessibleScopeAllowsOnlyCurrentPlatformOrLegacyGovernanceBypass(t *tes
 		t.Fatalf("build platform scope while features are off: %v", err)
 	}
 	capability, ok := rbacScope.PlatformCapabilityBypass()
-	if !ok || capability != CapabilityPlatformResourceViewAll || rbacScope.LegacyAdminBypass() {
+	if !ok || capability != CapabilityPlatformResourceViewAll || rbacScope.LegacyAdminBypass() ||
+		rbacScope.IncludesOwner() || rbacScope.IncludesPublicAccess() ||
+		rbacScope.IncludesDirectUserGrants() || rbacScope.IncludesRoleGrants() {
 		t.Fatalf("wrong rbac scope bypass: %q, %v", capability, ok)
 	}
 
@@ -180,11 +182,25 @@ func TestAccessibleScopeAllowsOnlyCurrentPlatformOrLegacyGovernanceBypass(t *tes
 	if err != nil {
 		t.Fatalf("build legacy governance scope while features are off: %v", err)
 	}
-	if !legacyScope.LegacyAdminBypass() {
+	if !legacyScope.LegacyAdminBypass() || legacyScope.IncludesOwner() ||
+		legacyScope.IncludesPublicAccess() || legacyScope.IncludesDirectUserGrants() ||
+		legacyScope.IncludesRoleGrants() {
 		t.Fatal("trusted shadow legacy admin lacks governance bypass")
 	}
 	if _, ok := legacyScope.PlatformCapabilityBypass(); ok {
 		t.Fatal("shadow scope used rbac platform bypass")
+	}
+
+	adminAPIKeyActor := mustAdminAPIKeyActor(t, 3, 1, nil, nil)
+	adminAPIKeyScope, err := NewPolicyService(&stubPolicyStore{
+		subjectSnapshot: mustSubjectSnapshotForActor(t, adminAPIKeyActor, legacyConfiguration, false),
+	}).AccessibleScope(context.Background(), adminAPIKeyActor, ResourceTypeAccount, ActionAccountView)
+	if err != nil {
+		t.Fatalf("build admin API key legacy scope while features are off: %v", err)
+	}
+	if !adminAPIKeyScope.Valid() || !adminAPIKeyScope.LegacyAdminBypass() ||
+		adminAPIKeyScope.SubjectKind() != SubjectKindServicePrincipal {
+		t.Fatalf("admin API key scope lacks legacy compatibility bypass: %+v", adminAPIKeyScope)
 	}
 
 	corruptPlatform := rbacScope
@@ -195,7 +211,7 @@ func TestAccessibleScopeAllowsOnlyCurrentPlatformOrLegacyGovernanceBypass(t *tes
 	corruptLegacy := principalShapedScopeForValidation(t)
 	corruptLegacy.legacyAdminBypass = true
 	if corruptLegacy.Valid() {
-		t.Fatal("service principal scope accepted legacy admin bypass")
+		t.Fatal("role-bearing service principal scope accepted legacy admin bypass")
 	}
 }
 

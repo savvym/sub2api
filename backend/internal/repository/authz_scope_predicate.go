@@ -184,80 +184,84 @@ func authzAccessLevelNames(levels []authz.AccessLevel) []string {
 
 func (p authzScopeSQLPlan) predicateSQL(columns authzScopeResourceColumns) (string, []any) {
 	subjectRow, activeRoles, subjectActive, legacyAdminCondition := p.subjectSQL()
-	grantTable, resourceIDColumn, sharingFlag := p.resourceSQL()
+	resourceTable, grantTable, resourceIDColumn, sharingFlag := p.resourceSQL()
 
-	args := []any{
-		p.subjectID,
-		p.subjectAuthzVersion,
-		string(p.roleMode),
-		p.roleVersionsJSON,
-		p.capabilitiesJSON,
-	}
-	branches := make([]string, 0, 5)
+	args := []any{p.subjectID}
+	globalBypasses := make([]string, 0, 2)
 	if p.legacyAdminBypass {
-		branches = append(branches, legacyAdminCondition)
+		globalBypasses = append(globalBypasses, legacyAdminCondition)
 	}
 	if p.hasPlatformCapability {
-		branches = append(branches, `EXISTS (
+		globalBypasses = append(globalBypasses, `EXISTS (
 			SELECT 1 FROM current_capabilities
 			WHERE code = ?
 		)`)
 		args = append(args, string(p.platformCapability))
 	}
-	if p.includeOwner {
-		branches = append(branches, fmt.Sprintf(`(
-			policy_configuration.resource_access_control_enabled
-			AND policy_configuration.self_service_hosting_enabled
-			AND %s = current_subject.id
-		)`, columns.ownerUserID))
+
+	// Keep each authorization source independently indexable, then join the
+	// resulting IDs back to the outer Ent query under the same snapshot checks.
+	resourceSources := make([]string, 0, 4)
+	// A captured global bypass supersedes sparse sources. Its current authority
+	// is still revalidated below before the outer resource row is admitted.
+	if len(globalBypasses) == 0 && p.includeOwner {
+		resourceSources = append(resourceSources, fmt.Sprintf(`
+			SELECT owner_resource.id
+			FROM %s owner_resource
+			WHERE owner_resource.deleted_at IS NULL
+			  AND owner_resource.owner_user_id = current_subject.id
+			  AND policy_configuration.resource_access_control_enabled
+			  AND policy_configuration.self_service_hosting_enabled
+		`, resourceTable))
 	}
-	if p.includePublic {
-		branches = append(branches, fmt.Sprintf(`(
-			policy_configuration.resource_access_control_enabled
-			AND policy_configuration.self_service_hosting_enabled
-			AND policy_configuration.%s
-			AND %s = ANY(?::text[])
-		)`, sharingFlag, columns.publicAccessLevel))
+	if len(globalBypasses) == 0 && p.includePublic {
+		resourceSources = append(resourceSources, fmt.Sprintf(`
+			SELECT public_resource.id
+			FROM %s public_resource
+			WHERE public_resource.deleted_at IS NULL
+			  AND public_resource.public_access_level = ANY(?::text[])
+			  AND policy_configuration.resource_access_control_enabled
+			  AND policy_configuration.self_service_hosting_enabled
+			  AND policy_configuration.%s
+		`, resourceTable, sharingFlag))
 		args = append(args, pq.Array(p.publicAccessLevels))
 	}
-	if p.includeDirectUserGrants {
-		branches = append(branches, fmt.Sprintf(`(
-			policy_configuration.resource_access_control_enabled
-			AND policy_configuration.self_service_hosting_enabled
-			AND policy_configuration.%s
-			AND EXISTS (
-				SELECT 1
-				FROM %s direct_grant
-				WHERE direct_grant.%s = %s
-				  AND direct_grant.grantee_user_id = current_subject.id
-				  AND direct_grant.access_level = ANY(?::text[])
-				  AND (direct_grant.expires_at IS NULL OR direct_grant.expires_at > statement_timestamp())
-			)
-		)`, sharingFlag, grantTable, resourceIDColumn, columns.id))
+	if len(globalBypasses) == 0 && p.includeDirectUserGrants {
+		resourceSources = append(resourceSources, fmt.Sprintf(`
+			SELECT direct_grant.%s AS id
+			FROM %s direct_grant
+			WHERE direct_grant.grantee_user_id = current_subject.id
+			  AND direct_grant.access_level = ANY(?::text[])
+			  AND (direct_grant.expires_at IS NULL OR direct_grant.expires_at > statement_timestamp())
+			  AND policy_configuration.resource_access_control_enabled
+			  AND policy_configuration.self_service_hosting_enabled
+			  AND policy_configuration.%s
+		`, resourceIDColumn, grantTable, sharingFlag))
 		args = append(args, pq.Array(p.grantAccessLevels))
 	}
-	if p.includeRoleGrants {
-		branches = append(branches, fmt.Sprintf(`(
-			policy_configuration.resource_access_control_enabled
-			AND policy_configuration.self_service_hosting_enabled
-			AND policy_configuration.%s
-			AND policy_configuration.role_based_resource_grants_enabled
-			AND EXISTS (
-				SELECT 1
-				FROM %s role_grant
-				JOIN active_roles ON active_roles.id = role_grant.grantee_role_id
-				WHERE role_grant.%s = %s
-				  AND role_grant.access_level = ANY(?::text[])
-				  AND (role_grant.expires_at IS NULL OR role_grant.expires_at > statement_timestamp())
-			)
-		)`, sharingFlag, grantTable, resourceIDColumn, columns.id))
+	if len(globalBypasses) == 0 && p.includeRoleGrants {
+		resourceSources = append(resourceSources, fmt.Sprintf(`
+			SELECT role_grant.%s AS id
+			FROM %s role_grant
+			JOIN active_roles ON active_roles.id = role_grant.grantee_role_id
+			WHERE role_grant.access_level = ANY(?::text[])
+			  AND (role_grant.expires_at IS NULL OR role_grant.expires_at > statement_timestamp())
+			  AND policy_configuration.resource_access_control_enabled
+			  AND policy_configuration.self_service_hosting_enabled
+			  AND policy_configuration.%s
+			  AND policy_configuration.role_based_resource_grants_enabled
+		`, resourceIDColumn, grantTable, sharingFlag))
 		args = append(args, pq.Array(p.grantAccessLevels))
 	}
-	if len(branches) == 0 {
-		branches = append(branches, "FALSE")
-	}
+	args = append(args,
+		p.subjectAuthzVersion,
+		string(p.roleMode),
+		p.roleVersionsJSON,
+		p.capabilitiesJSON,
+	)
 
-	query := fmt.Sprintf(`%s IS NULL AND EXISTS (
+	if len(globalBypasses) > 0 {
+		query := fmt.Sprintf(`%s IS NULL AND EXISTS (
 	WITH
 	current_subject AS (%s),
 	active_roles AS (%s),
@@ -272,6 +276,7 @@ func (p authzScopeSQLPlan) predicateSQL(columns authzScopeResourceColumns) (stri
 	FROM current_subject
 	CROSS JOIN policy_configuration
 	WHERE %s
+	  AND (%s)
 	  AND current_subject.authz_version = ?
 	  AND policy_configuration.role_authorization_mode = ?
 	  AND COALESCE((
@@ -282,14 +287,56 @@ func (p authzScopeSQLPlan) predicateSQL(columns authzScopeResourceColumns) (stri
 		SELECT jsonb_agg(current_capabilities.code ORDER BY current_capabilities.code)
 		FROM current_capabilities
 	  ), '[]'::jsonb) = ?::jsonb
-	  AND (%s)
-)`,
+	)`,
+			columns.deletedAt,
+			subjectRow,
+			activeRoles,
+			authzPolicyConfigurationCTE,
+			subjectActive,
+			joinSQLOr(globalBypasses),
+		)
+		return query, args
+	}
+
+	if len(resourceSources) == 0 {
+		resourceSources = append(resourceSources, `SELECT NULL::bigint AS id WHERE FALSE`)
+	}
+	query := fmt.Sprintf(`%s IS NULL AND %s IN (
+	WITH
+	current_subject AS (%s),
+	active_roles AS (%s),
+	current_capabilities AS (
+		SELECT DISTINCT permission.code
+		FROM active_roles
+		JOIN role_permissions ON role_permissions.role_id = active_roles.id
+		JOIN permissions permission ON permission.id = role_permissions.permission_id
+	),
+	policy_configuration AS (%s)
+	SELECT accessible_resource.id
+	FROM current_subject
+	CROSS JOIN policy_configuration
+	CROSS JOIN LATERAL (
+		%s
+	) accessible_resource
+	WHERE %s
+	  AND current_subject.authz_version = ?
+	  AND policy_configuration.role_authorization_mode = ?
+	  AND COALESCE((
+		SELECT jsonb_object_agg(active_roles.id::text, active_roles.authz_version)
+		FROM active_roles
+	  ), '{}'::jsonb) = ?::jsonb
+	  AND COALESCE((
+		SELECT jsonb_agg(current_capabilities.code ORDER BY current_capabilities.code)
+		FROM current_capabilities
+	  ), '[]'::jsonb) = ?::jsonb
+	)`,
 		columns.deletedAt,
+		columns.id,
 		subjectRow,
 		activeRoles,
 		authzPolicyConfigurationCTE,
+		joinSQLUnionAll(resourceSources),
 		subjectActive,
-		joinSQLBranches(branches),
 	)
 	return query, args
 }
@@ -310,7 +357,7 @@ func (p authzScopeSQLPlan) subjectSQL() (subjectRow, activeRoles, activeConditio
 		`, `current_subject.status = 'active' AND current_subject.deleted_at IS NULL`, `current_subject.role = 'admin'`
 	case authz.SubjectKindServicePrincipal:
 		return `
-			SELECT id, status, authz_version
+			SELECT id, code, status, authz_version
 			FROM service_principals
 			WHERE id = ?
 		`, `
@@ -319,26 +366,25 @@ func (p authzScopeSQLPlan) subjectSQL() (subjectRow, activeRoles, activeConditio
 			JOIN roles role ON role.id = assignment.role_id
 			JOIN current_subject ON current_subject.id = assignment.service_principal_id
 			WHERE assignment.expires_at IS NULL OR assignment.expires_at > statement_timestamp()
-		`, `current_subject.status = 'active'`, `FALSE`
+		`, `current_subject.status = 'active'`, fmt.Sprintf(
+				`current_subject.code = %s`, pq.QuoteLiteral(authz.AdminAPIKeyServicePrincipalCode),
+			)
 	default:
 		return `SELECT NULL::bigint AS id WHERE FALSE`, `SELECT NULL::bigint AS id, NULL::bigint AS authz_version WHERE FALSE`, `FALSE`, `FALSE`
 	}
 }
 
-func (p authzScopeSQLPlan) resourceSQL() (grantTable, resourceIDColumn, sharingFlag string) {
+func (p authzScopeSQLPlan) resourceSQL() (resourceTable, grantTable, resourceIDColumn, sharingFlag string) {
 	if p.resourceType == authz.ResourceTypeAccount {
-		return "account_access_grants", "account_id", "account_sharing_enabled"
+		return "accounts", "account_access_grants", "account_id", "account_sharing_enabled"
 	}
-	return "group_access_grants", "group_id", "group_sharing_enabled"
+	return "groups", "group_access_grants", "group_id", "group_sharing_enabled"
 }
 
-func joinSQLBranches(branches []string) string {
-	result := ""
-	for index, branch := range branches {
-		if index > 0 {
-			result += "\n\t\tOR "
-		}
-		result += branch
-	}
-	return result
+func joinSQLUnionAll(branches []string) string {
+	return strings.Join(branches, "\n\t\tUNION ALL\n")
+}
+
+func joinSQLOr(branches []string) string {
+	return strings.Join(branches, "\n\t\tOR ")
 }
