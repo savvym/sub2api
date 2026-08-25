@@ -518,3 +518,37 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 - Draft PR #1 已建立但保持 Draft；GitHub Security Scan 已启用，并由 push/PR 两个 event 在同一 SHA 上通过。PR 仍须等待生产/目标环境证据与批准人，不因扫描通过而转 Ready。
 - 目标环境仍为 `legacy`。正式退出前必须运行 role-mode readiness，按批准方案推进至 `shadow`，由日志系统聚合 production shadow 记录并归档具体差异指标、日志量与 sink `dropped_count`、观察窗口、回滚结果，以及平台/认证/安全批准人。
 - SIMPLE Mode 限制是 Phase 1 临时发布护栏，不修改最终产品规格。只有完成 2.6 的 group `0`/平台默认组 `owner_user_id IS NULL` 隔离、生产规模验证和兼容矩阵复审后才可解除。
+
+## 2026-08-25 - Latest Main Integration
+
+### 合并范围
+
+- merge commit `e63f0859c299e39ace1d78305064bf9b9b3bbeb3` 将 `origin/main@027d442f9bb705a1aa356c99ffbd0ae2ee40e646` 合入本分支；`origin/main` 已成为当前分支祖先。
+- `grok_oauth_handler.go` 保留 trusted Actor 并调用 `AdminResetQuota`；`openai_oauth_handler.go` 采用窄 adapter 调用 upstream `RunOpenAIQuotaResetPostProcess`，同一 User 或 Admin API Key Service Principal Actor 继续贯穿 quota query/cache、account recovery 和 account reload。生成后的 Wire 同时包含 plugin、OpenAI auto-reset、ActorResolver、Policy observer 与 authorization workers。
+- main 新增 `229_plugins.sql` 和 `230_plugin_artifacts.sql`，与本分支 authz migration 229/230 共用数字前缀。migration runner 以完整 filename/checksum 记账，重编号会使已部署 migration 被当作新文件重放，因此保留原名；词法顺序为 plugin 229、authz 229、plugin 230、authz 230。
+- 新增 integration test `TestSharedMigrationNumberLineagesConverge`，分别模拟 main-first 与 authz-first 历史，在两次完整 `ApplyMigrations` 后验证四个文件各记录一次、plugin/authz schema 与 fixture 均保留、Atlas baseline 不漂移。
+
+### Actor 覆盖结论
+
+- 手动 OpenAI quota reset 与 Grok 管理入口：通过。冲突解法没有丢弃 HTTP trusted Actor，User 与固定 Admin API Key Service Principal 均继续走 Actor-aware facade。
+- main 新增的 `OpenAIQuotaAutoResetService`：明确 deferred、不得计入后台 Actor 完成覆盖。该默认关闭的 scanner/worker 只接收裸 `accountID`，直接调用 repository/quota/recoverer，幂等 scope 不是 durable Actor，审计中的 `system` 字符串也没有 `ActorServicePrincipalID`。
+- 当前 legacy/shadow dark foundation 未发现普通用户通过 HTTP 指定任意 account ID 的直接提权入口，因此 main integration 结论为 `PASS WITH EXPLICIT DEFERRED GAP`。在 ACL/RBAC enforcement 前，必须新增受限 Service Principal，并验证主体 missing/disabled/capability 不足时 query/reset/recover/cache/load/update 与上游请求均为零副作用；幂等 scope 和 durable audit 必须归因同一主体。完成前 enforcement gate 为 `BLOCKED`。
+
+### 本地验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| `make -C backend generate` | 通过；Ent 与 Wire 生成结果稳定 |
+| `make -C backend test-unit` | 通过 |
+| `go vet -tags=unit ./...` | 通过 |
+| 默认标签与 integration 标签全仓编译 | 通过；integration 编译不代表动态 Testcontainers 执行 |
+| `make -C backend build` | 通过 |
+| OpenAI/Grok handler、authz、repository 与 migration 聚焦测试 | 通过 |
+| frontend ESLint、完整 Vitest、TypeScript/production build | 通过；全局 pnpm 11 因 build-script approval policy 在 script 前失败，CI 固定 pnpm 9，直接本地工具验证通过 |
+| `TestSharedMigrationNumberLineagesConverge` 动态 PostgreSQL/Testcontainers | 本机无 Docker，未执行；必须由合并后 CI 无过滤 integration suite 补齐 |
+
+### 当前门禁
+
+- 本次 main integration 不改变任务进度：仍为 20/49，1.12 保持未勾选，Phase 2 的 2.1 不得开始。
+- 推送后必须归档新 SHA 的 CI/Testcontainers 与 Security Scan 结果，并确认 Draft PR mergeability；旧 Run `32711471080` 不覆盖 main 新增 migration 和双线收敛测试。
+- Phase 0 批准、生产预检/凭据键名统计、目标环境 shadow 观察与平台/认证/安全批准仍未完成。

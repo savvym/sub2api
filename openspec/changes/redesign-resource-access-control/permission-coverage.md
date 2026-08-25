@@ -70,6 +70,7 @@
 以下路径没有 HTTP Actor 时必须使用受限 System Actor，并记录原因；不能伪装首个管理员：
 
 - OAuth/token refresh、quota refresh、rate-limit/error/autopause 状态更新。
+- OpenAI quota auto-reset scanner/worker 的查询、reset credit 消费、帐号恢复与 `extra` 状态写入。
 - Scheduler snapshot rebuild、group lifecycle、关系重算与到期协调。
 - upstream billing probe、channel monitor、scheduled tests、CRS/background sync。
 - proxy expiry fallback、凭证 CAS 更新、Spark shadow 同步和模型观测。
@@ -82,8 +83,9 @@
 | Auth Cache Invalidation | 无业务资源授权；只消费 hashed cache key，不持久化 API Key 明文 | stage 0 primary + stage 1 safety、claim/retry/release 与多实例恢复；相对 delay 由数据库时间落到 `available_at` | 1.11 已接入；传播门观测两个 stage |
 | Scheduler Outbox | 不冒充管理员；只消费事务内既有 Scheduler event | PostgreSQL lease/token fencing/ack/retry；commit-order、lease recovery 与 durable delivery strict lock-busy retry | 1.11 已接入 Worker 恢复语义；完整关系重算待 4.2/4.4 |
 | 传播扩大权限门 | 无独立 Actor；基于数据库统计、Worker 状态和 coordinator readiness 作 fail-closed 判定 | 5 秒目标、30 秒安全线；只阻止扩权，不阻止关闭功能或撤权 | Settings 已接入；健康入口在 Ops disabled 时仍可读；ResourceMutation 提供 `ExpandsAccess` 契约，当前无 Grant 管理生产命令 |
+| OpenAI quota auto-reset | 待新增受限、durable 且可停用的 Service Principal；不得用审计字段中的 `system` 字符串代替 Actor | scanner 与实时 signal 必须在 query/reset/recover/cache/load/update 前 fail closed；幂等 scope 和 durable audit 绑定同一主体 | main 集成时识别的显式缺口；功能默认关闭，ACL/RBAC enforcement 前阻断，当前不计入后台 Actor 完成覆盖 |
 
-1.11 没有宣称上述其他后台路径已全部迁移。核心 HTTP 管理命令的事务协调和三个传播 Worker 不能替代 token refresh、quota/rate-limit、probe、CRS、monitor 等路径逐项定义受限 Actor、Policy、版本和 Outbox 责任。
+1.11 没有宣称上述其他后台路径已全部迁移。核心 HTTP 管理命令的事务协调和三个传播 Worker 不能替代 token refresh、quota/rate-limit、probe、CRS、monitor 等路径逐项定义受限 Actor、Policy、版本和 Outbox 责任。main 合并中的 OpenAI quota auto-reset 因此可在当前 default-off dark foundation 中保留，但不能据此通过 ACL/RBAC enforcement 门禁。
 
 Account/Group Grant 到期在 1.11 只产生 Scheduler 事件并收敛资源版本。完整 `account_groups` 链接人、授权来源、Owner 批准、状态和验证版本仍属于任务 4.2；撤权、到期和角色变化后的关系闭包重算仍属于任务 4.4，不能把事件入队记录成关系重算已完成。
 

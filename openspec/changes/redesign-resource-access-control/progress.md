@@ -1,6 +1,6 @@
 # 当前进度
 
-更新时间：2026-08-24
+更新时间：2026-08-25
 
 ## 当前状态
 
@@ -19,6 +19,7 @@
 - Bounded Authorization Propagation 提交：`1035f73a4`，已推送同一远程分支。
 - Phase 1 CI Stabilization 提交：`2d203b601`，已推送同一远程分支；GitHub Actions [CI Run 32711471080](https://github.com/savvym/sub2api/actions/runs/32711471080) 与 [test job 97383587468](https://github.com/savvym/sub2api/actions/runs/32711471080/job/97383587468) 在完整 SHA `2d203b601c5d5b6578e91020bdbfbff4eb5bae6b` 上通过。
 - Phase 1 CI Evidence 提交：`10e20f841`，已推送同一远程分支；[Draft PR #1](https://github.com/savvym/sub2api/pull/1) 已建立，base 为 `main`，保持 Draft 且不得在退出门禁完成前合并。
+- Main Integration 提交：`e63f0859c` 合并 `origin/main@027d442f9`。OpenAI/Grok 手动管理入口的 trusted Actor 传播与 upstream quota workflow/plugin/Wire 变更已同时保留；`origin/main` 现为当前分支祖先。
 - 任务进度：20/49。1.12 当前已实现的工程验证项已通过：跨租户全链、当前管理员写面 TOCTOU、SQL Scope 生产规模 EXPLAIN、64 组 Standard/SIMPLE 配置、Admin API Key fail-closed、production role shadow 脱敏结构化日志，以及 CI/Testcontainers 的 228→current 升级/reapply、完整 repository integration 与 GitHub Security Scan 均已有自动化证据。正式 Phase 1 退出仍未批准，因此 1.12 保持未勾选；Phase 0 的 0.4/0.5/0.8、生产预检与凭据键名统计、目标环境 shadow 观察和批准人证据仍缺失。
 - 当前权威行为仍为旧 `users.role` 与旧分组资格；核心管理员写虽已调用 Policy，但 legacy/shadow 下只保持现有 JWT Admin 与固定 Admin API Key Service Principal 行为，不得解释为 ACL/RBAC 已启用。
 
@@ -91,8 +92,9 @@
 - 当前 Phase 1 管理员写面新增真实双事务 TOCTOU 回归：两个不同管理员 Actor 携带同一 `access_version` 并发写，恰一提交/一版本冲突；SERIALIZABLE 重试使 mutation closure 可执行 1 或 2 次，竞争 loser 的事务尝试会完整回滚，最终业务状态、版本、durable event 和 Scheduler Outbox 均恰好一次。真实 `AdminService.ClearAccountError` PostgreSQL 测试证明生产 after-commit callback 只在提交后执行且恰好一次，通用 commit/rollback/panic 语义另由 coordinator 单测覆盖；普通 Owner/Grant 写尚未开放，其完整并发栈仍属于 Phase 2/3。
 - production `PolicyService` 的 capability/create/resource/scope 四个入口在 shadow mode 并行计算 legacy 与 RBAC，始终返回 legacy 结果；管理员 JWT 与固定 Admin API Key 生产认证入口已接入 Policy。差异以不含主体、角色、Grant、资源 ID 的低基数结构化日志记录，行为差异为 WARN、等价比较为 INFO，并隔离 observer panic；日志可由外部系统聚合，当前没有独立进程内指标计数器。
 - 新增 Testcontainers 持久升级回归，从 migration 228 分段推进至当前版本并重复 `ApplyMigrations`，覆盖存量数据、seed/backfill、触发器、在线索引和幂等；本机无 Docker，随后由 GitHub Actions 完整 integration suite 动态验证通过。
+- main 新增 `229_plugins.sql`/`230_plugin_artifacts.sql`，与 authz 的 229/230 migration 共用数字前缀。runner 以完整文件名和 checksum 记账，不能通过重编号规避；新增 `TestSharedMigrationNumberLineagesConverge` 覆盖 main-first、authz-first 两条已部署历史在两次完整 `ApplyMigrations` 后收敛。integration 标签编译已通过，本机无 Docker，合并后动态结果仍待新 CI。
 - GitHub Actions push Run `32711471080`（attempt 1）在 SHA `2d203b601c5d5b6578e91020bdbfbff4eb5bae6b`、Ubuntu runner 与 Go 1.26.6 上执行 `make test-integration`，实际为 `go test -tags=integration ./...`；PostgreSQL `18.1-alpine3.23`、Redis `8.4-alpine` Testcontainers harness 成功，`internal/repository` 非缓存运行 `41.430s`。该命令没有 `-run` 过滤，因而包含 228→current 持久升级/reapply 回归。
-- Draft PR #1 已提供统一评审入口；分支相对 `origin/main` ahead 17/behind 0，merge-tree 可干净合并，但改动规模为 477 个文件，因此必须按提交顺序评审并保持 Draft。
+- Draft PR #1 已提供统一评审入口；本地已通过 merge commit `e63f0859c` 吸收 `origin/main@027d442f9`，推送后需重新确认 PR mergeability 与新 CI；仍必须按提交顺序评审并保持 Draft。
 - GitHub `Security Scan` workflow 已从当前 fork 的 `disabled_fork` 状态启用为 `active`；SHA `1523aa1740140b6c7de9ae5553545856f141b889` 的 [push Run 32727879905](https://github.com/savvym/sub2api/actions/runs/32727879905) 与 [PR Run 32727886870](https://github.com/savvym/sub2api/actions/runs/32727886870) 均通过。两个 run 的 backend `govulncheck ./...` 均报告可调用路径 0 个漏洞，frontend production audit 例外校验均通过。
 - 新增只读 `credential-key-preflight.sql`，仅聚合 credentials/extra 的键名、平台/类型、软删除状态、帐号 status、JSON shape 和计数，不读取值或帐号 ID；当前没有生产连接配置，尚未执行或归档真实数据结果。
 
@@ -100,7 +102,8 @@
 
 1. 由平台/认证/安全负责人复核并批准 0.4 credentials/extra 清单和 0.5 自助平台/出站 allowlist。
 2. 对批准的生产只读副本运行 `data-preflight.sql` 与 `credential-key-preflight.sql`，分别归档数据异常/回填规模和 credentials/extra 键名统计。
-3. 在目标环境运行 role-mode readiness，按批准方案推进 legacy→shadow，聚合 production shadow 结构化日志并记录具体差异指标、日志量与 sink `dropped_count`、观察窗口和回滚结果；完成 Draft PR 评审及平台/认证/安全批准后，才能勾选 0.8/1.12 并进入 2.1。
+3. 推送 main integration，等待无过滤的 CI/Testcontainers 动态执行同编号 migration 双线收敛回归，并回填新 SHA/run/job 证据。
+4. 在目标环境运行 role-mode readiness，按批准方案推进 legacy→shadow，聚合 production shadow 结构化日志并记录具体差异指标、日志量与 sink `dropped_count`、观察窗口和回滚结果；完成 Draft PR 评审及平台/认证/安全批准后，才能勾选 0.8/1.12 并进入 2.1。
 
 ## 阻塞与风险
 
@@ -120,6 +123,7 @@
 - 1.11 的 5 秒是传播健康目标，30 秒是禁止扩大权限的安全线；它们不是对尚未迁移的数据面、WebSocket 或异步任务作出的端到端 SLA 承诺。权威 Policy/Scope 会按数据库时间同步拒绝到期来源；API Key 旧 allow snapshot 由 v22 拒绝 pre-v22 数据、首次写入 monotonic deadline、Redis 相对 TTL、rewrite 不续期和正向 L2 不提升 L1 共同约束在 30 秒内。
 - 1.11 对 Account/Group Grant 到期只递增资源版本、写 durable event 并产生 Scheduler 事件；完整 `account_groups` 授权来源/验证版本扩展及撤权、到期、角色变化后的关系闭包重算仍属于任务 4.2/4.4，不能把 Scheduler 事件等同于关系已重算。
 - `ResourceMutationCommand.ExpandsAccess` 已建立 fail-closed 契约，但当前没有 Grant 管理生产命令；后续新增或恢复授权路径必须显式标记，不能依赖调用方默认值绕过传播门。
+- main 引入的 `OpenAIQuotaAutoResetService` 默认关闭，但启用后 scanner/worker 仅携带 `accountID`，直接执行 quota 查询、reset credit、帐号恢复和 `extra` 写入；当前审计中的 `system` 字符串不是 durable Actor。该路径不属于 1.11 已完成声明，但在 ACL/RBAC enforcement 前必须改为受限、可停用、缺失时 fail-closed 的 Service Principal Actor，并让同一 Actor 贯穿幂等、Policy、写入和 durable audit；完成前不得宣称后台写 Actor 覆盖完整。
 - Usage/Ops/Dashboard 等派生 scope、RateLimit/CRS/probe 等专用后台写、Channel Monitor Run/History/worker、Ops alert event/evaluator 与 Payment retry/refund 事务履约仍待后续切片；新增全新资源前缀时仍必须同步扩展入口分类和事务覆盖清单。
 
 ## 续作检查
