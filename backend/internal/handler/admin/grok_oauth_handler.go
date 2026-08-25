@@ -34,13 +34,16 @@ func NewGrokOAuthHandler(
 	quotaService *service.GrokQuotaService,
 	reconciler service.GrokOAuthReconciler,
 ) *GrokOAuthHandler {
-	return &GrokOAuthHandler{
+	handler := &GrokOAuthHandler{
 		grokOAuthService: grokOAuthService,
 		adminService:     adminService,
 		quotaService:     quotaService,
-		importProber:     quotaService,
 		reconciler:       reconciler,
 	}
+	if quotaService != nil {
+		handler.importProber = quotaService
+	}
+	return handler
 }
 
 type GrokGenerateAuthURLRequest struct {

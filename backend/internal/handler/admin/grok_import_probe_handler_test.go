@@ -136,3 +136,17 @@ func TestAccountCreateWithoutAutomaticGrokProbeServiceStillSucceeds(t *testing.T
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 }
+
+func TestNewGrokOAuthHandlerNilQuotaLeavesImportProberNil(t *testing.T) {
+	handler := NewGrokOAuthHandler(nil, nil, nil, nil)
+	require.Nil(t, handler.importProber)
+}
+
+func TestProvideAccountHandlerNilQuotaLeavesImportProberNil(t *testing.T) {
+	handler := ProvideAccountHandler(
+		nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil,
+	)
+	require.Nil(t, handler.grokImportProber)
+}

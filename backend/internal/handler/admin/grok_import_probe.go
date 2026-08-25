@@ -231,6 +231,8 @@ func ProvideAccountHandler(
 		rpmCache,
 		tokenCacheInvalidator,
 	)
-	handler.grokImportProber = grokQuotaService
+	if grokQuotaService != nil {
+		handler.grokImportProber = grokQuotaService
+	}
 	return handler
 }
