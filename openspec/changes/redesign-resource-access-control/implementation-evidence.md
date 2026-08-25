@@ -172,7 +172,7 @@ PGOPTIONS='-c default_transaction_read_only=on' \
 | 本地管理员登录与现有页面 API | 通过；`auth/me`、dashboard stats、groups、accounts 均为 200，未登录 dashboard 正确跳转登录页 |
 | 前端 auth guard、DashboardView 与 client 专项 | 通过，3 files / 55 tests |
 
-临时验证库 `sub2api_codex_setup_bootstrap_20260820_a7f4` 与 `sub2api_codex_install_lock_20260820_b3e9` 均已在验证后删除。该阶段 Docker/Testcontainers 门禁状态不变，仍需在 CI 补跑；最终动态结果见 1.12 CI 记录。
+临时验证库 `sub2api_codex_setup_bootstrap_20260820_a7f4` 与 `sub2api_codex_install_lock_20260820_b3e9` 均已在验证后删除。该阶段提交时未运行 Docker/Testcontainers 门禁；后续动态执行已由 1.12 CI 记录补齐。
 
 ## 2026-08-20 - Policy 与 SQL Scope Foundation（1.6a）
 
@@ -307,7 +307,7 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 
 ### 剩余外部验证
 
-- 该阶段 Docker/Testcontainers repository integration suite 尚待 CI 或有 Docker 的机器执行；本机没有 Docker。最终动态结果见 1.12 CI 记录。
+- 该阶段提交时本机没有 Docker，未执行 Docker/Testcontainers repository integration suite；后续动态执行已由 1.12 CI 记录补齐。
 
 ## 2026-08-21 - Trusted Runtime Actor Integration（1.8）
 
@@ -348,7 +348,7 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 
 - raw-scope upgrade fence 会阻止旧实例与新实例对同一 key 双重执行，但混合版本期间旧实例可能收到 fingerprint conflict；生产发布应优先同版本切换或维护窗，并观察幂等 conflict/store-unavailable 指标。
 - 扩大到相关 handler/service 包的 race 命令仍会命中两处既有测试辅助代码竞态：`grok_import_probe_test.go` 与后台 slog 共用 `bytes.Buffer`，以及 `channel_monitor_checker_body_test.go` 并发写共享 capture handler；两处首因均不在 1.8 diff。新增 1.8 并发用例已单独通过 race，但不能把全量 race 记为通过。
-- 该阶段 Docker/Testcontainers repository integration suite 尚待 CI 或有 Docker 的机器执行；本机 PostgreSQL 隔离库验证不冒充 CI 等价门禁。最终动态结果见 1.12 CI 记录。
+- 该阶段提交时本机没有 Docker，未执行 Docker/Testcontainers repository integration suite；本机 PostgreSQL 隔离库验证不冒充 CI 等价门禁，后续动态执行已由 1.12 CI 记录补齐。
 
 ## 2026-08-21 - Admin Resource Actor Propagation（1.9）
 
@@ -415,7 +415,7 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 - OAuth、Privacy、probe 等外部网络副作用不能与 PostgreSQL 构成分布式事务。Privacy 网络调用完成后的本地持久化已作为独立 ResourceMutation 重新授权并写版本/event/outbox，但上游副作用无法因后续数据库失败而回滚。
 - 1.10 只完成适用 Auth/Scheduler Outbox 的原子 enqueue 与失败 rollback；Worker 幂等消费、lag 指标、多实例恢复、5 秒/30 秒传播 SLA、到期协调器和积压降级门仍属于 1.11 或后续切片。
 - 没有新增普通用户帐号/分组路由，没有启用 ACL/RBAC Feature Flag，没有切换旧分组资格权威源，也没有完成数据面、WebSocket、异步任务或全部后台 System/Service Principal 写路径。
-- 该阶段 repository Testcontainers 动态套件尚须在 Docker/CI 环境执行；integration 标签编译通过不能记录为该门禁通过。最终动态结果见 1.12 CI 记录。
+- 该阶段提交时本机没有 Docker，未执行 repository Testcontainers 动态套件；integration 标签编译不计为该门禁通过，后续动态执行已由 1.12 CI 记录补齐。
 
 ## 2026-08-24 - Bounded Authorization Propagation and Expiry Coordination（1.11）
 
@@ -451,7 +451,7 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 - 5 秒是 primary queue/Worker 健康目标，30 秒是禁止新增或恢复授权路径的安全线；当前没有为未迁移的数据面、WebSocket、异步任务或全链路发布窗口作出端到端 SLA 承诺。数据库 Policy/Scope 同步拒绝已到期来源；API Key 旧 allow snapshot 由 v22 拒绝 pre-v22 数据、首次写入 monotonic deadline、Redis 相对 TTL、rewrite 不续期和正向 L2 不提升 L1共同约束在 30 秒内。
 - 本切片没有新增普通用户资源路由、没有打开 ACL/RBAC Feature Flag、没有切换旧分组资格权威源。`ExpandsAccess` 是后续生产 Grant 命令必须显式采用的契约，不能把当前无调用方解释为分享入口已受完整验证。
 - Account/Group Grant 到期目前只递增版本、记录 durable event 并产生 Scheduler 事件。完整 `account_groups` 链接人/授权来源/Owner 批准/验证版本扩展属于任务 4.2，撤权、到期和角色变化后的关系闭包重算属于任务 4.4；1.11 不宣称这些关系已重算。
-- 该阶段 Docker/Testcontainers repository integration suite 尚须在 CI 或有 Docker 的机器动态执行；本机未执行，不能记录为通过。最终动态结果见 1.12 CI 记录。
+- 该阶段提交时本机没有 Docker，未执行 Docker/Testcontainers repository integration suite，不能在当时记录为通过；后续动态执行已由 1.12 CI 记录补齐。
 
 ## 2026-08-24 - Phase 1 Engineering Exit Verification（1.12）
 
@@ -545,10 +545,22 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 | `make -C backend build` | 通过 |
 | OpenAI/Grok handler、authz、repository 与 migration 聚焦测试 | 通过 |
 | frontend ESLint、完整 Vitest、TypeScript/production build | 通过；全局 pnpm 11 因 build-script approval policy 在 script 前失败，CI 固定 pnpm 9，直接本地工具验证通过 |
-| `TestSharedMigrationNumberLineagesConverge` 动态 PostgreSQL/Testcontainers | 本机无 Docker，未执行；必须由合并后 CI 无过滤 integration suite 补齐 |
+| `TestSharedMigrationNumberLineagesConverge` 动态 PostgreSQL/Testcontainers | 本机无 Docker；最终代码 SHA 的 push/PR CI 均以无 `-run` 过滤的 integration suite 非缓存执行 repository 包并通过，动态门禁已补齐 |
+
+### Final Main-Integration CI / PR Evidence
+
+| 字段 | 证据 |
+| --- | --- |
+| 被测提交 | `d47ca4bea567f778c6356a761344f376ca471ea4`；包含 main merge、Grok typed-nil 修复、Actor gap 记录与 build-aware AST gate |
+| Push CI | GitHub Actions `CI` [Run 32812029206](https://github.com/savvym/sub2api/actions/runs/32812029206)，attempt 1，结论 success；[test job 97693053049](https://github.com/savvym/sub2api/actions/runs/32812029206/job/97693053049) 总时长 `10m02s`，integration step `3m33s` |
+| PR CI | GitHub Actions `CI` [Run 32812033899](https://github.com/savvym/sub2api/actions/runs/32812033899)，attempt 1，结论 success；[test job 97693066526](https://github.com/savvym/sub2api/actions/runs/32812033899/job/97693066526) 总时长 `9m44s`，integration step `3m28s` |
+| Integration 动态执行 | 两个 job 均在 Ubuntu、Go 1.27.0 上运行 `make test-integration` → `go test -tags=integration ./...`，没有 `-run` 过滤；`internal/repository` 分别非缓存运行 `55.422s` 与 `48.026s` 并成功 |
+| 双线收敛测试归属 | `shared_migration_number_integration_test.go` 由 `integration` build tag 纳入 `internal/repository`，目标测试无 skip，并覆盖 `main_first`/`authz_first`；默认 `go test` 无过滤执行整个非缓存 package，因此两次均动态执行。workflow 未加 `-v`，日志不会逐个打印成功测试名 |
+| Security Scan | [push Run 32812029208](https://github.com/savvym/sub2api/actions/runs/32812029208) 与 [PR Run 32812033933](https://github.com/savvym/sub2api/actions/runs/32812033933) 均在同一 SHA 成功；backend `govulncheck` 报告可调用路径 0 个漏洞，frontend production audit exception check 通过 |
+| Draft PR | 采证快照（2026-08-25）：[PR #1](https://github.com/savvym/sub2api/pull/1) 为 Draft，base `main`，head `codex/resource-access-control-foundation`，head OID 为 `d47ca4bea567f778c6356a761344f376ca471ea4`；当时 GitHub 报告 `MERGEABLE/CLEAN` |
 
 ### 当前门禁
 
 - 本次 main integration 不改变任务进度：仍为 20/49，1.12 保持未勾选，Phase 2 的 2.1 不得开始。
-- 推送后必须归档新 SHA 的 CI/Testcontainers 与 Security Scan 结果，并确认 Draft PR mergeability；旧 Run `32711471080` 不覆盖 main 新增 migration 和双线收敛测试。
+- 最终代码 SHA 的 push/PR CI、Testcontainers、Security Scan 与 Draft PR mergeability 已归档；旧 Run `32711471080` 不作为 main 新增 migration 和双线收敛测试的证据。
 - Phase 0 批准、生产预检/凭据键名统计、目标环境 shadow 观察与平台/认证/安全批准仍未完成。
