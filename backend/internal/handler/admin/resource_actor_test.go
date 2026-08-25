@@ -2,9 +2,9 @@ package admin
 
 import (
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
-	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -337,26 +337,20 @@ func isAdminResourceRoute(method, path string) bool {
 
 func guardedAdminHandlerMethods(t *testing.T, packageDir string) map[string]bool {
 	t.Helper()
-	packages, err := parser.ParseDir(token.NewFileSet(), packageDir, func(info fs.FileInfo) bool {
-		return strings.HasSuffix(info.Name(), ".go") && !strings.HasSuffix(info.Name(), "_test.go")
-	}, 0)
-	require.NoError(t, err)
 
 	result := make(map[string]bool)
-	for _, parsedPackage := range packages {
-		for _, file := range parsedPackage.Files {
-			for _, declaration := range file.Decls {
-				function, ok := declaration.(*ast.FuncDecl)
-				if !ok || function.Recv == nil || function.Body == nil || len(function.Recv.List) != 1 {
-					continue
-				}
-				receiverType := receiverTypeName(function.Recv.List[0].Type)
-				if receiverType == "" {
-					continue
-				}
-				if _, guardEnd, guarded := checkedAdminResourceActorGuard(function); guarded && actorFlowsAfterGuard(function, guardEnd) {
-					result[receiverType+"."+function.Name.Name] = true
-				}
+	for _, file := range parsedAdminPackageFiles(t, packageDir) {
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Recv == nil || function.Body == nil || len(function.Recv.List) != 1 {
+				continue
+			}
+			receiverType := receiverTypeName(function.Recv.List[0].Type)
+			if receiverType == "" {
+				continue
+			}
+			if _, guardEnd, guarded := checkedAdminResourceActorGuard(function); guarded && actorFlowsAfterGuard(function, guardEnd) {
+				result[receiverType+"."+function.Name.Name] = true
 			}
 		}
 	}
@@ -365,28 +359,40 @@ func guardedAdminHandlerMethods(t *testing.T, packageDir string) map[string]bool
 
 func entryGuardedAdminHandlerMethods(t *testing.T, packageDir string) map[string]bool {
 	t.Helper()
-	packages, err := parser.ParseDir(token.NewFileSet(), packageDir, func(info fs.FileInfo) bool {
-		return strings.HasSuffix(info.Name(), ".go") && !strings.HasSuffix(info.Name(), "_test.go")
-	}, 0)
-	require.NoError(t, err)
 
 	result := make(map[string]bool)
-	for _, parsedPackage := range packages {
-		for _, file := range parsedPackage.Files {
-			for _, declaration := range file.Decls {
-				function, ok := declaration.(*ast.FuncDecl)
-				if !ok || function.Recv == nil || function.Body == nil || len(function.Recv.List) != 1 {
-					continue
-				}
-				receiverType := receiverTypeName(function.Recv.List[0].Type)
-				_, guardEnd, guarded := checkedAdminResourceActorGuard(function)
-				if guarded && guardStartsAtEntry(function, guardEnd) && actorFlowsAfterGuard(function, guardEnd) {
-					result[receiverType+"."+function.Name.Name] = true
-				}
+	for _, file := range parsedAdminPackageFiles(t, packageDir) {
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Recv == nil || function.Body == nil || len(function.Recv.List) != 1 {
+				continue
+			}
+			receiverType := receiverTypeName(function.Recv.List[0].Type)
+			_, guardEnd, guarded := checkedAdminResourceActorGuard(function)
+			if guarded && guardStartsAtEntry(function, guardEnd) && actorFlowsAfterGuard(function, guardEnd) {
+				result[receiverType+"."+function.Name.Name] = true
 			}
 		}
 	}
 	return result
+}
+
+func parsedAdminPackageFiles(t *testing.T, packageDir string) []*ast.File {
+	t.Helper()
+
+	buildPackage, err := build.Default.ImportDir(packageDir, 0)
+	require.NoError(t, err)
+	filenames := append(append([]string{}, buildPackage.GoFiles...), buildPackage.CgoFiles...)
+	require.NotEmpty(t, filenames)
+
+	fileSet := token.NewFileSet()
+	files := make([]*ast.File, 0, len(filenames))
+	for _, filename := range filenames {
+		parsed, parseErr := parser.ParseFile(fileSet, filepath.Join(packageDir, filename), nil, 0)
+		require.NoErrorf(t, parseErr, "parse %s", filename)
+		files = append(files, parsed)
+	}
+	return files
 }
 
 func checkedAdminResourceActorGuard(function *ast.FuncDecl) (string, token.Pos, bool) {
