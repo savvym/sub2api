@@ -71,3 +71,83 @@ func TestCreateWithAccountGroupsPersistsPausedCopyAtomically(t *testing.T) {
 	require.Zero(t, groupCount)
 	require.Zero(t, failedOutboxCount)
 }
+
+func TestCreateWithValidatedAccountGroupsRollsBackBeforeAccountPersistence(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := newAccountRepositoryWithSQL(client, integrationDB, nil)
+	suffix := time.Now().UnixNano()
+	group, err := client.Group.Create().
+		SetName(fmt.Sprintf("validated-create-%d", suffix)).
+		SetPlatform(service.PlatformOpenAI).
+		Save(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE group_id = $1", group.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM account_groups WHERE group_id = $1", group.ID)
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE name = $1", fmt.Sprintf("validated-account-%d", suffix))
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM groups WHERE id = $1", group.ID)
+	})
+
+	account := &service.Account{
+		Name:        fmt.Sprintf("validated-account-%d", suffix),
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Credentials: map[string]any{"api_key": "secret"},
+		Extra:       map[string]any{},
+	}
+	validatorErr := fmt.Errorf("policy rejected")
+	err = repo.CreateWithValidatedAccountGroups(
+		ctx,
+		account,
+		[]service.AccountGroup{{GroupID: group.ID, Priority: 50}},
+		func(snapshot service.AccountGroupCreateSnapshot) error {
+			require.Len(t, snapshot.Groups, 1)
+			require.Equal(t, group.ID, snapshot.Groups[0].ID)
+			return validatorErr
+		},
+	)
+	require.ErrorIs(t, err, validatorErr)
+
+	var accountCount, bindingCount, outboxCount int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM accounts WHERE name = $1", account.Name).Scan(&accountCount))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM account_groups WHERE group_id = $1", group.ID).Scan(&bindingCount))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM scheduler_outbox WHERE group_id = $1", group.ID).Scan(&outboxCount))
+	require.Zero(t, accountCount)
+	require.Zero(t, bindingCount)
+	require.Zero(t, outboxCount)
+}
+
+func TestCreateWithValidatedAccountGroupsRejectsSoftDeletedGroup(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := newAccountRepositoryWithSQL(client, integrationDB, nil)
+	suffix := time.Now().UnixNano()
+	group, err := client.Group.Create().
+		SetName(fmt.Sprintf("validated-deleted-%d", suffix)).
+		SetPlatform(service.PlatformOpenAI).
+		Save(ctx)
+	require.NoError(t, err)
+	_, err = integrationDB.ExecContext(ctx, "UPDATE groups SET deleted_at = NOW() WHERE id = $1", group.ID)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE name = $1", fmt.Sprintf("validated-deleted-account-%d", suffix))
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM groups WHERE id = $1", group.ID)
+	})
+
+	account := &service.Account{
+		Name:        fmt.Sprintf("validated-deleted-account-%d", suffix),
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Credentials: map[string]any{"api_key": "secret"},
+		Extra:       map[string]any{},
+	}
+	err = repo.CreateWithValidatedAccountGroups(ctx, account, []service.AccountGroup{{GroupID: group.ID, Priority: 50}}, nil)
+	require.ErrorIs(t, err, service.ErrGroupNotFound)
+
+	var accountCount int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM accounts WHERE name = $1", account.Name).Scan(&accountCount))
+	require.Zero(t, accountCount)
+}

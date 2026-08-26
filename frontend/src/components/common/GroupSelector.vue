@@ -27,13 +27,19 @@
       <label
         v-for="group in filteredGroups"
         :key="group.id"
-        class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 transition-colors hover:bg-white dark:hover:bg-dark-700"
+        :class="[
+          'flex items-center gap-2 rounded px-2 py-1.5 transition-colors',
+          lockedGroupIds.includes(group.id)
+            ? 'cursor-not-allowed opacity-60'
+            : 'cursor-pointer hover:bg-white dark:hover:bg-dark-700'
+        ]"
         :title="t('admin.groups.rateAndAccounts', { rate: group.rate_multiplier, count: group.account_count || 0 })"
       >
         <input
           type="checkbox"
           :value="group.id"
           :checked="modelValue.includes(group.id)"
+          :disabled="lockedGroupIds.includes(group.id)"
           @change="handleChange(group.id, ($event.target as HTMLInputElement).checked)"
           class="h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
         />
@@ -71,10 +77,12 @@ interface Props {
   platform?: GroupPlatform // Optional platform filter
   mixedScheduling?: boolean // For antigravity accounts: allow anthropic/gemini groups
   searchable?: boolean | 'auto'
+  lockedGroupIds?: number[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  searchable: 'auto'
+  searchable: 'auto',
+  lockedGroupIds: () => []
 })
 const emit = defineEmits<{
   'update:modelValue': [value: number[]]
@@ -111,6 +119,7 @@ const filteredGroups = computed(() => {
 })
 
 const handleChange = (groupId: number, checked: boolean) => {
+  if (props.lockedGroupIds.includes(groupId)) return
   const newValue = checked
     ? [...props.modelValue, groupId]
     : props.modelValue.filter((id) => id !== groupId)

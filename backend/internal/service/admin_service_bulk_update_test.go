@@ -37,6 +37,8 @@ type accountRepoStubForBulkUpdate struct {
 	getByIDCalled       []int64
 	listByGroupData     map[int64][]Account
 	listByGroupErr      map[int64]error
+	replacementGroups   map[int64]Group
+	replacementMembers  map[int64][]Account
 	listData            []Account
 	listResult          *pagination.PaginationResult
 	listErr             error
@@ -92,6 +94,82 @@ func (s *accountRepoStubForBulkUpdate) BindGroups(_ context.Context, accountID i
 		return err
 	}
 	return nil
+}
+
+func (s *accountRepoStubForBulkUpdate) ReplaceAccountGroupMemberships(
+	_ context.Context,
+	accountID int64,
+	desiredGroupIDs []int64,
+	defaultPriority int,
+	validate AccountGroupMembershipReplacementValidator,
+) (*AccountGroupMembershipReplacement, error) {
+	s.bindGroupsCalls = append(s.bindGroupsCalls, accountID)
+	if s.bindGroupsByAccount == nil {
+		s.bindGroupsByAccount = make(map[int64][]int64)
+	}
+	s.bindGroupsByAccount[accountID] = append([]int64(nil), desiredGroupIDs...)
+	if err, ok := s.bindGroupErrByID[accountID]; ok {
+		return nil, err
+	}
+
+	account := Account{ID: accountID, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	if candidate, ok := s.getByIDAccounts[accountID]; ok && candidate != nil {
+		account = *candidate
+	} else {
+		for _, candidate := range s.getByIDsAccounts {
+			if candidate != nil && candidate.ID == accountID {
+				account = *candidate
+				break
+			}
+		}
+	}
+	groupsByID := make(map[int64]Group, len(desiredGroupIDs))
+	finalAccountsByGroup := make(map[int64][]Account, len(desiredGroupIDs))
+	currentGroupIDs := make([]int64, 0, len(desiredGroupIDs))
+	addedGroupIDs := make([]int64, 0, len(desiredGroupIDs))
+	for _, groupID := range desiredGroupIDs {
+		group, ok := s.replacementGroups[groupID]
+		if !ok {
+			group = Group{ID: groupID, Name: "test-group", Platform: PlatformComposite}
+		}
+		groupsByID[groupID] = group
+		members := append([]Account(nil), s.listByGroupData[groupID]...)
+		if replacementMembers, ok := s.replacementMembers[groupID]; ok {
+			members = append([]Account(nil), replacementMembers...)
+		}
+		found := false
+		for i := range members {
+			if members[i].ID == accountID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			members = append(members, account)
+			addedGroupIDs = append(addedGroupIDs, groupID)
+		} else {
+			currentGroupIDs = append(currentGroupIDs, groupID)
+		}
+		finalAccountsByGroup[groupID] = members
+	}
+	snapshot := AccountGroupMembershipReplacementSnapshot{
+		Account:                account,
+		GroupsByID:             groupsByID,
+		CurrentGroupIDs:        currentGroupIDs,
+		DesiredGroupIDs:        append([]int64(nil), desiredGroupIDs...),
+		AddedGroupIDs:          addedGroupIDs,
+		CurrentAccountsByGroup: s.listByGroupData,
+		FinalAccountsByGroup:   finalAccountsByGroup,
+	}
+	if validate != nil {
+		if err := validate(snapshot); err != nil {
+			return nil, err
+		}
+	}
+	return &AccountGroupMembershipReplacement{
+		DesiredGroupIDs: append([]int64(nil), desiredGroupIDs...),
+		AddedGroupIDs:   append([]int64(nil), desiredGroupIDs...),
+	}, nil
 }
 
 func (s *accountRepoStubForBulkUpdate) GetByIDs(_ context.Context, ids []int64) ([]*Account, error) {
@@ -244,10 +322,7 @@ func TestAdminService_BulkUpdateAccounts_NilGroupRepoReturnsError(t *testing.T) 
 	require.Contains(t, err.Error(), "group repository not configured")
 }
 
-// TestAdminService_BulkUpdateAccounts_MixedChannelPreCheckBlocksOnExistingConflict verifies
-// that the global pre-check detects a conflict with existing group members and returns an
-// error before any DB write is performed.
-func TestAdminService_BulkUpdateAccounts_MixedChannelPreCheckBlocksOnExistingConflict(t *testing.T) {
+func TestAdminService_BulkUpdateAccounts_MixedChannelPreCheckRejectsBeforeWrites(t *testing.T) {
 	repo := &accountRepoStubForBulkUpdate{
 		getByIDsAccounts: []*Account{
 			{ID: 1, Platform: PlatformAntigravity},
@@ -271,9 +346,99 @@ func TestAdminService_BulkUpdateAccounts_MixedChannelPreCheckBlocksOnExistingCon
 	result, err := svc.BulkUpdateAccounts(context.Background(), input)
 	require.Nil(t, result)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "mixed channel")
-	// No BindGroups should have been called since the check runs before any write.
+	var mixedChannelErr *MixedChannelError
+	require.ErrorAs(t, err, &mixedChannelErr)
+	require.Zero(t, repo.bulkUpdateCalls)
 	require.Empty(t, repo.bindGroupsCalls)
+}
+
+func TestAdminService_BulkUpdateAccounts_MixedChannelPreCheckIncludesWholeBatch(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{
+			{ID: 1, Platform: PlatformAntigravity},
+			{ID: 2, Platform: PlatformAnthropic},
+		},
+	}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo:   &groupRepoStubForAdmin{getByID: &Group{ID: 10, Name: "target-group"}},
+	}
+
+	groupIDs := []int64{10}
+	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+		AccountIDs: []int64{1, 2},
+		GroupIDs:   &groupIDs,
+	})
+
+	require.Nil(t, result)
+	require.Error(t, err)
+	var mixedChannelErr *MixedChannelError
+	require.ErrorAs(t, err, &mixedChannelErr)
+	require.Zero(t, repo.bulkUpdateCalls)
+	require.Empty(t, repo.bindGroupsCalls)
+}
+
+func TestAdminService_BulkUpdateAccounts_UnchangedHistoricalMixDoesNotRequireConfirmation(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{
+			{ID: 1, Platform: PlatformAntigravity},
+		},
+		listByGroupData: map[int64][]Account{
+			10: {
+				{ID: 1, Platform: PlatformAntigravity},
+				{ID: 99, Platform: PlatformAnthropic},
+			},
+		},
+	}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo:   &groupRepoStubForAdmin{getByID: &Group{ID: 10, Name: "target-group"}},
+	}
+
+	groupIDs := []int64{10}
+	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+		AccountIDs: []int64{1},
+		GroupIDs:   &groupIDs,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1, result.Success)
+	require.Zero(t, result.Failed)
+	require.Equal(t, 1, repo.bulkUpdateCalls)
+	require.Equal(t, []int64{1}, repo.bindGroupsCalls)
+}
+
+func TestAdminService_BulkUpdateAccounts_LockedMixedChannelRaceIsItemFailure(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{
+			{ID: 1, Platform: PlatformAntigravity},
+		},
+		// The write-time snapshot sees an Anthropic member that was absent during
+		// the preflight, simulating a concurrent membership change.
+		replacementMembers: map[int64][]Account{
+			10: {{ID: 99, Platform: PlatformAnthropic}},
+		},
+	}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo:   &groupRepoStubForAdmin{getByID: &Group{ID: 10, Name: "target-group"}},
+	}
+
+	groupIDs := []int64{10}
+	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+		AccountIDs: []int64{1},
+		GroupIDs:   &groupIDs,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 0, result.Success)
+	require.Equal(t, 1, result.Failed)
+	require.Equal(t, []int64{1}, result.FailedIDs)
+	require.Contains(t, result.Results[0].Error, "mixed_channel_warning")
+	require.Equal(t, 1, repo.bulkUpdateCalls)
+	require.Equal(t, []int64{1}, repo.bindGroupsCalls)
 }
 
 func TestAdminServiceBulkUpdateAccounts_ResolvesIDsFromFilters(t *testing.T) {

@@ -73,12 +73,14 @@
         <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
           <button
             type="button"
-            @click="form.platform = 'anthropic'"
+            :disabled="lockPlatform"
+            @click="selectPlatform('anthropic')"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'anthropic'
+              hasSelectedPlatform && form.platform === 'anthropic'
                 ? 'bg-white text-orange-600 shadow-sm dark:bg-dark-600 dark:text-orange-400'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200',
+              lockPlatform ? 'cursor-not-allowed opacity-60' : ''
             ]"
           >
             <Icon name="sparkles" size="sm" />
@@ -86,12 +88,14 @@
           </button>
           <button
             type="button"
-            @click="form.platform = 'openai'"
+            :disabled="lockPlatform"
+            @click="selectPlatform('openai')"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'openai'
+              hasSelectedPlatform && form.platform === 'openai'
                 ? 'bg-white text-green-600 shadow-sm dark:bg-dark-600 dark:text-green-400'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200',
+              lockPlatform ? 'cursor-not-allowed opacity-60' : ''
             ]"
           >
             <svg
@@ -111,12 +115,14 @@
           </button>
           <button
             type="button"
-            @click="form.platform = 'gemini'"
+            :disabled="lockPlatform"
+            @click="selectPlatform('gemini')"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'gemini'
+              hasSelectedPlatform && form.platform === 'gemini'
                 ? 'bg-white text-blue-600 shadow-sm dark:bg-dark-600 dark:text-blue-400'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200',
+              lockPlatform ? 'cursor-not-allowed opacity-60' : ''
             ]"
           >
             <svg
@@ -136,12 +142,14 @@
           </button>
           <button
             type="button"
-            @click="form.platform = 'antigravity'"
+            :disabled="lockPlatform"
+            @click="selectPlatform('antigravity')"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'antigravity'
+              hasSelectedPlatform && form.platform === 'antigravity'
                 ? 'bg-white text-purple-600 shadow-sm dark:bg-dark-600 dark:text-purple-400'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200',
+              lockPlatform ? 'cursor-not-allowed opacity-60' : ''
             ]"
           >
             <Icon name="cloud" size="sm" />
@@ -149,12 +157,14 @@
           </button>
           <button
             type="button"
-            @click="form.platform = 'grok'"
+            :disabled="lockPlatform"
+            @click="selectPlatform('grok')"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'grok'
+              hasSelectedPlatform && form.platform === 'grok'
                 ? 'bg-white text-zinc-900 shadow-sm dark:bg-dark-600 dark:text-zinc-100'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200',
+              lockPlatform ? 'cursor-not-allowed opacity-60' : ''
             ]"
           >
             <PlatformIcon platform="grok" size="sm" />
@@ -165,12 +175,14 @@
         <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
           <button
             type="button"
+            :disabled="lockPlatform"
             @click="selectCNPlatform('kimi')"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'kimi'
+              hasSelectedPlatform && form.platform === 'kimi'
                 ? 'bg-white text-pink-600 shadow-sm dark:bg-dark-600 dark:text-pink-400'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200',
+              lockPlatform ? 'cursor-not-allowed opacity-60' : ''
             ]"
           >
             <PlatformIcon platform="kimi" size="sm" />
@@ -178,12 +190,14 @@
           </button>
           <button
             type="button"
+            :disabled="lockPlatform"
             @click="selectCNPlatform('zhipu')"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'zhipu'
+              hasSelectedPlatform && form.platform === 'zhipu'
                 ? 'bg-white text-indigo-600 shadow-sm dark:bg-dark-600 dark:text-indigo-400'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200',
+              lockPlatform ? 'cursor-not-allowed opacity-60' : ''
             ]"
           >
             <PlatformIcon platform="zhipu" size="sm" />
@@ -191,12 +205,14 @@
           </button>
           <button
             type="button"
+            :disabled="lockPlatform"
             @click="selectCNPlatform('deepseek')"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'deepseek'
+              hasSelectedPlatform && form.platform === 'deepseek'
                 ? 'bg-white text-teal-600 shadow-sm dark:bg-dark-600 dark:text-teal-400'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200',
+              lockPlatform ? 'cursor-not-allowed opacity-60' : ''
             ]"
           >
             <PlatformIcon platform="deepseek" size="sm" />
@@ -205,6 +221,7 @@
         </div>
       </div>
 
+      <template v-if="hasSelectedPlatform">
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
@@ -3348,14 +3365,15 @@
         <!-- Group Selection - 仅标准模式显示 -->
         <GroupSelector
           v-if="!authStore.isSimpleMode"
-          v-model="form.group_ids"
+          v-model="selectedGroupIds"
           :groups="groups"
           :platform="form.platform"
           :mixed-scheduling="mixedScheduling"
+          :locked-group-ids="props.requiredGroupId == null ? [] : [props.requiredGroupId]"
           data-tour="account-form-groups"
         />
       </div>
-
+      </template>
     </form>
 
     <!-- Step 2: OAuth Authorization -->
@@ -3369,16 +3387,19 @@
         :error="currentOAuthError"
         :show-help="form.platform === 'anthropic'"
         :show-proxy-warning="form.platform !== 'openai' && form.platform !== 'grok' && !!form.proxy_id"
-        :allow-multiple="form.platform === 'anthropic'"
-        :show-cookie-option="form.platform === 'anthropic'"
-        :show-refresh-token-option="form.platform === 'openai' || form.platform === 'antigravity' || form.platform === 'grok'"
-        :show-mobile-refresh-token-option="form.platform === 'openai'"
+        :allow-multiple="!isGroupAccountContext && form.platform === 'anthropic'"
+        :show-cookie-option="!isGroupAccountContext && form.platform === 'anthropic'"
+        :show-refresh-token-option="
+          !isGroupAccountContext &&
+          (form.platform === 'openai' || form.platform === 'antigravity' || form.platform === 'grok')
+        "
+        :show-mobile-refresh-token-option="!isGroupAccountContext && form.platform === 'openai'"
         :show-session-token-option="false"
         :show-access-token-option="false"
-        :show-codex-session-import-option="form.platform === 'openai'"
-        :show-agent-identity-option="form.platform === 'openai'"
-        :show-codex-pat-option="form.platform === 'openai'"
-        :show-sso-option="form.platform === 'grok'"
+        :show-codex-session-import-option="!isGroupAccountContext && form.platform === 'openai'"
+        :show-agent-identity-option="!isGroupAccountContext && form.platform === 'openai'"
+        :show-codex-pat-option="!isGroupAccountContext && form.platform === 'openai'"
+        :show-sso-option="!isGroupAccountContext && form.platform === 'grok'"
         :show-email-password-option="false"
         :show-manual-option="true"
         :initial-input-method="'manual'"
@@ -3405,7 +3426,7 @@
         <button
           type="submit"
           form="create-account-form"
-          :disabled="submitting"
+          :disabled="submitting || !hasSelectedPlatform"
           class="btn btn-primary"
           data-tour="account-form-submit"
         >
@@ -3443,10 +3464,41 @@
           {{ t('common.back') }}
         </button>
         <button
-          v-if="isManualInputMethod"
+          v-if="pendingGroupCreateRetry"
+          type="button"
+          :disabled="submitting"
+          class="btn btn-primary"
+          data-testid="retry-group-create"
+          @click="retryPendingGroupCreate"
+        >
+          <svg
+            v-if="submitting"
+            class="-ml-1 mr-2 h-4 w-4 animate-spin"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              class="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              stroke-width="4"
+            ></circle>
+            <path
+              class="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            ></path>
+          </svg>
+          {{ t('common.retry') }}
+        </button>
+        <button
+          v-else-if="isManualInputMethod"
           type="button"
           :disabled="!canExchangeCode"
           class="btn btn-primary"
+          data-testid="complete-oauth"
           @click="handleExchangeCode"
         >
           <svg
@@ -3710,7 +3762,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, shallowRef, reactive, computed, watch, onBeforeMount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import {
@@ -3735,6 +3787,7 @@ import { useGeminiOAuth } from '@/composables/useGeminiOAuth'
 import { useAntigravityOAuth } from '@/composables/useAntigravityOAuth'
 import { useGrokOAuth } from '@/composables/useGrokOAuth'
 import type {
+  Account,
   Proxy,
   AdminGroup,
   AccountPlatform,
@@ -3775,6 +3828,7 @@ import {
   type HeaderOverrideRow
 } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
+import { extractApiErrorMessage } from '@/utils/apiError'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
@@ -3870,18 +3924,36 @@ interface Props {
   show: boolean
   proxies: Proxy[]
   groups: AdminGroup[]
+  initialPlatform?: AccountPlatform
+  lockPlatform?: boolean
+  requiredGroupId?: number
 }
 
 const props = defineProps<Props>()
 const emit = defineEmits<{
   close: []
-  created: []
+  created: [account?: Account]
 }>()
 
 const appStore = useAppStore()
+const isGroupAccountContext = computed(() => props.requiredGroupId != null)
+const requiredGroupPlatform = computed(() =>
+  props.groups.find((group) => group.id === props.requiredGroupId)?.platform
+)
+const requiresExplicitPlatformSelection = computed(
+  () => isGroupAccountContext.value && requiredGroupPlatform.value === 'composite'
+)
+const hasSelectedPlatform = ref(true)
+
+const withRequiredGroupId = (groupIds: number[]) => {
+  if (props.requiredGroupId == null || groupIds.includes(props.requiredGroupId)) {
+    return [...groupIds]
+  }
+  return [props.requiredGroupId, ...groupIds]
+}
 
 const hideAccountLongContextBilling = computed(() => {
-  return allSelectedGroupsEnableLongContextPricing(form.group_ids, props.groups)
+  return allSelectedGroupsEnableLongContextPricing(selectedGroupIds.value, props.groups)
 })
 
 // OAuth composables
@@ -4022,6 +4094,7 @@ const cnAccentIconClass = computed(() => {
 // 切换国产供应商平台：强制 apikey 类型，deepseek 无 coding 套餐故锁定 payg，
 // 协议回落 adaptive，并把 base url 重置为该平台默认端点。
 function selectCNPlatform(platform: 'kimi' | 'zhipu' | 'deepseek') {
+  hasSelectedPlatform.value = true
   form.platform = platform
   form.type = 'apikey'
   accountCategory.value = 'apikey'
@@ -4319,6 +4392,15 @@ const antigravityMixedChannelConfirmed = ref(false)
 const showAdvancedOAuth = ref(false)
 const showGeminiHelpDialog = ref(false)
 
+interface PendingGroupCreateRetry {
+  groupId: number
+  payload: CreateAccountRequest
+  payloadSignature: string
+  riskConfirmationToken?: string
+}
+
+const pendingGroupCreateRetry = shallowRef<PendingGroupCreateRetry | null>(null)
+
 // Quota control state (Anthropic OAuth/SetupToken only)
 const windowCostEnabled = ref(false)
 const windowCostLimit = ref<number | null>(null)
@@ -4459,12 +4541,36 @@ const form = reactive({
   load_factor: null as number | null,
   priority: 1,
   rate_multiplier: 1,
-  group_ids: [] as number[],
+  group_ids: withRequiredGroupId([]),
   expires_at: null as number | null
+})
+
+const selectPlatform = (platform: AccountPlatform) => {
+  hasSelectedPlatform.value = true
+  form.platform = platform
+}
+
+const initializePlatformSelection = () => {
+  form.platform = props.initialPlatform || 'anthropic'
+  hasSelectedPlatform.value = !requiresExplicitPlatformSelection.value
+}
+
+const selectedGroupIds = computed({
+  get: () => withRequiredGroupId(form.group_ids),
+  set: (groupIds: number[]) => {
+    form.group_ids = withRequiredGroupId(groupIds)
+  }
+})
+
+onBeforeMount(() => {
+  initializePlatformSelection()
 })
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
+  if (!hasSelectedPlatform.value) {
+    return false
+  }
   // Antigravity upstream 类型不需要 OAuth 流程
   if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
     return false
@@ -4511,6 +4617,8 @@ watch(
   () => props.show,
   (newVal) => {
     if (newVal) {
+      initializePlatformSelection()
+      form.group_ids = withRequiredGroupId([])
       // Load TLS fingerprint profiles
       adminAPI.tlsFingerprintProfiles.list()
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
@@ -4924,6 +5032,41 @@ const openMixedChannelDialog = (opts: {
   showMixedChannelWarning.value = true
 }
 
+const groupCreatePayloadSignature = (payload: CreateAccountRequest): string =>
+  JSON.stringify(payload, (_key, value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return value
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
+        left.localeCompare(right)
+      )
+    )
+  })
+
+const snapshotGroupCreatePayload = (payload: CreateAccountRequest): CreateAccountRequest =>
+  JSON.parse(JSON.stringify(payload)) as CreateAccountRequest
+
+const shouldRetainGroupCreateRetry = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') {
+    return true
+  }
+  const apiError = error as { status?: unknown; reason?: unknown; error?: unknown }
+  const reason = typeof apiError.reason === 'string'
+    ? apiError.reason
+    : typeof apiError.error === 'string'
+      ? apiError.error
+      : ''
+  if (reason === 'IDEMPOTENCY_IN_PROGRESS' || reason === 'IDEMPOTENCY_RETRY_BACKOFF') {
+    return true
+  }
+  if (apiError.status == null) {
+    return true
+  }
+  const status = Number(apiError.status)
+  return !Number.isFinite(status) || status === 0 || status >= 500
+}
+
 const withAntigravityConfirmFlag = (payload: CreateAccountRequest): CreateAccountRequest => {
   if (needsMixedChannelCheck(payload.platform) && antigravityMixedChannelConfirmed.value) {
     return {
@@ -4937,6 +5080,9 @@ const withAntigravityConfirmFlag = (payload: CreateAccountRequest): CreateAccoun
 }
 
 const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<void>): Promise<boolean> => {
+  if (isGroupAccountContext.value) {
+    return true
+  }
   if (!needsMixedChannelCheck(form.platform)) {
     return true
   }
@@ -4947,7 +5093,7 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
   try {
     const result = await adminAPI.accounts.checkMixedChannelRisk({
       platform: form.platform,
-      group_ids: form.group_ids
+      group_ids: selectedGroupIds.value
     })
     if (!result.has_risk) {
       return true
@@ -4961,15 +5107,58 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
     })
     return false
   } catch (error: any) {
-    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToCreate'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToCreate')))
     return false
   }
 }
 
-const submitCreateAccount = async (payload: CreateAccountRequest) => {
+const submitCreateAccount = async (
+  payload: CreateAccountRequest,
+  riskConfirmationToken?: string,
+  targetGroupId: number | undefined = props.requiredGroupId
+) => {
   submitting.value = true
+  let activeGroupRetry: PendingGroupCreateRetry | null = null
   try {
-    const account = await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
+    let account: Account
+    if (targetGroupId != null) {
+      const payloadSnapshot = snapshotGroupCreatePayload(payload)
+      const payloadSignature = groupCreatePayloadSignature(payloadSnapshot)
+      if (riskConfirmationToken) {
+        activeGroupRetry = {
+          groupId: targetGroupId,
+          payload: payloadSnapshot,
+          payloadSignature,
+          riskConfirmationToken
+        }
+      } else if (
+        pendingGroupCreateRetry.value?.groupId === targetGroupId &&
+        pendingGroupCreateRetry.value.payloadSignature === payloadSignature
+      ) {
+        activeGroupRetry = pendingGroupCreateRetry.value
+      } else {
+        pendingGroupCreateRetry.value = null
+        activeGroupRetry = {
+          groupId: targetGroupId,
+          payload: payloadSnapshot,
+          payloadSignature
+        }
+      }
+
+      const groupPayload = { ...activeGroupRetry.payload }
+      delete groupPayload.confirm_mixed_channel_risk
+      if (activeGroupRetry.riskConfirmationToken) {
+        groupPayload.risk_confirmation_token = activeGroupRetry.riskConfirmationToken
+      } else {
+        delete groupPayload.risk_confirmation_token
+      }
+      account = await adminAPI.accounts.createInGroup(targetGroupId, groupPayload)
+      if (pendingGroupCreateRetry.value === activeGroupRetry) {
+        pendingGroupCreateRetry.value = null
+      }
+    } else {
+      account = await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
+    }
     if (
       payload.type === 'apikey' &&
       payload.upstream_billing_probe_enabled === true
@@ -4981,12 +5170,42 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
       }
     }
     appStore.showSuccess(t('admin.accounts.accountCreated'))
-    emit('created')
+    emit('created', account)
     handleClose()
   } catch (error: any) {
-    if (error.response?.status === 409 && error.response?.data?.error === 'mixed_channel_warning' && needsMixedChannelCheck(form.platform)) {
+    const apiError = error as {
+      status?: number
+      reason?: string
+      error?: string
+      message?: string
+      metadata?: Record<string, unknown>
+    }
+    const errorReason = apiError.reason ?? apiError.error
+    const serverRiskToken = apiError.metadata?.risk_confirmation_token
+    if (
+      targetGroupId != null &&
+      apiError.status === 409 &&
+      errorReason === 'mixed_channel_warning' &&
+      typeof serverRiskToken === 'string' &&
+      serverRiskToken
+    ) {
+      pendingGroupCreateRetry.value = null
       openMixedChannelDialog({
-        message: error.response?.data?.message,
+        message: apiError.message,
+        onConfirm: async () => {
+          await submitCreateAccount(activeGroupRetry?.payload ?? payload, serverRiskToken, targetGroupId)
+        }
+      })
+      return
+    }
+    if (
+      targetGroupId == null &&
+      apiError.status === 409 &&
+      errorReason === 'mixed_channel_warning' &&
+      needsMixedChannelCheck(form.platform)
+    ) {
+      openMixedChannelDialog({
+        message: apiError.message,
         onConfirm: async () => {
           antigravityMixedChannelConfirmed.value = true
           await submitCreateAccount(payload)
@@ -4994,10 +5213,25 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
       })
       return
     }
-    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToCreate'))
+    if (activeGroupRetry) {
+      if (shouldRetainGroupCreateRetry(error)) {
+        pendingGroupCreateRetry.value = activeGroupRetry
+      } else if (pendingGroupCreateRetry.value === activeGroupRetry) {
+        pendingGroupCreateRetry.value = null
+      }
+    }
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToCreate')))
   } finally {
     submitting.value = false
   }
+}
+
+const retryPendingGroupCreate = async () => {
+  const pendingRetry = pendingGroupCreateRetry.value
+  if (!pendingRetry) {
+    return
+  }
+  await submitCreateAccount(pendingRetry.payload, undefined, pendingRetry.groupId)
 }
 
 // Methods
@@ -5005,7 +5239,7 @@ const resetForm = () => {
   step.value = 1
   form.name = ''
   form.notes = ''
-  form.platform = 'anthropic'
+  initializePlatformSelection()
   form.type = 'oauth'
   form.credentials = {}
   form.proxy_id = null
@@ -5013,7 +5247,7 @@ const resetForm = () => {
   form.load_factor = null
   form.priority = 1
   form.rate_multiplier = 1
-  form.group_ids = []
+  form.group_ids = withRequiredGroupId([])
   form.expires_at = null
   accountCategory.value = 'oauth-based'
   addMethod.value = 'oauth'
@@ -5110,11 +5344,13 @@ const resetForm = () => {
   grokOAuth.resetState()
   oauthFlowRef.value?.reset()
   antigravityMixedChannelConfirmed.value = false
+  pendingGroupCreateRetry.value = null
   clearMixedChannelDialog()
 }
 
 const handleClose = () => {
   antigravityMixedChannelConfirmed.value = false
+  pendingGroupCreateRetry.value = null
   clearMixedChannelDialog()
   emit('close')
 }
@@ -5254,6 +5490,7 @@ const handleMixedChannelConfirm = async () => {
 }
 
 const handleMixedChannelCancel = () => {
+  pendingGroupCreateRetry.value = null
   clearMixedChannelDialog()
 }
 
@@ -5318,6 +5555,9 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (!hasSelectedPlatform.value) {
+    return
+  }
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
     if (!isGrokSSOInputMethod.value && !form.name.trim()) {
@@ -5558,7 +5798,7 @@ const handleSubmit = async () => {
 
   await doCreateAccount({
     ...form,
-    group_ids: form.group_ids,
+    group_ids: selectedGroupIds.value,
     extra,
     upstream_billing_probe_enabled: upstreamBillingAutoProbeEnabled.value,
     auto_pause_on_expired: autoPauseOnExpired.value
@@ -5566,6 +5806,7 @@ const handleSubmit = async () => {
 }
 
 const goBackToBasicInfo = () => {
+  pendingGroupCreateRetry.value = null
   step.value = 1
   oauth.resetState()
   openaiOAuth.resetState()
@@ -5687,7 +5928,7 @@ const createAccountAndFinish = async (
     load_factor: form.load_factor ?? undefined,
     priority: form.priority,
     rate_multiplier: form.rate_multiplier,
-    group_ids: form.group_ids,
+    group_ids: selectedGroupIds.value,
     expires_at: form.expires_at,
     // 上游倍率探测对全部 API-key 平台开放（antigravity upstream 走本 helper）；
     // 非 apikey 类型（bedrock/oauth）不传，后端不动作。
@@ -5698,6 +5939,7 @@ const createAccountAndFinish = async (
 
 // Grok 手动 RT 批量验证和创建
 const handleGrokValidateRT = async (refreshTokenInput: string) => {
+  if (isGroupAccountContext.value) return
   if (!refreshTokenInput.trim()) return
 
   const refreshTokens = refreshTokenInput
@@ -5754,14 +5996,14 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
-          group_ids: form.group_ids,
+          group_ids: selectedGroupIds.value,
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
         })
         successCount++
       } catch (error: any) {
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = extractApiErrorMessage(error)
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
@@ -5788,6 +6030,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
 }
 
 const handleGrokImportSSO = async (ssoInput: string) => {
+  if (isGroupAccountContext.value) return
   // Align with OpenAI/Grok RT batch import: one token per line, no client-side dedupe.
   const ssoTokens = ssoInput
     .split('\n')
@@ -5816,7 +6059,7 @@ const handleGrokImportSSO = async (ssoInput: string) => {
       name: form.name || undefined,
       notes: form.notes || undefined,
       proxy_id: form.proxy_id,
-      group_ids: form.group_ids,
+      group_ids: selectedGroupIds.value,
       credentials,
       concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
@@ -5852,7 +6095,10 @@ const handleGrokImportSSO = async (ssoInput: string) => {
       appStore.showError(t('admin.accounts.oauth.batchFailed'))
     }
   } catch (error: any) {
-    grokOAuth.error.value = error.response?.data?.detail || error.message || t('admin.accounts.oauth.grok.failedToConvertSSO')
+    grokOAuth.error.value = extractApiErrorMessage(
+      error,
+      t('admin.accounts.oauth.grok.failedToConvertSSO')
+    )
     appStore.showError(grokOAuth.error.value)
   } finally {
     grokOAuth.loading.value = false
@@ -5864,6 +6110,7 @@ const handleGrokImportSSO = async (ssoInput: string) => {
  * Password is only used for the authorize API call; buildCredentials never stores it.
  */
 const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
+  if (isGroupAccountContext.value) return
   if (!emailPasswordInput.trim()) return
   if (!validateGrokOAuthUpstreamConfig()) return
 
@@ -5931,14 +6178,14 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
-          group_ids: form.group_ids,
+          group_ids: selectedGroupIds.value,
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
         })
         successCount++
       } catch (error: any) {
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = extractApiErrorMessage(error)
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
@@ -6018,7 +6265,7 @@ const handleOpenAIExchange = async (authCode: string) => {
     }
 
     if (shouldCreateOpenAI) {
-      await adminAPI.accounts.create({
+      const createPayload: CreateAccountRequest = {
         name: form.name,
         notes: form.notes,
         platform: 'openai',
@@ -6030,17 +6277,22 @@ const handleOpenAIExchange = async (authCode: string) => {
         load_factor: form.load_factor ?? undefined,
         priority: form.priority,
         rate_multiplier: form.rate_multiplier,
-        group_ids: form.group_ids,
+        group_ids: selectedGroupIds.value,
         expires_at: form.expires_at,
         auto_pause_on_expired: autoPauseOnExpired.value
-      })
+      }
+      if (isGroupAccountContext.value) {
+        await submitCreateAccount(createPayload)
+        return
+      }
+      await adminAPI.accounts.create(createPayload)
       appStore.showSuccess(t('admin.accounts.accountCreated'))
     }
 
     emit('created')
     handleClose()
   } catch (error: any) {
-    oauthClient.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    oauthClient.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(oauthClient.error.value)
   } finally {
     oauthClient.loading.value = false
@@ -6105,6 +6357,7 @@ const isAgentIdentityImportContent = (content: string) => {
 }
 
 const handleOpenAIImportCodexSession = async (content: string) => {
+  if (isGroupAccountContext.value) return
   const oauthClient = openaiOAuth
   const trimmed = content.trim()
   if (!trimmed) {
@@ -6135,7 +6388,7 @@ const handleOpenAIImportCodexSession = async (content: string) => {
       load_factor: form.load_factor ?? undefined,
       priority: form.priority,
       rate_multiplier: form.rate_multiplier,
-      group_ids: form.group_ids,
+      group_ids: selectedGroupIds.value,
       expires_at: form.expires_at,
       auto_pause_on_expired: autoPauseOnExpired.value,
       credential_extras: Object.keys(credentialExtras).length > 0 ? credentialExtras : undefined,
@@ -6175,11 +6428,10 @@ const handleOpenAIImportCodexSession = async (content: string) => {
 
     appStore.showError(t('admin.accounts.oauth.openai.codexSessionImportFailed'))
   } catch (error: any) {
-    oauthClient.error.value =
-      error.response?.data?.detail ||
-      error.response?.data?.message ||
-      error.message ||
+    oauthClient.error.value = extractApiErrorMessage(
+      error,
       t('admin.accounts.oauth.openai.codexSessionImportFailed')
+    )
     appStore.showError(oauthClient.error.value)
   } finally {
     oauthClient.loading.value = false
@@ -6187,6 +6439,7 @@ const handleOpenAIImportCodexSession = async (content: string) => {
 }
 
 const handleOpenAIImportCodexPAT = async (accessToken: string) => {
+  if (isGroupAccountContext.value) return
   const oauthClient = openaiOAuth
   const trimmed = accessToken.trim()
   if (!trimmed) {
@@ -6213,7 +6466,7 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
       load_factor: form.load_factor ?? undefined,
       priority: form.priority,
       rate_multiplier: form.rate_multiplier,
-      group_ids: form.group_ids,
+      group_ids: selectedGroupIds.value,
       expires_at: form.expires_at,
       auto_pause_on_expired: autoPauseOnExpired.value,
       credential_extras: Object.keys(credentialExtras).length > 0 ? credentialExtras : undefined,
@@ -6224,11 +6477,10 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
     emit('created')
     handleClose()
   } catch (error: any) {
-    oauthClient.error.value =
-      error.response?.data?.detail ||
-      error.response?.data?.message ||
-      error.message ||
+    oauthClient.error.value = extractApiErrorMessage(
+      error,
       t('admin.accounts.oauth.openai.codexPatImportFailed')
+    )
     appStore.showError(oauthClient.error.value)
   } finally {
     oauthClient.loading.value = false
@@ -6237,6 +6489,7 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
 
 // OpenAI RT 批量验证和创建（共享逻辑）
 const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string) => {
+  if (isGroupAccountContext.value) return
   const oauthClient = openaiOAuth
   if (!refreshTokenInput.trim()) return
 
@@ -6311,7 +6564,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
             load_factor: form.load_factor ?? undefined,
             priority: form.priority,
             rate_multiplier: form.rate_multiplier,
-            group_ids: form.group_ids,
+            group_ids: selectedGroupIds.value,
             expires_at: form.expires_at,
             auto_pause_on_expired: autoPauseOnExpired.value
           })
@@ -6320,7 +6573,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         successCount++
       } catch (error: any) {
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = extractApiErrorMessage(error)
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
@@ -6357,6 +6610,7 @@ const handleOpenAIValidateMobileRT = (rt: string) => handleOpenAIBatchRT(rt, OPE
 
 // Antigravity 手动 RT 批量验证和创建
 const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
+  if (isGroupAccountContext.value) return
   if (!refreshTokenInput.trim()) return
 
   // Parse multiple refresh tokens (one per line)
@@ -6410,7 +6664,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
-          group_ids: form.group_ids,
+          group_ids: selectedGroupIds.value,
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
         })
@@ -6418,7 +6672,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
         successCount++
       } catch (error: any) {
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = extractApiErrorMessage(error)
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
@@ -6477,7 +6731,7 @@ const handleGeminiExchange = async (authCode: string) => {
     const extra = geminiOAuth.buildExtraInfo(tokenInfo)
     await createAccountAndFinish('gemini', 'oauth', credentials, extra)
   } catch (error: any) {
-    geminiOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    geminiOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(geminiOAuth.error.value)
   } finally {
     geminiOAuth.loading.value = false
@@ -6523,7 +6777,7 @@ const handleAntigravityExchange = async (authCode: string) => {
 		const extra = buildAntigravityExtra()
 		await createAccountAndFinish('antigravity', 'oauth', credentials, extra)
   } catch (error: any) {
-    antigravityOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    antigravityOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(antigravityOAuth.error.value)
   } finally {
     antigravityOAuth.loading.value = false
@@ -6560,7 +6814,7 @@ const handleGrokExchange = async (authCode: string) => {
     const extra = grokOAuth.buildExtraInfo(tokenInfo)
     await createAccountAndFinish('grok', 'oauth', credentials, extra)
   } catch (error: any) {
-    grokOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    grokOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(grokOAuth.error.value)
   } finally {
     grokOAuth.loading.value = false
@@ -6649,7 +6903,7 @@ const handleAnthropicExchange = async (authCode: string) => {
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
     await createAccountAndFinish(form.platform, addMethod.value as AccountType, credentials, extra)
   } catch (error: any) {
-    oauth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    oauth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(oauth.error.value)
   } finally {
     oauth.loading.value = false
@@ -6675,6 +6929,7 @@ const handleExchangeCode = async () => {
 }
 
 const handleCookieAuth = async (sessionKey: string) => {
+  if (isGroupAccountContext.value) return
   oauth.loading.value = true
   oauth.error.value = ''
 
@@ -6791,7 +7046,7 @@ const handleCookieAuth = async (sessionKey: string) => {
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
-          group_ids: form.group_ids,
+          group_ids: selectedGroupIds.value,
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
         })
@@ -6802,7 +7057,7 @@ const handleCookieAuth = async (sessionKey: string) => {
         errors.push(
           t('admin.accounts.oauth.keyAuthFailed', {
             index: i + 1,
-            error: error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+            error: extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
           })
         )
       }
@@ -6822,7 +7077,7 @@ const handleCookieAuth = async (sessionKey: string) => {
       oauth.error.value = errors.join('\n')
     }
   } catch (error: any) {
-    oauth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.cookieAuthFailed')
+    oauth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.cookieAuthFailed'))
   } finally {
     oauth.loading.value = false
   }

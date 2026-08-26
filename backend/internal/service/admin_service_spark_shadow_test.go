@@ -69,6 +69,66 @@ func (s *sparkShadowRepoStub) BindGroups(_ context.Context, accountID int64, gro
 	return nil
 }
 
+func (s *sparkShadowRepoStub) ReplaceAccountGroupMemberships(
+	_ context.Context,
+	accountID int64,
+	desiredGroupIDs []int64,
+	defaultPriority int,
+	validate AccountGroupMembershipReplacementValidator,
+) (*AccountGroupMembershipReplacement, error) {
+	account, ok := s.accounts[accountID]
+	if !ok {
+		return nil, ErrAccountNotFound
+	}
+	currentGroupIDs := append([]int64(nil), s.groupsOf[accountID]...)
+	currentSet := make(map[int64]struct{}, len(currentGroupIDs))
+	for _, groupID := range currentGroupIDs {
+		currentSet[groupID] = struct{}{}
+	}
+	desiredSet := make(map[int64]struct{}, len(desiredGroupIDs))
+	groupsByID := make(map[int64]Group, len(currentGroupIDs)+len(desiredGroupIDs))
+	addedGroupIDs := make([]int64, 0, len(desiredGroupIDs))
+	for _, groupID := range desiredGroupIDs {
+		desiredSet[groupID] = struct{}{}
+		groupsByID[groupID] = Group{ID: groupID, Platform: account.Platform}
+		if _, exists := currentSet[groupID]; !exists {
+			addedGroupIDs = append(addedGroupIDs, groupID)
+		}
+	}
+	removedGroupIDs := make([]int64, 0, len(currentGroupIDs))
+	for _, groupID := range currentGroupIDs {
+		groupsByID[groupID] = Group{ID: groupID, Platform: account.Platform}
+		if _, exists := desiredSet[groupID]; !exists {
+			removedGroupIDs = append(removedGroupIDs, groupID)
+		}
+	}
+	finalAccountsByGroup := make(map[int64][]Account, len(desiredGroupIDs))
+	for _, groupID := range desiredGroupIDs {
+		finalAccountsByGroup[groupID] = []Account{*account}
+	}
+	if validate != nil {
+		if err := validate(AccountGroupMembershipReplacementSnapshot{
+			Account:              *account,
+			GroupsByID:           groupsByID,
+			CurrentGroupIDs:      currentGroupIDs,
+			DesiredGroupIDs:      append([]int64(nil), desiredGroupIDs...),
+			AddedGroupIDs:        addedGroupIDs,
+			RemovedGroupIDs:      removedGroupIDs,
+			FinalAccountsByGroup: finalAccountsByGroup,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	s.groupsOf[accountID] = append([]int64(nil), desiredGroupIDs...)
+	account.GroupIDs = append([]int64(nil), desiredGroupIDs...)
+	return &AccountGroupMembershipReplacement{
+		CurrentGroupIDs: currentGroupIDs,
+		DesiredGroupIDs: append([]int64(nil), desiredGroupIDs...),
+		AddedGroupIDs:   addedGroupIDs,
+		RemovedGroupIDs: removedGroupIDs,
+	}, nil
+}
+
 func (s *sparkShadowRepoStub) ListSchedulableByGroupID(_ context.Context, groupID int64) ([]Account, error) {
 	var result []Account
 	for accID, groups := range s.groupsOf {
@@ -746,13 +806,23 @@ func (s *raceCreateRepoStub) Create(ctx context.Context, account *Account) error
 	return s.sparkShadowRepoStub.Create(ctx, account)
 }
 
-// bindFailRepoStub 让 BindGroups 失败,用于验证绑组失败时补偿删除刚建的影子(外审 C/P1)。
+// bindFailRepoStub 让原子关系替换失败,用于验证绑组失败时补偿删除刚建的影子(外审 C/P1)。
 type bindFailRepoStub struct {
 	*sparkShadowRepoStub
 }
 
 func (s *bindFailRepoStub) BindGroups(_ context.Context, _ int64, _ []int64) error {
 	return errors.New("simulated bind failure")
+}
+
+func (s *bindFailRepoStub) ReplaceAccountGroupMemberships(
+	_ context.Context,
+	_ int64,
+	_ []int64,
+	_ int,
+	_ AccountGroupMembershipReplacementValidator,
+) (*AccountGroupMembershipReplacement, error) {
+	return nil, errors.New("simulated bind failure")
 }
 
 // sparkShadowValidatingGroupRepoStub 实现 groupExistenceBatchReader(ExistsByIDs),

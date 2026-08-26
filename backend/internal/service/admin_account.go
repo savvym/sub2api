@@ -10,10 +10,12 @@ import (
 	"maps"
 	"net/http"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -187,6 +189,17 @@ func duplicateAccountGroups(source *Account) ([]AccountGroup, []int64) {
 	return groups, groupIDs
 }
 
+func validateDuplicateAccountGroups(account *Account) AccountGroupCreateValidator {
+	return func(snapshot AccountGroupCreateSnapshot) error {
+		for i := range snapshot.Groups {
+			if err := accountGroupEligibilityError(&snapshot.Groups[i], account); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
 func duplicateAccountOperationID(sourceID int64, actorScope, operationKey string) string {
 	operationKey = strings.TrimSpace(operationKey)
 	if operationKey == "" {
@@ -323,8 +336,23 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	if s.accountDuplicateRepo == nil {
 		return nil, errors.New("account duplicate repository is not configured")
 	}
-	if err := s.accountDuplicateRepo.CreateWithAccountGroups(ctx, duplicate, groups); err != nil {
-		return nil, fmt.Errorf("create duplicate account: %w", err)
+	var createErr error
+	if len(groups) == 0 {
+		createErr = s.accountDuplicateRepo.CreateWithAccountGroups(ctx, duplicate, groups)
+	} else {
+		validatedRepo, ok := s.accountDuplicateRepo.(ValidatedAccountCreateRepository)
+		if !ok {
+			return nil, errors.New("validated account duplicate repository is not configured")
+		}
+		createErr = validatedRepo.CreateWithValidatedAccountGroups(
+			ctx,
+			duplicate,
+			groups,
+			validateDuplicateAccountGroups(duplicate),
+		)
+	}
+	if createErr != nil {
+		return nil, fmt.Errorf("create duplicate account: %w", createErr)
 	}
 	for i := range groups {
 		groups[i].AccountID = duplicate.ID
@@ -475,8 +503,14 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		return nil, err
 	}
 
-	// 绑定分组
-	groupIDs := input.GroupIDs
+	// 绑定分组。分组上下文创建由服务端强制包含路径分组，客户端无法取消。
+	groupIDs := append([]int64(nil), input.GroupIDs...)
+	if input.RequiredGroupID < 0 {
+		return nil, infraerrors.BadRequest("invalid_group_id", "group IDs must be positive")
+	}
+	if input.RequiredGroupID > 0 && !slices.Contains(groupIDs, input.RequiredGroupID) {
+		groupIDs = append([]int64{input.RequiredGroupID}, groupIDs...)
+	}
 	// 如果没有指定分组,自动绑定对应平台的默认分组
 	if len(groupIDs) == 0 && !input.SkipDefaultGroupBind {
 		defaultGroupName := input.Platform + "-default"
@@ -491,13 +525,6 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 	}
 
-	// 检查混合渠道风险（除非用户已确认）
-	if len(groupIDs) > 0 && !input.SkipMixedChannelCheck {
-		if err := s.checkMixedChannelRisk(ctx, 0, input.Platform, groupIDs); err != nil {
-			return nil, err
-		}
-	}
-
 	// 校验并规范化请求头覆写配置（header 名小写化、格式检查）
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
 		return nil, err
@@ -509,13 +536,57 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err != nil {
 		return nil, err
 	}
-	if err := s.accountRepo.Create(ctx, account); err != nil {
+	groups, err := accountGroupsForCreate(groupIDs)
+	if err != nil {
 		return nil, err
 	}
-
-	// 绑定分组
-	if len(groupIDs) > 0 {
-		if err := s.accountRepo.BindGroups(ctx, account.ID, groupIDs); err != nil {
+	if len(groups) > 0 {
+		validatedRepo, _ := s.accountDuplicateRepo.(ValidatedAccountCreateRepository)
+		if validatedRepo == nil {
+			validatedRepo, _ = s.accountRepo.(ValidatedAccountCreateRepository)
+		}
+		if input.RequiredGroupID > 0 && validatedRepo == nil {
+			return nil, infraerrors.InternalServer(
+				"group_account_create_repository_unavailable",
+				"atomic group account creation is not configured",
+			)
+		}
+		switch {
+		case validatedRepo != nil:
+			if err := validatedRepo.CreateWithValidatedAccountGroups(
+				ctx,
+				account,
+				groups,
+				s.validateAccountGroupCreate(account, input, groupIDs),
+			); err != nil {
+				return nil, err
+			}
+		case s.accountDuplicateRepo != nil:
+			if !input.SkipMixedChannelCheck {
+				if err := s.checkMixedChannelRisk(ctx, 0, input.Platform, groupIDs); err != nil {
+					return nil, err
+				}
+			}
+			if err := s.accountDuplicateRepo.CreateWithAccountGroups(ctx, account, groups); err != nil {
+				return nil, err
+			}
+		default:
+			if !input.SkipMixedChannelCheck {
+				if err := s.checkMixedChannelRisk(ctx, 0, input.Platform, groupIDs); err != nil {
+					return nil, err
+				}
+			}
+			if err := s.accountRepo.Create(ctx, account); err != nil {
+				return nil, err
+			}
+			if err := s.accountRepo.BindGroups(ctx, account.ID, groupIDs); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		// A few focused service tests use a minimal repository stub. Production
+		// construction still uses the regular create path when there are no groups.
+		if err := s.accountRepo.Create(ctx, account); err != nil {
 			return nil, err
 		}
 	}
@@ -546,6 +617,110 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	}
 
 	return account, nil
+}
+
+func accountGroupsForCreate(groupIDs []int64) ([]AccountGroup, error) {
+	groups := make([]AccountGroup, 0, len(groupIDs))
+	seen := make(map[int64]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if groupID <= 0 {
+			return nil, infraerrors.BadRequest("invalid_group_id", "group IDs must be positive")
+		}
+		if _, exists := seen[groupID]; exists {
+			return nil, infraerrors.BadRequest("duplicate_account_group", "an account group may only be specified once")
+		}
+		seen[groupID] = struct{}{}
+		groups = append(groups, AccountGroup{GroupID: groupID, Priority: groupAccountDefaultPriority})
+	}
+	return groups, nil
+}
+
+func (s *adminServiceImpl) validateAccountGroupCreate(account *Account, input *CreateAccountInput, groupIDs []int64) AccountGroupCreateValidator {
+	return func(snapshot AccountGroupCreateSnapshot) error {
+		var mixedErr *MixedChannelError
+		for i := range snapshot.Groups {
+			group := &snapshot.Groups[i]
+			if input.RequiredGroupID > 0 && group.ID == input.RequiredGroupID &&
+				group.Platform != PlatformComposite && account.Platform != group.Platform {
+				return infraerrors.Conflict(
+					"account_group_platform_mismatch",
+					"accounts created from a group must use the path group's platform",
+				).WithMetadata(map[string]string{
+					"account_id": strconv.FormatInt(account.ID, 10),
+					"group_id":   strconv.FormatInt(group.ID, 10),
+					"warning":    GroupAccountWarningPlatformMismatch,
+				})
+			}
+			if warning := accountEligibilityWarning(group, account); warning != "" {
+				reason := "account_group_platform_mismatch"
+				message := "account platform is not compatible with the group"
+				if warning == GroupAccountWarningOAuthRequired {
+					reason = "account_group_policy_violation"
+					message = "the group only accepts OAuth accounts"
+				}
+				return infraerrors.Conflict(reason, message).WithMetadata(map[string]string{
+					"group_id": strconv.FormatInt(group.ID, 10),
+					"warning":  warning,
+				})
+			}
+
+			if input.RequiredGroupID == 0 && input.SkipMixedChannelCheck {
+				continue
+			}
+			currentPlatform := getAccountPlatform(account.Platform)
+			if currentPlatform == "" {
+				continue
+			}
+			for _, member := range snapshot.CurrentAccountsByGroup[group.ID] {
+				otherPlatform := getAccountPlatform(member.Platform)
+				if otherPlatform != "" && otherPlatform != currentPlatform && mixedErr == nil {
+					mixedErr = &MixedChannelError{
+						GroupID:         group.ID,
+						GroupName:       group.Name,
+						CurrentPlatform: currentPlatform,
+						OtherPlatform:   otherPlatform,
+					}
+				}
+			}
+		}
+		if mixedErr == nil {
+			return nil
+		}
+		if input.RequiredGroupID == 0 {
+			return mixedErr
+		}
+
+		requestDigest := groupAccountCreateRequestDigest(input.RequiredGroupID, groupIDs, input)
+		baselineDigest := groupAccountCreateBaselineDigest(snapshot)
+		signingKey := s.groupAccountRiskSigningKey()
+		if validateGroupAccountCreateRiskToken(
+			input.RiskConfirmationToken,
+			signingKey,
+			input.RequiredGroupID,
+			requestDigest,
+			baselineDigest,
+		) {
+			return nil
+		}
+		token, err := issueGroupAccountCreateRiskToken(
+			signingKey,
+			input.RequiredGroupID,
+			requestDigest,
+			baselineDigest,
+			time.Now().Add(groupAccountRiskTokenTTL),
+		)
+		if err != nil {
+			return err
+		}
+		return infraerrors.Conflict("mixed_channel_warning", mixedErr.Error()).WithMetadata(map[string]string{
+			"group_id":                strconv.FormatInt(input.RequiredGroupID, 10),
+			"risk_group_id":           strconv.FormatInt(mixedErr.GroupID, 10),
+			"group_name":              mixedErr.GroupName,
+			"current_platform":        mixedErr.CurrentPlatform,
+			"other_platform":          mixedErr.OtherPlatform,
+			"risk_confirmation_token": token,
+		})
+	}
 }
 
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
@@ -793,21 +968,20 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		account.AutoPauseOnExpired = *input.AutoPauseOnExpired
 	}
 
-	// 先验证分组是否存在（在任何写操作之前）
+	// Keep the early existence check so an obviously invalid request does not
+	// update account fields first. The authoritative check still runs under the
+	// membership transaction locks below.
 	if input.GroupIDs != nil {
 		if err := s.validateGroupIDsExist(ctx, *input.GroupIDs); err != nil {
 			return nil, err
 		}
-
-		// 检查混合渠道风险（除非用户已确认）
-		if !input.SkipMixedChannelCheck {
-			if err := s.checkMixedChannelRisk(ctx, account.ID, account.Platform, *input.GroupIDs); err != nil {
-				return nil, err
-			}
-		}
+	} else if input.ExpectedGroupIDs != nil {
+		return nil, infraerrors.BadRequest(
+			"invalid_account_group_membership_baseline",
+			"expected_group_ids requires group_ids",
+		)
 	}
 
-	billingSettingsAppliedAtomically := false
 	updater := s.accountBillingRepo
 	if updater == nil {
 		// Unit tests and narrow internal callers may construct adminServiceImpl
@@ -815,21 +989,18 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		// AdminAccountRepository.
 		updater, _ = s.accountRepo.(AccountBillingSettingsRepository)
 	}
-	if updater != nil {
-		if err := updater.UpdateWithAccountBillingSettings(
-			ctx,
-			account,
-			requestedProbeEnabledUpdate,
-			requestedRateSyncEnabledUpdate,
-			input.RateMultiplier,
-		); err != nil {
-			return nil, err
+	persistAccount := func(writeCtx context.Context) error {
+		if updater != nil {
+			return updater.UpdateWithAccountBillingSettings(
+				writeCtx,
+				account,
+				requestedProbeEnabledUpdate,
+				requestedRateSyncEnabledUpdate,
+				input.RateMultiplier,
+			)
 		}
-		billingSettingsAppliedAtomically = true
-	}
-	if !billingSettingsAppliedAtomically {
-		if err := s.accountRepo.Update(ctx, account); err != nil {
-			return nil, err
+		if err := s.accountRepo.Update(writeCtx, account); err != nil {
+			return err
 		}
 		if (requestedProbeEnabledUpdate != nil || requestedRateSyncEnabledUpdate != nil) &&
 			isUpstreamBillingProbeAccount(account) {
@@ -840,7 +1011,55 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			if requestedRateSyncEnabledUpdate != nil {
 				settings[UpstreamBillingRateSyncEnabledExtraKey] = *requestedRateSyncEnabledUpdate
 			}
-			if err := s.accountRepo.UpdateExtra(ctx, account.ID, settings); err != nil {
+			return s.accountRepo.UpdateExtra(writeCtx, account.ID, settings)
+		}
+		return nil
+	}
+
+	if input.GroupIDs == nil {
+		if err := persistAccount(ctx); err != nil {
+			return nil, err
+		}
+	} else {
+		desiredGroupIDs := append([]int64(nil), (*input.GroupIDs)...)
+		account.GroupIDs = append([]int64(nil), desiredGroupIDs...)
+		if s.entClient == nil {
+			// Narrow unit-test wiring has no transaction owner. Production always
+			// supplies entClient and executes both writes in the branch below.
+			if err := s.replaceAccountGroupMemberships(
+				ctx,
+				account.ID,
+				desiredGroupIDs,
+				input.ExpectedGroupIDs,
+				account,
+				input.SkipMixedChannelCheck,
+			); err != nil {
+				return nil, err
+			}
+			if err := persistAccount(ctx); err != nil {
+				return nil, err
+			}
+		} else {
+			tx, err := s.entClient.Tx(ctx)
+			if err != nil {
+				return nil, err
+			}
+			defer func() { _ = tx.Rollback() }()
+			txCtx := dbent.NewTxContext(ctx, tx)
+			if err := s.replaceAccountGroupMemberships(
+				txCtx,
+				account.ID,
+				desiredGroupIDs,
+				input.ExpectedGroupIDs,
+				account,
+				input.SkipMixedChannelCheck,
+			); err != nil {
+				return nil, err
+			}
+			if err := persistAccount(txCtx); err != nil {
+				return nil, err
+			}
+			if err := tx.Commit(); err != nil {
 				return nil, err
 			}
 		}
@@ -850,13 +1069,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	// 影子自身 proxy 不可独立编辑(见上),故对影子的更新不触发传播。
 	if input.ProxyID != nil && !account.IsCredentialShadow() {
 		if err := s.propagateProxyToShadows(ctx, id, account.ProxyID); err != nil {
-			return nil, err
-		}
-	}
-
-	// 绑定分组
-	if input.GroupIDs != nil {
-		if err := s.accountRepo.BindGroups(ctx, account.ID, *input.GroupIDs); err != nil {
 			return nil, err
 		}
 	}
@@ -937,7 +1149,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	needMixedChannelCheck := input.GroupIDs != nil && !input.SkipMixedChannelCheck
 
-	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
+	// 预取所有目标账号，供凭据守卫、代理守卫和写前混合渠道检查共用。
 	var cachedTargets []*Account
 	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
@@ -950,6 +1162,18 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	for _, account := range cachedTargets {
 		if account != nil {
 			targetsByID[account.ID] = account
+		}
+	}
+
+	// Preserve the existing bulk confirmation contract: ordinary mixed-channel
+	// conflicts must be reported before account fields are written. Evaluate the
+	// whole batch so two opposite channels added to an empty group are caught, and
+	// only treat effective additions as risk-bearing so unchanged historical mixes
+	// remain editable. The locked replacement below remains authoritative for
+	// concurrent membership changes.
+	if needMixedChannelCheck {
+		if err := s.checkBulkMixedChannelRisk(ctx, cachedTargets, *input.GroupIDs); err != nil {
+			return nil, err
 		}
 	}
 	if openAISettings.any() {
@@ -989,29 +1213,6 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			if acc != nil && acc.IsCredentialShadow() {
 				return nil, infraerrors.Newf(http.StatusBadRequest, "SPARK_SHADOW_PROXY_INHERITED",
 					"spark shadow account %d proxy is inherited from its parent and cannot be set in bulk; manage it on the parent account", acc.ID)
-			}
-		}
-	}
-
-	// 预加载账号平台信息（混合渠道检查需要）。
-	platformByID := map[int64]string{}
-	if needMixedChannelCheck {
-		for _, account := range cachedTargets {
-			if account != nil {
-				platformByID[account.ID] = account.Platform
-			}
-		}
-	}
-
-	// 预检查混合渠道风险：在任何写操作之前，若发现风险立即返回错误。
-	if needMixedChannelCheck {
-		for _, accountID := range input.AccountIDs {
-			platform := platformByID[accountID]
-			if platform == "" {
-				continue
-			}
-			if err := s.checkMixedChannelRisk(ctx, accountID, platform, *input.GroupIDs); err != nil {
-				return nil, err
 			}
 		}
 	}
@@ -1125,7 +1326,14 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		entry := BulkUpdateAccountResult{AccountID: accountID}
 
 		if input.GroupIDs != nil {
-			if err := s.accountRepo.BindGroups(ctx, accountID, *input.GroupIDs); err != nil {
+			if err := s.replaceAccountGroupMemberships(
+				ctx,
+				accountID,
+				*input.GroupIDs,
+				nil,
+				nil,
+				input.SkipMixedChannelCheck,
+			); err != nil {
 				entry.Success = false
 				entry.Error = err.Error()
 				result.Failed++
@@ -1402,7 +1610,7 @@ func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opt
 	// 一母一影唯一索引会挡住重试)——外审 C/P1。补偿删除用 detached ctx,即便请求 ctx 已取消/超时
 	// 仍能完成清理(外审第4轮);进程崩溃这种极端仍可能残留,属已知权衡。
 	if len(groupIDs) > 0 {
-		if err := s.accountRepo.BindGroups(ctx, shadow.ID, groupIDs); err != nil {
+		if err := s.replaceAccountGroupMemberships(ctx, shadow.ID, groupIDs, nil, shadow, false); err != nil {
 			if delErr := s.accountRepo.Delete(context.WithoutCancel(ctx), shadow.ID); delErr != nil {
 				slog.Error("spark_shadow_bind_groups_rollback_failed",
 					"shadow_id", shadow.ID, "parent_id", parentID, "delete_err", delErr)
@@ -1438,6 +1646,112 @@ func propagateAccountProxyToShadows(ctx context.Context, repo AccountRepository,
 		}
 	}
 	return nil
+}
+
+func (s *adminServiceImpl) replaceAccountGroupMemberships(
+	ctx context.Context,
+	accountID int64,
+	desiredGroupIDs []int64,
+	expectedGroupIDs *[]int64,
+	accountForValidation *Account,
+	skipMixedChannelCheck bool,
+) error {
+	repo := s.accountGroupRepo
+	if repo == nil {
+		repo, _ = s.accountRepo.(AccountGroupMembershipReplacementRepository)
+	}
+	if repo == nil {
+		return infraerrors.InternalServer(
+			"account_group_membership_repository_unavailable",
+			"atomic account group membership replacement is not configured",
+		)
+	}
+	var normalizedExpectedGroupIDs []int64
+	if expectedGroupIDs != nil {
+		seen := make(map[int64]struct{}, len(*expectedGroupIDs))
+		for _, groupID := range *expectedGroupIDs {
+			if groupID <= 0 {
+				return infraerrors.BadRequest(
+					"invalid_account_group_membership_baseline",
+					"expected group IDs must be positive",
+				)
+			}
+			seen[groupID] = struct{}{}
+		}
+		normalizedExpectedGroupIDs = make([]int64, 0, len(seen))
+		for groupID := range seen {
+			normalizedExpectedGroupIDs = append(normalizedExpectedGroupIDs, groupID)
+		}
+		slices.Sort(normalizedExpectedGroupIDs)
+	}
+
+	_, err := repo.ReplaceAccountGroupMemberships(
+		ctx,
+		accountID,
+		desiredGroupIDs,
+		groupAccountDefaultPriority,
+		func(snapshot AccountGroupMembershipReplacementSnapshot) error {
+			if expectedGroupIDs != nil {
+				currentVisibleGroupIDs := make([]int64, 0, len(snapshot.CurrentGroupIDs))
+				for _, groupID := range snapshot.CurrentGroupIDs {
+					if _, visible := snapshot.GroupsByID[groupID]; visible {
+						currentVisibleGroupIDs = append(currentVisibleGroupIDs, groupID)
+					}
+				}
+				slices.Sort(currentVisibleGroupIDs)
+				if !slices.Equal(currentVisibleGroupIDs, normalizedExpectedGroupIDs) {
+					return infraerrors.Conflict(
+						"account_group_membership_stale",
+						"account group memberships changed after the editor was opened; reload and retry",
+					).WithMetadata(map[string]string{
+						"account_id": strconv.FormatInt(accountID, 10),
+					})
+				}
+			}
+
+			validationAccount := snapshot.Account
+			if accountForValidation != nil {
+				validationAccount = *accountForValidation
+			}
+			for _, groupID := range snapshot.AddedGroupIDs {
+				group, exists := snapshot.GroupsByID[groupID]
+				if !exists {
+					return ErrGroupNotFound
+				}
+				if err := accountGroupEligibilityError(&group, &validationAccount); err != nil {
+					return err
+				}
+			}
+			if skipMixedChannelCheck {
+				return nil
+			}
+
+			currentPlatform := getAccountPlatform(validationAccount.Platform)
+			if currentPlatform == "" {
+				return nil
+			}
+			for _, groupID := range snapshot.AddedGroupIDs {
+				group := snapshot.GroupsByID[groupID]
+				for i := range snapshot.FinalAccountsByGroup[groupID] {
+					other := &snapshot.FinalAccountsByGroup[groupID][i]
+					if other.ID == accountID {
+						continue
+					}
+					otherPlatform := getAccountPlatform(other.Platform)
+					if otherPlatform != "" && otherPlatform != currentPlatform {
+						return &MixedChannelError{
+							GroupID:         groupID,
+							GroupName:       group.Name,
+							CurrentPlatform: currentPlatform,
+							OtherPlatform:   otherPlatform,
+						}
+					}
+				}
+			}
+			return nil
+		},
+	)
+	return err
 }
 
 // checkMixedChannelRisk 检查分组中是否存在混合渠道（Antigravity + Anthropic）
@@ -1486,6 +1800,56 @@ func (s *adminServiceImpl) checkMixedChannelRisk(ctx context.Context, currentAcc
 		}
 	}
 
+	return nil
+}
+
+func (s *adminServiceImpl) checkBulkMixedChannelRisk(ctx context.Context, targets []*Account, groupIDs []int64) error {
+	for _, groupID := range groupIDs {
+		currentAccounts, err := s.accountRepo.ListByGroup(ctx, groupID)
+		if err != nil {
+			return fmt.Errorf("get accounts in group %d: %w", groupID, err)
+		}
+
+		currentIDs := make(map[int64]struct{}, len(currentAccounts))
+		finalAccounts := append([]Account(nil), currentAccounts...)
+		for i := range currentAccounts {
+			currentIDs[currentAccounts[i].ID] = struct{}{}
+		}
+
+		addedIDs := make([]int64, 0, len(targets))
+		addedPlatform := ""
+		for _, target := range targets {
+			if target == nil {
+				continue
+			}
+			if _, alreadyMember := currentIDs[target.ID]; alreadyMember {
+				continue
+			}
+			addedIDs = append(addedIDs, target.ID)
+			finalAccounts = append(finalAccounts, *target)
+			if addedPlatform == "" {
+				addedPlatform = getAccountPlatform(target.Platform)
+			}
+		}
+		if !mixedChannelRiskInFinalSet(finalAccounts, addedIDs) {
+			continue
+		}
+
+		groupName := fmt.Sprintf("Group %d", groupID)
+		if group, _ := s.groupRepo.GetByID(ctx, groupID); group != nil {
+			groupName = group.Name
+		}
+		otherPlatform := "Anthropic"
+		if addedPlatform == "Anthropic" {
+			otherPlatform = "Antigravity"
+		}
+		return &MixedChannelError{
+			GroupID:         groupID,
+			GroupName:       groupName,
+			CurrentPlatform: addedPlatform,
+			OtherPlatform:   otherPlatform,
+		}
+	}
 	return nil
 }
 

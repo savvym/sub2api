@@ -39,6 +39,9 @@ type AdminService interface {
 	GetAllGroupsIncludingInactive(ctx context.Context) ([]Group, error)
 	GetGroup(ctx context.Context, id int64) (*Group, error)
 	GetGroupModelsListCandidates(ctx context.Context, id int64, platform string) ([]string, error)
+	ListGroupAccounts(ctx context.Context, groupID int64, filters GroupAccountListFilters) (*GroupAccountListPage, error)
+	ListGroupAccountCandidates(ctx context.Context, groupID int64, filters GroupAccountListFilters) (*GroupAccountListPage, error)
+	ApplyGroupAccountMembershipDiff(ctx context.Context, groupID int64, input GroupAccountMembershipDiffInput) (*GroupAccountMembershipDiffResult, error)
 	CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error)
 	// DuplicateGroup creates an inactive independent copy of a group's configuration
 	// and account bindings while preserving each binding's priority.
@@ -353,7 +356,8 @@ type UpdateGroupInput struct {
 	ProfitControlEnabled *bool
 	ProfitMinMargin      *float64
 	ProfitSafetyBuffer   *float64
-	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
+	// Deprecated for updates: non-empty values are rejected. Existing group
+	// membership must be changed through the group account management API.
 	CopyAccountsFromGroupIDs []int64
 }
 
@@ -373,6 +377,12 @@ type CreateAccountInput struct {
 	ExpiresAt          *int64
 	AutoPauseOnExpired *bool
 	ProbeEnabled       *bool
+	// RequiredGroupID is set by the group-scoped create endpoint. The service
+	// always includes it in GroupIDs, regardless of the client payload.
+	RequiredGroupID int64
+	// RiskConfirmationToken confirms the exact locked group baselines and create
+	// request that produced a mixed-channel challenge.
+	RiskConfirmationToken string
 	// SkipDefaultGroupBind prevents auto-binding to platform default group when GroupIDs is empty.
 	SkipDefaultGroupBind bool
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.
@@ -390,18 +400,21 @@ type ShadowOptions struct {
 }
 
 type UpdateAccountInput struct {
-	Name                  string
-	Notes                 *string
-	Type                  string // Account type: oauth, setup-token, apikey
-	Credentials           map[string]any
-	Extra                 map[string]any
-	ProxyID               *int64
-	Concurrency           *int     // 使用指针区分"未提供"和"设置为0"
-	Priority              *int     // 使用指针区分"未提供"和"设置为0"
-	RateMultiplier        *float64 // 账号计费倍率（>=0，允许 0）
-	LoadFactor            *int
-	Status                string
-	GroupIDs              *[]int64
+	Name           string
+	Notes          *string
+	Type           string // Account type: oauth, setup-token, apikey
+	Credentials    map[string]any
+	Extra          map[string]any
+	ProxyID        *int64
+	Concurrency    *int     // 使用指针区分"未提供"和"设置为0"
+	Priority       *int     // 使用指针区分"未提供"和"设置为0"
+	RateMultiplier *float64 // 账号计费倍率（>=0，允许 0）
+	LoadFactor     *int
+	Status         string
+	GroupIDs       *[]int64
+	// ExpectedGroupIDs is the membership baseline shown to the editor. A stale
+	// full-list update is rejected instead of overwriting a concurrent change.
+	ExpectedGroupIDs      *[]int64
 	ExpiresAt             *int64
 	AutoPauseOnExpired    *bool
 	ProbeEnabled          *bool
@@ -649,6 +662,7 @@ type adminServiceImpl struct {
 	accountRepo          AccountRepository
 	accountDuplicateRepo AccountDuplicateRepository
 	accountBillingRepo   AccountBillingSettingsRepository
+	accountGroupRepo     AccountGroupMembershipReplacementRepository
 	proxyRepo            ProxyRepository
 	apiKeyRepo           APIKeyRepository
 	redeemCodeRepo       RedeemCodeRepository
@@ -717,6 +731,7 @@ func NewAdminService(
 		accountRepo:          accountRepo,
 		accountDuplicateRepo: accountRepo,
 		accountBillingRepo:   accountRepo,
+		accountGroupRepo:     accountRepo,
 		proxyRepo:            proxyRepo,
 		apiKeyRepo:           apiKeyRepo,
 		redeemCodeRepo:       redeemCodeRepo,

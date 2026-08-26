@@ -137,9 +137,85 @@ export async function getById(id: number): Promise<Account> {
  * @param accountData - Account data
  * @returns Created account
  */
+const accountCreateOperationKeys = new Map<string, string>()
+const maxRetainedAccountCreateOperations = 100
+
+function canonicalizeAccountCreateValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeAccountCreateValue)
+  if (!value || typeof value !== 'object') return value
+
+  const sorted: Record<string, unknown> = {}
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    const child = (value as Record<string, unknown>)[key]
+    if (child !== undefined) sorted[key] = canonicalizeAccountCreateValue(child)
+  }
+  return sorted
+}
+
+async function accountCreateFingerprint(accountData: CreateAccountRequest): Promise<string> {
+  const serialized = JSON.stringify(canonicalizeAccountCreateValue(accountData))
+  const subtle = globalThis.crypto?.subtle
+  if (subtle) {
+    const digest = await subtle.digest('SHA-256', new TextEncoder().encode(serialized))
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+  }
+
+  // Web Crypto is available in supported browsers. Keep a non-sensitive
+  // fallback fingerprint for test runners and unusual non-secure contexts.
+  let first = 0x811c9dc5
+  let second = 0x9e3779b9
+  for (let index = 0; index < serialized.length; index += 1) {
+    const code = serialized.charCodeAt(index)
+    first = Math.imul(first ^ code, 0x01000193) >>> 0
+    second = Math.imul(second ^ code, 0x85ebca6b) >>> 0
+  }
+  return `${serialized.length.toString(16)}-${first.toString(16)}-${second.toString(16)}`
+}
+
+function newAccountCreateOperationKey(): string {
+  const randomPart = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return `account-create-${randomPart}`
+}
+
+function rememberAccountCreateOperation(fingerprint: string, operationKey: string): void {
+  if (!accountCreateOperationKeys.has(fingerprint) && accountCreateOperationKeys.size >= maxRetainedAccountCreateOperations) {
+    const oldest = accountCreateOperationKeys.keys().next().value
+    if (oldest) accountCreateOperationKeys.delete(oldest)
+  }
+  accountCreateOperationKeys.set(fingerprint, operationKey)
+}
+
+async function submitAccountCreate(path: string, accountData: CreateAccountRequest): Promise<Account> {
+  const fingerprint = `${path}:${await accountCreateFingerprint(accountData)}`
+  const operationKey = accountCreateOperationKeys.get(fingerprint) ?? newAccountCreateOperationKey()
+  rememberAccountCreateOperation(fingerprint, operationKey)
+  try {
+    const { data } = await apiClient.post<Account>(path, accountData, {
+      headers: { 'Idempotency-Key': operationKey }
+    })
+    accountCreateOperationKeys.delete(fingerprint)
+    return data
+  } catch (error) {
+    const apiError = error && typeof error === 'object'
+      ? error as { status?: unknown; reason?: unknown }
+      : undefined
+    const status = Number(apiError?.status)
+    const reason = typeof apiError?.reason === 'string' ? apiError.reason : ''
+    const retainForIdempotencyRetry =
+      reason === 'IDEMPOTENCY_IN_PROGRESS' || reason === 'IDEMPOTENCY_RETRY_BACKOFF'
+    if (status >= 400 && status < 500 && !retainForIdempotencyRetry) {
+      accountCreateOperationKeys.delete(fingerprint)
+    }
+    throw error
+  }
+}
+
 export async function create(accountData: CreateAccountRequest): Promise<Account> {
-  const { data } = await apiClient.post<Account>('/admin/accounts', accountData)
-  return data
+  return submitAccountCreate('/admin/accounts', accountData)
+}
+
+export async function createInGroup(groupId: number, accountData: CreateAccountRequest): Promise<Account> {
+  return submitAccountCreate(`/admin/groups/${groupId}/accounts`, accountData)
 }
 
 /**
@@ -990,6 +1066,7 @@ export const accountsAPI = {
   listWithEtag,
   getById,
   create,
+  createInGroup,
   duplicate,
   update,
   checkMixedChannelRisk,

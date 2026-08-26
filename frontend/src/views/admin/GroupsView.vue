@@ -270,7 +270,15 @@
           </template>
 
           <template #cell-account_count="{ row }">
-            <div class="space-y-0.5 text-xs">
+            <button
+              type="button"
+              class="-m-1 block rounded p-1 text-left transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 dark:hover:bg-dark-700"
+              :title="t('admin.groups.accountManagement.action')"
+              :aria-label="t('admin.groups.accountManagement.action')"
+              data-testid="group-account-count"
+              @click="handleAccounts(row)"
+            >
+              <div class="space-y-0.5 text-xs">
               <div>
                 <span class="text-gray-500 dark:text-gray-400">{{
                   t("admin.groups.accountsAvailable")
@@ -310,7 +318,8 @@
                   >{{ t("admin.groups.accountsUnit") }}</span
                 >
               </div>
-            </div>
+              </div>
+            </button>
           </template>
 
           <template #cell-capacity="{ row }">
@@ -375,6 +384,16 @@
 
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-1">
+              <button
+                type="button"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-emerald-600 dark:hover:bg-dark-700 dark:hover:text-emerald-400"
+                :title="t('admin.groups.accountManagement.action')"
+                data-testid="group-manage-accounts"
+                @click="handleAccounts(row)"
+              >
+                <Icon name="users" size="sm" />
+                <span class="text-xs">{{ t("admin.groups.accountManagement.action") }}</span>
+              </button>
               <button
                 @click="handleEdit(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
@@ -2237,97 +2256,6 @@
             data-tour="group-form-platform"
           />
           <p class="input-hint">{{ t("admin.groups.platformNotEditable") }}</p>
-        </div>
-        <!-- 从分组复制账号（编辑时） -->
-        <div v-if="copyAccountsGroupOptionsForEdit.length > 0">
-          <div class="mb-1.5 flex items-center gap-1">
-            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {{ t("admin.groups.copyAccounts.title") }}
-            </label>
-            <div class="group relative inline-flex">
-              <Icon
-                name="questionCircle"
-                size="sm"
-                :stroke-width="2"
-                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
-              />
-              <div
-                class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100"
-              >
-                <div
-                  class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800"
-                >
-                  <p class="text-xs leading-relaxed text-gray-300">
-                    {{ t("admin.groups.copyAccounts.tooltipEdit") }}
-                  </p>
-                  <div
-                    class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"
-                  ></div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <!-- 已选分组标签 -->
-          <div
-            v-if="editForm.copy_accounts_from_group_ids.length > 0"
-            class="flex flex-wrap gap-1.5 mb-2"
-          >
-            <span
-              v-for="groupId in editForm.copy_accounts_from_group_ids"
-              :key="groupId"
-              class="inline-flex items-center gap-1 rounded-full bg-primary-100 px-2.5 py-1 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
-            >
-              {{
-                copyAccountsGroupOptionsForEdit.find((o) => o.value === groupId)
-                  ?.label || `#${groupId}`
-              }}
-              <button
-                type="button"
-                @click="
-                  editForm.copy_accounts_from_group_ids =
-                    editForm.copy_accounts_from_group_ids.filter(
-                      (id) => id !== groupId,
-                    )
-                "
-                class="ml-0.5 text-primary-500 hover:text-primary-700 dark:hover:text-primary-200"
-              >
-                <Icon name="x" size="xs" />
-              </button>
-            </span>
-          </div>
-          <!-- 分组选择下拉 -->
-          <select
-            class="input"
-            @change="
-              (e) => {
-                const val = Number((e.target as HTMLSelectElement).value);
-                if (
-                  val &&
-                  !editForm.copy_accounts_from_group_ids.includes(val)
-                ) {
-                  editForm.copy_accounts_from_group_ids.push(val);
-                }
-                (e.target as HTMLSelectElement).value = '';
-              }
-            "
-          >
-            <option value="">
-              {{ t("admin.groups.copyAccounts.selectPlaceholder") }}
-            </option>
-            <option
-              v-for="opt in copyAccountsGroupOptionsForEdit"
-              :key="opt.value"
-              :value="opt.value"
-              :disabled="
-                editForm.copy_accounts_from_group_ids.includes(opt.value)
-              "
-            >
-              {{ opt.label }}
-            </option>
-          </select>
-          <p class="input-hint">
-            {{ t("admin.groups.copyAccounts.hintEdit") }}
-          </p>
         </div>
         <div>
           <label class="input-label">{{
@@ -4414,6 +4342,14 @@
       @close="showRPMOverridesModal = false"
       @success="loadGroups"
     />
+
+    <GroupAccountsModal
+      :show="showAccountsModal"
+      :group="accountsGroup"
+      @close="closeAccountsModal"
+      @success="handleAccountsSaved"
+      @refresh="loadGroups"
+    />
   </AppLayout>
 </template>
 
@@ -4430,6 +4366,7 @@ import type {
   CompositeRouteDecision,
   CompositeRouteEndpoint,
   CompositeRouteMatchType,
+  GroupAccountMembershipChangeResult,
   GroupPlatform,
   SubscriptionType,
 } from "@/types";
@@ -4450,6 +4387,7 @@ import PlatformIcon from "@/components/common/PlatformIcon.vue";
 import Icon from "@/components/icons/Icon.vue";
 import GroupRateMultipliersModal from "@/components/admin/group/GroupRateMultipliersModal.vue";
 import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesModal.vue";
+import GroupAccountsModal from "@/components/admin/group/GroupAccountsModal.vue";
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
 import ReasoningEffortPolicyFields from "@/components/admin/group/ReasoningEffortPolicyFields.vue";
 import PricingEntryCard from "@/components/admin/channel/PricingEntryCard.vue";
@@ -4904,21 +4842,6 @@ const copyAccountsGroupOptions = computed(() => {
   }));
 });
 
-// 复制账号的源分组选项（编辑时）- 相同平台；composite 分组可汇总各平台账号，排除自身
-const copyAccountsGroupOptionsForEdit = computed(() => {
-  const currentId = editingGroup.value?.id;
-  const eligibleGroups = groups.value.filter(
-    (g) =>
-      canCopyAccountsFromGroup(editForm.platform, g.platform) &&
-      (g.account_count || 0) > 0 &&
-      g.id !== currentId,
-  );
-  return eligibleGroups.map((g) => ({
-    value: g.id,
-    label: copyAccountsGroupLabel(g),
-  }));
-});
-
 const groups = ref<AdminGroup[]>([]);
 const loading = ref(false);
 type GroupUsageSummary = {
@@ -4983,6 +4906,8 @@ const showRateMultipliersModal = ref(false);
 const rateMultipliersGroup = ref<AdminGroup | null>(null);
 const showRPMOverridesModal = ref(false);
 const rpmOverridesGroup = ref<AdminGroup | null>(null);
+const showAccountsModal = ref(false);
+const accountsGroup = ref<AdminGroup | null>(null);
 const sortableGroups = ref<AdminGroup[]>([]);
 type ConcreteGroupPlatform = Exclude<GroupPlatform, "composite">;
 type CompositeRouteFormState = {
@@ -5462,8 +5387,6 @@ const editForm = reactive({
   supported_model_scopes: ["claude", "gemini_text", "gemini_image"] as string[],
   // MCP XML 协议注入开关（仅 antigravity 平台）
   mcp_xml_inject: true,
-  // 从分组复制账号
-  copy_accounts_from_group_ids: [] as number[],
   // 分组级 RPM 限制（每用户每分钟最大请求数；0 = 不限制）
   rpm_limit: 0 as number,
   max_reasoning_effort: "",
@@ -6171,7 +6094,6 @@ const handleEdit = async (group: AdminGroup) => {
     "gemini_image",
   ];
   editForm.mcp_xml_inject = group.mcp_xml_inject ?? true;
-  editForm.copy_accounts_from_group_ids = []; // 复制账号字段每次编辑时重置为空
   editForm.rpm_limit = group.rpm_limit ?? 0;
   editForm.max_reasoning_effort = normalizeReasoningEffortForPlatform(
     group.platform,
@@ -6201,7 +6123,6 @@ const closeEditModal = () => {
   editForm.reasoning_effort_mappings = [];
   editReasoningEffortPolicyRef.value?.resetValidation();
   editModelRoutingRules.value = [];
-  editForm.copy_accounts_from_group_ids = [];
   editForm.peak_rate_enabled = false;
   editForm.peak_start = "";
   editForm.peak_end = "";
@@ -6398,6 +6319,26 @@ const handleRateMultipliers = (group: AdminGroup) => {
 const handleRPMOverrides = (group: AdminGroup) => {
   rpmOverridesGroup.value = group;
   showRPMOverridesModal.value = true;
+};
+
+const handleAccounts = (group: AdminGroup) => {
+  accountsGroup.value = group;
+  showAccountsModal.value = true;
+};
+
+const closeAccountsModal = () => {
+  showAccountsModal.value = false;
+  accountsGroup.value = null;
+};
+
+const handleAccountsSaved = (result: GroupAccountMembershipChangeResult) => {
+  const group = groups.value.find((item) => item.id === accountsGroup.value?.id);
+  if (group) {
+    group.account_count = result.account_count;
+    group.active_account_count = result.active_account_count;
+    group.rate_limited_account_count = result.rate_limited_account_count;
+  }
+  void loadGroups();
 };
 
 const handleDuplicate = async (group: AdminGroup) => {

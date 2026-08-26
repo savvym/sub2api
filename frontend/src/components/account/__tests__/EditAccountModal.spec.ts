@@ -302,13 +302,17 @@ function buildOpenAIOAuthParentAccount() {
   } as any
 }
 
-function mountModal(account = buildAccount()) {
+function mountModal(
+  account = buildAccount(),
+  contextProps: { preserveGroupMembership?: boolean } = {}
+) {
   return mount(EditAccountModal, {
     props: {
       show: true,
       account,
       proxies: [],
-      groups: []
+      groups: [],
+      ...contextProps
     },
     global: {
       stubs: {
@@ -799,6 +803,58 @@ describe('EditAccountModal', () => {
       compact_model_mapping: {
         'gpt-5.3-codex-spark': 'gpt-5.3-codex-spark-compact'
       }
+    })
+  })
+
+  it('submits the normalized loaded group baseline with ordinary membership edits', async () => {
+    const account = { ...buildAccount(), group_ids: [4, 2, 4] }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]).toMatchObject({
+      group_ids: [2, 4],
+      expected_group_ids: [2, 4]
+    })
+  })
+
+  it('preserves group membership when editing from a group context', async () => {
+    authIsSimpleMode.value = false
+    const account = { ...buildAccount(), platform: 'anthropic', group_ids: [3, 4] }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockRejectedValue(new Error('must not be called'))
+
+    const wrapper = mountModal(account, { preserveGroupMembership: true })
+
+    expect(wrapper.find('[data-testid="group-selector"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="group-context-impact-hint"]').text()).toBe(
+      'admin.groups.accountManagement.editGlobalImpact'
+    )
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(checkMixedChannelRiskMock).not.toHaveBeenCalled()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('group_ids')
+    expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('expected_group_ids')
+  })
+
+  it('refreshes the expected group baseline when a reloaded account is supplied', async () => {
+    const account = { ...buildAccount(), group_ids: [3, 2] }
+    const reloadedAccount = { ...account, group_ids: [8, 1, 8] }
+    updateAccountMock.mockReset().mockResolvedValue(reloadedAccount)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await wrapper.setProps({ account: reloadedAccount })
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]).toMatchObject({
+      group_ids: [1, 8],
+      expected_group_ids: [1, 8]
     })
   })
 

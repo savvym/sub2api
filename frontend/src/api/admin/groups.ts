@@ -13,6 +13,12 @@ import type {
   CompositeRouteDecision,
   CreateGroupRequest,
   UpdateGroupRequest,
+  AccountPlatform,
+  AccountType,
+  GroupAccountsPage,
+  GroupAccountCandidatesPage,
+  GroupAccountMembershipDiff,
+  GroupAccountMembershipChangeResult,
   PaginatedResponse
 } from '@/types'
 
@@ -278,6 +284,76 @@ export async function getGroupApiKeys(
   return data
 }
 
+export interface GroupAccountListFilters {
+  search?: string
+  type?: AccountType
+  status?: 'active' | 'inactive' | 'error'
+  platform?: AccountPlatform
+}
+
+export interface GroupAccountRequestOptions {
+  signal?: AbortSignal
+}
+
+/** List existing members of a group without exposing account credentials. */
+export async function listAccounts(
+  id: number,
+  page: number = 1,
+  pageSize: number = 20,
+  filters?: GroupAccountListFilters,
+  options?: GroupAccountRequestOptions
+): Promise<GroupAccountsPage> {
+  const { data } = await apiClient.get<GroupAccountsPage>(`/admin/groups/${id}/accounts`, {
+    params: {
+      page,
+      page_size: pageSize,
+      ...filters
+    },
+    signal: options?.signal
+  })
+  return data
+}
+
+/** List accounts that the server currently considers eligible for this group. */
+export async function listAccountCandidates(
+  id: number,
+  page: number = 1,
+  pageSize: number = 20,
+  filters?: GroupAccountListFilters,
+  options?: GroupAccountRequestOptions
+): Promise<GroupAccountCandidatesPage> {
+  const { data } = await apiClient.get<GroupAccountCandidatesPage>(
+    `/admin/groups/${id}/account-candidates`,
+    {
+      params: {
+        page,
+        page_size: pageSize,
+        ...filters
+      },
+      signal: options?.signal
+    }
+  )
+  return data
+}
+
+/** Apply a group-scoped membership diff atomically. */
+export async function updateAccounts(
+  id: number,
+  diff: GroupAccountMembershipDiff,
+  options?: { idempotencyKey?: string }
+): Promise<GroupAccountMembershipChangeResult> {
+  const { data } = await apiClient.patch<GroupAccountMembershipChangeResult>(
+    `/admin/groups/${id}/accounts`,
+    diff,
+    {
+      headers: options?.idempotencyKey
+        ? { 'Idempotency-Key': options.idempotencyKey }
+        : undefined
+    }
+  )
+  return data
+}
+
 export async function listCompositeRoutes(id: number): Promise<CompositeModelRoute[]> {
   const { data } = await apiClient.get<CompositeModelRoute[]>(`/admin/groups/${id}/composite-routes`)
   return data
@@ -485,6 +561,9 @@ export const groupsAPI = {
   toggleStatus,
   getStats,
   getGroupApiKeys,
+  listAccounts,
+  listAccountCandidates,
+  updateAccounts,
   listCompositeRoutes,
   createCompositeRoute,
   updateCompositeRoute,

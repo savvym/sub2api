@@ -11,6 +11,16 @@
       @submit.prevent="handleSubmit"
       class="space-y-5"
     >
+      <div
+        v-if="preserveGroupMembership"
+        data-testid="group-context-impact-hint"
+        role="note"
+        class="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200"
+      >
+        <Icon name="infoCircle" size="sm" class="mt-0.5 shrink-0" />
+        <span>{{ t('admin.groups.accountManagement.editGlobalImpact') }}</span>
+      </div>
+
       <div>
         <label class="input-label">{{ t('common.name') }}</label>
         <input v-model="form.name" type="text" required class="input" data-tour="edit-account-form-name" />
@@ -2773,7 +2783,7 @@
 
       <!-- Group Selection - 仅标准模式显示 -->
       <GroupSelector
-        v-if="!authStore.isSimpleMode"
+        v-if="!authStore.isSimpleMode && !preserveGroupMembership"
         v-model="form.group_ids"
         :groups="groups"
         :platform="account?.platform"
@@ -2912,6 +2922,7 @@ interface Props {
   account: Account | null
   proxies: Proxy[]
   groups: AdminGroup[]
+  preserveGroupMembership?: boolean
 }
 
 const props = defineProps<Props>()
@@ -3556,6 +3567,11 @@ const form = reactive({
   expires_at: null as number | null
 })
 
+const normalizeGroupIds = (groupIds: number[] | undefined): number[] =>
+  [...new Set(groupIds || [])].sort((left, right) => left - right)
+
+const expectedGroupIds = ref<number[]>([])
+
 const handleUpstreamBillingRateSyncChange = (enabled: boolean) => {
   upstreamBillingRateSyncEnabled.value = enabled
   if (enabled) {
@@ -3662,7 +3678,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.status = (newAccount.status === 'active' || newAccount.status === 'inactive' || newAccount.status === 'error')
     ? newAccount.status
     : 'active'
-  form.group_ids = newAccount.group_ids || []
+  const normalizedGroupIds = normalizeGroupIds(newAccount.group_ids)
+  form.group_ids = [...normalizedGroupIds]
+  expectedGroupIds.value = normalizedGroupIds
   form.expires_at = newAccount.expires_at ?? null
 
   // Load intercept warmup requests setting (applies to all account types)
@@ -4465,7 +4483,9 @@ function toPositiveNumber(value: unknown) {
   return Math.trunc(num)
 }
 
-const needsMixedChannelCheck = () => props.account?.platform === 'antigravity' || props.account?.platform === 'anthropic'
+const needsMixedChannelCheck = () =>
+  !props.preserveGroupMembership &&
+  (props.account?.platform === 'antigravity' || props.account?.platform === 'anthropic')
 
 const buildMixedChannelDetails = (resp?: CheckMixedChannelResponse) => {
   const details = resp?.details
@@ -4596,6 +4616,13 @@ const handleSubmit = async () => {
 
   const updatePayload: Record<string, unknown> = { ...form }
   try {
+    if (props.preserveGroupMembership) {
+      delete updatePayload.group_ids
+      delete updatePayload.expected_group_ids
+    } else if (Array.isArray(updatePayload.group_ids)) {
+      updatePayload.group_ids = normalizeGroupIds(updatePayload.group_ids as number[])
+      updatePayload.expected_group_ids = [...expectedGroupIds.value]
+    }
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
     if (updatePayload.proxy_id === null) {
       updatePayload.proxy_id = 0

@@ -128,6 +128,7 @@ type CreateAccountRequest struct {
 	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
 	ProbeEnabled            *bool          `json:"upstream_billing_probe_enabled"`
 	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+	RiskConfirmationToken   string         `json:"risk_confirmation_token"`
 }
 
 // UpdateAccountRequest represents update account request
@@ -145,6 +146,7 @@ type UpdateAccountRequest struct {
 	LoadFactor              *int           `json:"load_factor"`
 	Status                  string         `json:"status" binding:"omitempty,oneof=active inactive error"`
 	GroupIDs                *[]int64       `json:"group_ids"`
+	ExpectedGroupIDs        *[]int64       `json:"expected_group_ids"`
 	ExpiresAt               *int64         `json:"expires_at"`
 	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
 	ProbeEnabled            *bool          `json:"upstream_billing_probe_enabled"`
@@ -822,6 +824,22 @@ func (h *AccountHandler) CheckMixedChannel(c *gin.Context) {
 // Create handles creating a new account
 // POST /api/v1/admin/accounts
 func (h *AccountHandler) Create(c *gin.Context) {
+	h.createAccount(c, 0)
+}
+
+// CreateInGroup creates exactly one account and atomically binds it to the path
+// group plus any additional groups in the request.
+// POST /api/v1/admin/groups/:id/accounts
+func (h *AccountHandler) CreateInGroup(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	h.createAccount(c, groupID)
+}
+
+func (h *AccountHandler) createAccount(c *gin.Context, requiredGroupID int64) {
 	var req CreateAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -838,14 +856,24 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
 
-	// 确定是否跳过混合渠道检查
-	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
+	// The legacy boolean remains available only on the general account endpoint.
+	// Group-context creation requires a signed token bound to a locked baseline.
+	skipCheck := requiredGroupID == 0 && req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
 
 	// 捕获闭包内创建的账号引用，用于创建成功后触发异步探测。
 	// 幂等重放时闭包不会执行 → createdAccount 为 nil → 不重复调度。
 	var createdAccount *service.Account
 
-	result, err := executeAdminIdempotent(c, "admin.accounts.create", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+	scope := "admin.accounts.create"
+	idempotencyPayload := any(req)
+	if requiredGroupID > 0 {
+		scope = "admin.groups.accounts.create"
+		idempotencyPayload = struct {
+			GroupID int64 `json:"group_id"`
+			CreateAccountRequest
+		}{GroupID: requiredGroupID, CreateAccountRequest: req}
+	}
+	result, err := executeAdminIdempotent(c, scope, idempotencyPayload, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
 		account, execErr := h.adminService.CreateAccount(ctx, &service.CreateAccountInput{
 			Name:                  req.Name,
 			Notes:                 req.Notes,
@@ -862,6 +890,9 @@ func (h *AccountHandler) Create(c *gin.Context) {
 			ExpiresAt:             req.ExpiresAt,
 			AutoPauseOnExpired:    req.AutoPauseOnExpired,
 			ProbeEnabled:          req.ProbeEnabled,
+			RequiredGroupID:       requiredGroupID,
+			RiskConfirmationToken: req.RiskConfirmationToken,
+			SkipDefaultGroupBind:  requiredGroupID > 0,
 			SkipMixedChannelCheck: skipCheck,
 		})
 		if execErr != nil {
@@ -877,7 +908,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	if err != nil {
 		// 检查是否为混合渠道错误
 		var mixedErr *service.MixedChannelError
-		if errors.As(err, &mixedErr) {
+		if requiredGroupID == 0 && errors.As(err, &mixedErr) {
 			// 创建接口仅返回最小必要字段，详细信息由专门检查接口提供
 			c.JSON(409, gin.H{
 				"error":   "mixed_channel_warning",
@@ -987,6 +1018,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		LoadFactor:            req.LoadFactor,
 		Status:                req.Status,
 		GroupIDs:              req.GroupIDs,
+		ExpectedGroupIDs:      req.ExpectedGroupIDs,
 		ExpiresAt:             req.ExpiresAt,
 		AutoPauseOnExpired:    req.AutoPauseOnExpired,
 		ProbeEnabled:          req.ProbeEnabled,

@@ -4,9 +4,11 @@ package service
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -63,49 +65,20 @@ func TestAdminService_CreateCompositeGroupCopiesAccountsFromConcreteGroups(t *te
 	require.ElementsMatch(t, []int64{101, 202}, boundAccountIDs)
 }
 
-func TestAdminService_UpdateCompositeGroupCopiesAccountsFromConcreteGroups(t *testing.T) {
-	var clearedGroupID int64
-	var copiedFrom []int64
-	var boundGroupID int64
-	var boundAccountIDs []int64
-	groupRepo := &groupRepoStubForAdmin{
-		getByIDByID: map[int64]*Group{
-			10: {ID: 10, Platform: PlatformOpenAI},
-			20: {ID: 20, Platform: PlatformGrok},
-			99: {ID: 99, Platform: PlatformComposite, RateMultiplier: 1, SubscriptionType: SubscriptionTypeStandard},
-		},
-		deleteAccountGroupsByGroupIDFn: func(groupID int64) (int64, error) {
-			clearedGroupID = groupID
-			return 2, nil
-		},
-		getAccountIDsByGroupIDsFn: func(groupIDs []int64) ([]int64, error) {
-			copiedFrom = append([]int64{}, groupIDs...)
-			return []int64{301, 302}, nil
-		},
-		bindAccountsToGroupFn: func(groupID int64, accountIDs []int64) error {
-			boundGroupID = groupID
-			boundAccountIDs = append([]int64{}, accountIDs...)
-			return nil
-		},
-	}
+func TestAdminService_UpdateCompositeGroupRejectsAccountCopy(t *testing.T) {
+	groupRepo := &groupRepoStubForAdmin{}
 	svc := &adminServiceImpl{groupRepo: groupRepo}
-	maxReasoningEffort := "low"
-	reasoningEffortMappings := []ReasoningEffortMapping{{From: "max", To: "high"}}
 
 	group, err := svc.UpdateGroup(context.Background(), 99, &UpdateGroupInput{
-		MaxReasoningEffort:       &maxReasoningEffort,
-		ReasoningEffortMappings:  &reasoningEffortMappings,
 		CopyAccountsFromGroupIDs: []int64{10, 20},
 	})
 
-	require.NoError(t, err)
-	require.Equal(t, PlatformComposite, group.Platform)
-	require.Equal(t, "low", group.MaxReasoningEffort)
-	require.Equal(t, reasoningEffortMappings, group.ReasoningEffortMappings)
-	require.Equal(t, int64(99), clearedGroupID)
-	require.ElementsMatch(t, []int64{10, 20}, copiedFrom)
-	require.Equal(t, int64(99), boundGroupID)
-	require.ElementsMatch(t, []int64{301, 302}, boundAccountIDs)
+	require.Nil(t, group)
+	require.Error(t, err)
+	appErr := infraerrors.FromError(err)
+	require.Equal(t, int32(http.StatusBadRequest), appErr.Code)
+	require.Equal(t, "GROUP_ACCOUNT_COPY_UNSUPPORTED_ON_UPDATE", appErr.Reason)
+	require.Nil(t, groupRepo.updated)
 }
 
 func TestAdminService_CreateAccountAllowsCompositeGroupAssignment(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/platform/liveattestation"
+	servermiddleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -34,6 +35,92 @@ func (h *GroupHandler) GetLiveCapability(c *gin.Context) {
 		result["reason"] = err.Error()
 	}
 	response.Success(c, result)
+}
+
+// ListAccounts returns one filtered page of all accounts currently bound to a group.
+// GET /api/v1/admin/groups/:id/accounts
+func (h *GroupHandler) ListAccounts(c *gin.Context) {
+	groupID, ok := parsePositiveGroupID(c)
+	if !ok {
+		return
+	}
+	page, pageSize := response.ParsePagination(c)
+	result, err := h.adminService.ListGroupAccounts(c.Request.Context(), groupID, service.GroupAccountListFilters{
+		Page:        page,
+		PageSize:    pageSize,
+		Search:      c.Query("search"),
+		AccountType: c.Query("type"),
+		Status:      c.Query("status"),
+		Platform:    c.Query("platform"),
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+// ListAccountCandidates returns eligible accounts not currently bound to a group.
+// GET /api/v1/admin/groups/:id/account-candidates
+func (h *GroupHandler) ListAccountCandidates(c *gin.Context) {
+	groupID, ok := parsePositiveGroupID(c)
+	if !ok {
+		return
+	}
+	page, pageSize := response.ParsePagination(c)
+	result, err := h.adminService.ListGroupAccountCandidates(c.Request.Context(), groupID, service.GroupAccountListFilters{
+		Page:        page,
+		PageSize:    pageSize,
+		Search:      c.Query("search"),
+		AccountType: c.Query("type"),
+		Status:      c.Query("status"),
+		Platform:    c.Query("platform"),
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+// UpdateAccounts atomically applies an incremental membership diff to one group.
+// PATCH /api/v1/admin/groups/:id/accounts
+func (h *GroupHandler) UpdateAccounts(c *gin.Context) {
+	groupID, ok := parsePositiveGroupID(c)
+	if !ok {
+		return
+	}
+	var input service.GroupAccountMembershipDiffInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	payload := struct {
+		GroupID int64 `json:"group_id"`
+		service.GroupAccountMembershipDiffInput
+	}{GroupID: groupID, GroupAccountMembershipDiffInput: input}
+	executeAdminIdempotentJSON(c, "admin.groups.accounts.update", payload, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		result, err := h.adminService.ApplyGroupAccountMembershipDiff(ctx, groupID, input)
+		if err != nil {
+			return nil, err
+		}
+		servermiddleware.SetAuditAction(c, "admin.groups.accounts.update")
+		servermiddleware.SetAuditExtra(c, map[string]any{
+			"requested_count": len(input.AddAccountIDs) + len(input.RemoveAccountIDs),
+			"matched_count":   len(result.AddedAccountIDs) + len(result.RemovedAccountIDs),
+			"group_count":     result.AccountCount,
+		})
+		return result, nil
+	})
+}
+
+func parsePositiveGroupID(c *gin.Context) (int64, bool) {
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return 0, false
+	}
+	return groupID, true
 }
 
 type optionalLimitField struct {
@@ -227,7 +314,7 @@ type UpdateGroupRequest struct {
 	MaxReasoningEffort *string `json:"max_reasoning_effort"`
 	// nil 不修改，空数组清空，非空数组替换。
 	ReasoningEffortMappings *[]service.ReasoningEffortMapping `json:"reasoning_effort_mappings"`
-	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
+	// Deprecated for updates: non-empty values are rejected by the service.
 	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
 }
 

@@ -804,5 +804,17 @@ func (s *stubAdminService) CreateShadow(ctx context.Context, parentID int64, opt
 	}, nil
 }
 
+func (s *stubAdminService) ListGroupAccounts(context.Context, int64, service.GroupAccountListFilters) (*service.GroupAccountListPage, error) {
+	return &service.GroupAccountListPage{Items: []service.GroupAccountSummary{}, Page: 1, PageSize: 20, Pages: 1}, nil
+}
+
+func (s *stubAdminService) ListGroupAccountCandidates(context.Context, int64, service.GroupAccountListFilters) (*service.GroupAccountListPage, error) {
+	return &service.GroupAccountListPage{Items: []service.GroupAccountSummary{}, Page: 1, PageSize: 20, Pages: 1}, nil
+}
+
+func (s *stubAdminService) ApplyGroupAccountMembershipDiff(context.Context, int64, service.GroupAccountMembershipDiffInput) (*service.GroupAccountMembershipDiffResult, error) {
+	return &service.GroupAccountMembershipDiffResult{}, nil
+}
+
 // Ensure stub implements interface.
 var _ service.AdminService = (*stubAdminService)(nil)

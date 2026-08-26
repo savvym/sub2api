@@ -131,6 +131,57 @@ type AccountDuplicateRepository interface {
 	CreateWithAccountGroups(ctx context.Context, account *Account, groups []AccountGroup) error
 }
 
+type AccountGroupCreateSnapshot struct {
+	Groups                 []Group
+	CurrentAccountsByGroup map[int64][]Account
+}
+
+type AccountGroupCreateValidator func(AccountGroupCreateSnapshot) error
+
+// ValidatedAccountCreateRepository locks and validates every target group before
+// atomically creating the account, exact memberships, and scheduler outbox event.
+type ValidatedAccountCreateRepository interface {
+	CreateWithValidatedAccountGroups(
+		ctx context.Context,
+		account *Account,
+		groups []AccountGroup,
+		validate AccountGroupCreateValidator,
+	) error
+}
+
+type AccountGroupMembershipReplacementSnapshot struct {
+	Account                Account
+	GroupsByID             map[int64]Group
+	CurrentGroupIDs        []int64
+	DesiredGroupIDs        []int64
+	AddedGroupIDs          []int64
+	RemovedGroupIDs        []int64
+	CurrentAccountsByGroup map[int64][]Account
+	FinalAccountsByGroup   map[int64][]Account
+}
+
+type AccountGroupMembershipReplacement struct {
+	CurrentGroupIDs []int64
+	DesiredGroupIDs []int64
+	AddedGroupIDs   []int64
+	RemovedGroupIDs []int64
+}
+
+type AccountGroupMembershipReplacementValidator func(AccountGroupMembershipReplacementSnapshot) error
+
+// AccountGroupMembershipReplacementRepository atomically replaces one
+// account's desired group set using incremental SQL. Existing bindings are not
+// rewritten, so their per-group priority and creation time remain intact.
+type AccountGroupMembershipReplacementRepository interface {
+	ReplaceAccountGroupMemberships(
+		ctx context.Context,
+		accountID int64,
+		desiredGroupIDs []int64,
+		defaultPriority int,
+		validate AccountGroupMembershipReplacementValidator,
+	) (*AccountGroupMembershipReplacement, error)
+}
+
 // AccountBillingSettingsRepository applies an admin edit without overwriting a
 // rate_multiplier that a successful upstream probe synchronized after the edit
 // form was loaded. A nil rateMultiplier means the request did not edit it.
@@ -150,6 +201,7 @@ type AdminAccountRepository interface {
 	AccountRepository
 	AccountDuplicateRepository
 	AccountBillingSettingsRepository
+	AccountGroupMembershipReplacementRepository
 }
 
 // AccountBulkUpdate describes the fields that can be updated in a bulk operation.

@@ -639,6 +639,48 @@ export interface AdminGroup extends Group {
   sort_order: number
 }
 
+/**
+ * Minimal, credential-free account projection used by the group membership manager.
+ */
+export interface GroupAccountSummary {
+  id: number
+  name: string
+  platform: AccountPlatform
+  type: AccountType
+  status: 'active' | 'inactive' | 'error'
+  schedulable: boolean
+  rate_limited_at?: string | null
+  rate_limit_reset_at?: string | null
+  overload_until?: string | null
+  temp_unschedulable_until?: string | null
+  group_count: number
+  policy_warnings: string[]
+}
+
+export interface GroupAccountsPage extends PaginatedResponse<GroupAccountSummary> {
+  member_total: number
+}
+
+export interface GroupAccountCandidatesPage extends PaginatedResponse<GroupAccountSummary> {
+  eligible_total: number
+}
+
+export interface GroupAccountMembershipDiff {
+  add_account_ids: number[]
+  remove_account_ids: number[]
+  risk_confirmation_token?: string | null
+}
+
+export interface GroupAccountMembershipChangeResult {
+  added_account_ids: number[]
+  removed_account_ids: number[]
+  already_member_account_ids: number[]
+  not_member_account_ids: number[]
+  account_count: number
+  active_account_count: number
+  rate_limited_account_count: number
+}
+
 export interface ModelsListConfig {
   enabled: boolean
   models: string[]
@@ -880,7 +922,6 @@ export interface UpdateGroupRequest {
   reasoning_effort_mappings?: ReasoningEffortMapping[]
   require_oauth_only?: boolean
   require_privacy_set?: boolean
-  copy_accounts_from_group_ids?: number[]
 }
 
 // ==================== Account & Proxy Types ====================
@@ -1438,6 +1479,7 @@ export interface CreateAccountRequest {
   auto_pause_on_expired?: boolean
   upstream_billing_probe_enabled?: boolean
   confirm_mixed_channel_risk?: boolean
+  risk_confirmation_token?: string
 }
 
 export interface UpdateAccountRequest {
@@ -1454,6 +1496,7 @@ export interface UpdateAccountRequest {
   schedulable?: boolean
   status?: 'active' | 'inactive' | 'error'
   group_ids?: number[]
+  expected_group_ids?: number[]
   expires_at?: number | null
   auto_pause_on_expired?: boolean
   upstream_billing_probe_enabled?: boolean

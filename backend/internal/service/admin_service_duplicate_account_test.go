@@ -17,14 +17,18 @@ import (
 
 type duplicateAccountRepoStub struct {
 	*sparkShadowRepoStub
-	atomicCreateErr error
-	accountGroupsOf map[int64][]AccountGroup
+	atomicCreateErr        error
+	accountGroupsOf        map[int64][]AccountGroup
+	validatedGroups        map[int64]Group
+	currentAccountsByGroup map[int64][]Account
 }
 
 func newDuplicateAccountRepoStub() *duplicateAccountRepoStub {
 	return &duplicateAccountRepoStub{
-		sparkShadowRepoStub: newSparkShadowRepoStub(),
-		accountGroupsOf:     make(map[int64][]AccountGroup),
+		sparkShadowRepoStub:    newSparkShadowRepoStub(),
+		accountGroupsOf:        make(map[int64][]AccountGroup),
+		validatedGroups:        make(map[int64]Group),
+		currentAccountsByGroup: make(map[int64][]Account),
 	}
 }
 
@@ -56,6 +60,35 @@ func (s *duplicateAccountRepoStub) CreateWithAccountGroups(ctx context.Context, 
 	return nil
 }
 
+func (s *duplicateAccountRepoStub) CreateWithValidatedAccountGroups(
+	ctx context.Context,
+	account *Account,
+	groups []AccountGroup,
+	validate AccountGroupCreateValidator,
+) error {
+	snapshot := AccountGroupCreateSnapshot{
+		Groups:                 make([]Group, 0, len(groups)),
+		CurrentAccountsByGroup: make(map[int64][]Account, len(groups)),
+	}
+	for _, binding := range groups {
+		group, exists := s.validatedGroups[binding.GroupID]
+		if !exists {
+			group = Group{ID: binding.GroupID, Name: "group", Platform: account.Platform}
+		}
+		snapshot.Groups = append(snapshot.Groups, group)
+		snapshot.CurrentAccountsByGroup[binding.GroupID] = append(
+			[]Account(nil),
+			s.currentAccountsByGroup[binding.GroupID]...,
+		)
+	}
+	if validate != nil {
+		if err := validate(snapshot); err != nil {
+			return err
+		}
+	}
+	return s.CreateWithAccountGroups(ctx, account, groups)
+}
+
 func (s *duplicateAccountRepoStub) FindByExtraField(_ context.Context, key string, value any) ([]Account, error) {
 	wanted, ok := value.(string)
 	if !ok {
@@ -68,6 +101,164 @@ func (s *duplicateAccountRepoStub) FindByExtraField(_ context.Context, key strin
 		}
 	}
 	return matches, nil
+}
+
+func TestCreateAccountUsesAtomicAccountAndGroupPersistence(t *testing.T) {
+	repo := newDuplicateAccountRepoStub()
+	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
+
+	account, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                  "created in group context",
+		Platform:              PlatformOpenAI,
+		Type:                  AccountTypeAPIKey,
+		GroupIDs:              []int64{19, 23},
+		SkipDefaultGroupBind:  true,
+		SkipMixedChannelCheck: true,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []int64{19, 23}, account.GroupIDs)
+	require.Equal(t, []AccountGroup{
+		{AccountID: account.ID, GroupID: 19, Priority: groupAccountDefaultPriority},
+		{AccountID: account.ID, GroupID: 23, Priority: groupAccountDefaultPriority},
+	}, repo.accountGroupsOf[account.ID])
+}
+
+func TestCreateAccountDoesNotPersistWhenAtomicGroupBindingFails(t *testing.T) {
+	repo := newDuplicateAccountRepoStub()
+	repo.atomicCreateErr = errors.New("bind groups")
+	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
+
+	account, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                  "must roll back",
+		Platform:              PlatformOpenAI,
+		Type:                  AccountTypeAPIKey,
+		GroupIDs:              []int64{19},
+		SkipDefaultGroupBind:  true,
+		SkipMixedChannelCheck: true,
+	})
+
+	require.Nil(t, account)
+	require.ErrorContains(t, err, "bind groups")
+	require.Empty(t, repo.accounts)
+}
+
+func TestCreateAccountRejectsIncompatibleGroupBeforePersistence(t *testing.T) {
+	repo := newDuplicateAccountRepoStub()
+	repo.validatedGroups[19] = Group{ID: 19, Name: "Anthropic", Platform: PlatformAnthropic}
+	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
+
+	account, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                  "wrong platform",
+		Platform:              PlatformOpenAI,
+		Type:                  AccountTypeAPIKey,
+		GroupIDs:              []int64{19},
+		SkipDefaultGroupBind:  true,
+		SkipMixedChannelCheck: true,
+	})
+
+	require.Nil(t, account)
+	requireApplicationErrorReason(t, err, "account_group_platform_mismatch")
+	require.Empty(t, repo.accounts)
+}
+
+func TestGroupContextCreateRejectsCrossPlatformAntigravityException(t *testing.T) {
+	repo := newDuplicateAccountRepoStub()
+	repo.validatedGroups[19] = Group{ID: 19, Name: "Anthropic", Platform: PlatformAnthropic}
+	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
+
+	account, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                 "antigravity only joins as an existing account",
+		Platform:             PlatformAntigravity,
+		Type:                 AccountTypeOAuth,
+		Extra:                map[string]any{"mixed_scheduling": true},
+		RequiredGroupID:      19,
+		SkipDefaultGroupBind: true,
+	})
+
+	require.Nil(t, account)
+	requireApplicationErrorReason(t, err, "account_group_platform_mismatch")
+	require.Empty(t, repo.accounts)
+}
+
+func TestGroupContextCreateRequiresBoundRiskTokenAndForcesPathGroup(t *testing.T) {
+	repo := newDuplicateAccountRepoStub()
+	repo.validatedGroups[19] = Group{
+		ID:        19,
+		Name:      "Anthropic",
+		Platform:  PlatformAnthropic,
+		UpdatedAt: time.Unix(100, 0),
+	}
+	repo.currentAccountsByGroup[19] = []Account{{
+		ID:        7,
+		Name:      "existing antigravity",
+		Platform:  PlatformAntigravity,
+		Type:      AccountTypeOAuth,
+		UpdatedAt: time.Unix(200, 0),
+	}}
+	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
+	input := &CreateAccountInput{
+		Name:                  "created from group",
+		Platform:              PlatformAnthropic,
+		Type:                  AccountTypeOAuth,
+		Credentials:           map[string]any{"access_token": "stable-token"},
+		RequiredGroupID:       19,
+		SkipDefaultGroupBind:  true,
+		SkipMixedChannelCheck: true,
+	}
+
+	account, err := svc.CreateAccount(context.Background(), input)
+	require.Nil(t, account)
+	require.Equal(t, "mixed_channel_warning", infraerrors.Reason(err))
+	token := infraerrors.FromError(err).Metadata["risk_confirmation_token"]
+	require.NotEmpty(t, token)
+	require.Empty(t, repo.accounts, "the challenge must not persist an account")
+
+	input.RiskConfirmationToken = token
+	account, err = svc.CreateAccount(context.Background(), input)
+	require.NoError(t, err)
+	require.Equal(t, []int64{19}, account.GroupIDs)
+	require.Len(t, repo.accounts, 1)
+}
+
+func TestGroupContextCreateRejectsRiskTokenAfterRequestOrBaselineChanges(t *testing.T) {
+	newFixture := func() (*duplicateAccountRepoStub, *adminServiceImpl, *CreateAccountInput, string) {
+		repo := newDuplicateAccountRepoStub()
+		repo.validatedGroups[19] = Group{ID: 19, Name: "Anthropic", Platform: PlatformAnthropic, UpdatedAt: time.Unix(100, 0)}
+		repo.currentAccountsByGroup[19] = []Account{{ID: 7, Platform: PlatformAntigravity, Type: AccountTypeOAuth, UpdatedAt: time.Unix(200, 0)}}
+		svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
+		input := &CreateAccountInput{
+			Name:                 "original request",
+			Platform:             PlatformAnthropic,
+			Type:                 AccountTypeOAuth,
+			Credentials:          map[string]any{"access_token": "stable-token"},
+			RequiredGroupID:      19,
+			SkipDefaultGroupBind: true,
+		}
+		_, err := svc.CreateAccount(context.Background(), input)
+		require.Equal(t, "mixed_channel_warning", infraerrors.Reason(err))
+		return repo, svc, input, infraerrors.FromError(err).Metadata["risk_confirmation_token"]
+	}
+
+	t.Run("request changed", func(t *testing.T) {
+		repo, svc, input, token := newFixture()
+		input.Name = "changed request"
+		input.RiskConfirmationToken = token
+		_, err := svc.CreateAccount(context.Background(), input)
+		require.Equal(t, "mixed_channel_warning", infraerrors.Reason(err))
+		require.NotEqual(t, token, infraerrors.FromError(err).Metadata["risk_confirmation_token"])
+		require.Empty(t, repo.accounts)
+	})
+
+	t.Run("baseline changed", func(t *testing.T) {
+		repo, svc, input, token := newFixture()
+		repo.currentAccountsByGroup[19][0].UpdatedAt = time.Unix(201, 0)
+		input.RiskConfirmationToken = token
+		_, err := svc.CreateAccount(context.Background(), input)
+		require.Equal(t, "mixed_channel_warning", infraerrors.Reason(err))
+		require.NotEqual(t, token, infraerrors.FromError(err).Metadata["risk_confirmation_token"])
+		require.Empty(t, repo.accounts)
+	})
 }
 
 func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) {
@@ -285,6 +476,34 @@ func TestDuplicateAccountAtomicCreateFailureLeavesNoOrphan(t *testing.T) {
 
 	require.ErrorContains(t, err, "group binding failed")
 	require.Len(t, repo.accounts, 1)
+}
+
+func TestDuplicateAccountRejectsHistoricalIncompatibleGroupWithoutPersistence(t *testing.T) {
+	ctx := context.Background()
+	repo := newDuplicateAccountRepoStub()
+	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
+	source := &Account{
+		Name:          "historical-api-key",
+		Platform:      PlatformAnthropic,
+		Type:          AccountTypeAPIKey,
+		Credentials:   map[string]any{"api_key": "secret"},
+		GroupIDs:      []int64{7},
+		AccountGroups: []AccountGroup{{GroupID: 7, Priority: 25}},
+	}
+	repo.validatedGroups[7] = Group{
+		ID:               7,
+		Name:             "oauth-only",
+		Platform:         PlatformAnthropic,
+		RequireOAuthOnly: true,
+	}
+	require.NoError(t, repo.Create(ctx, source))
+
+	duplicate, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
+
+	require.Nil(t, duplicate)
+	require.Equal(t, "account_group_policy_violation", infraerrors.Reason(err))
+	require.Len(t, repo.accounts, 1)
+	require.Empty(t, repo.accountGroupsOf)
 }
 
 func TestDuplicateAccountNamePreservesSuffixWithinSchemaLimit(t *testing.T) {

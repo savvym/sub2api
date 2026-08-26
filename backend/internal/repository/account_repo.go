@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ import (
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -208,42 +210,23 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 	if account == nil {
 		return service.ErrAccountNilInput
 	}
-	tx, err := r.client.Tx(ctx)
-	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
-		return err
-	}
-
-	var txClient *dbent.Client
-	if err == nil {
-		defer func() { _ = tx.Rollback() }()
-		txClient = tx.Client()
+	txClient := r.client
+	var tx *dbent.Tx
+	if contextTx := dbent.TxFromContext(ctx); contextTx != nil {
+		txClient = contextTx.Client()
 	} else {
-		// Reuse a caller-owned transaction when this repository is already transactional.
-		txClient = r.client
-	}
-
-	if err := createAccountRecord(ctx, txClient, account); err != nil {
-		return err
-	}
-	groupIDs := make([]int64, 0, len(groups))
-	if len(groups) > 0 {
-		builders := make([]*dbent.AccountGroupCreate, 0, len(groups))
-		for i := range groups {
-			groups[i].AccountID = account.ID
-			groupIDs = append(groupIDs, groups[i].GroupID)
-			builders = append(builders, txClient.AccountGroup.Create().
-				SetAccountID(account.ID).
-				SetGroupID(groups[i].GroupID).
-				SetPriority(groups[i].Priority),
-			)
-		}
-		if _, err := txClient.AccountGroup.CreateBulk(builders...).Save(ctx); err != nil {
+		var err error
+		tx, err = r.client.Tx(ctx)
+		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
 			return err
 		}
+		if tx != nil {
+			defer func() { _ = tx.Rollback() }()
+			txClient = tx.Client()
+		}
 	}
-	account.GroupIDs = groupIDs
-	account.AccountGroups = append([]service.AccountGroup(nil), groups...)
-	if err := enqueueSchedulerOutbox(ctx, txClient, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(groupIDs)); err != nil {
+
+	if err := createAccountWithGroups(ctx, txClient, account, groups); err != nil {
 		return err
 	}
 
@@ -253,6 +236,135 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 		}
 	}
 	return nil
+}
+
+// CreateWithValidatedAccountGroups serializes against group-scoped membership
+// changes and validates a locked snapshot before any account row is created.
+func (r *accountRepository) CreateWithValidatedAccountGroups(
+	ctx context.Context,
+	account *service.Account,
+	groups []service.AccountGroup,
+	validate service.AccountGroupCreateValidator,
+) error {
+	if account == nil {
+		return service.ErrAccountNilInput
+	}
+	txClient := r.client
+	var tx *dbent.Tx
+	if contextTx := dbent.TxFromContext(ctx); contextTx != nil {
+		txClient = contextTx.Client()
+	} else {
+		var err error
+		tx, err = r.client.Tx(ctx)
+		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+			return err
+		}
+		if tx != nil {
+			defer func() { _ = tx.Rollback() }()
+			txClient = tx.Client()
+		}
+	}
+
+	groupIDs := make([]int64, 0, len(groups))
+	seen := make(map[int64]struct{}, len(groups))
+	for _, binding := range groups {
+		if binding.GroupID <= 0 {
+			return service.ErrGroupNotFound
+		}
+		if _, exists := seen[binding.GroupID]; exists {
+			return infraerrors.BadRequest("duplicate_account_group", "an account group may only be specified once")
+		}
+		seen[binding.GroupID] = struct{}{}
+		groupIDs = append(groupIDs, binding.GroupID)
+	}
+	sort.Slice(groupIDs, func(i, j int) bool { return groupIDs[i] < groupIDs[j] })
+
+	snapshot := service.AccountGroupCreateSnapshot{
+		Groups:                 make([]service.Group, 0, len(groupIDs)),
+		CurrentAccountsByGroup: make(map[int64][]service.Account, len(groupIDs)),
+	}
+	memberIDsByGroup := make(map[int64][]int64, len(groupIDs))
+	allMemberIDs := make([]int64, 0)
+	for _, groupID := range groupIDs {
+		if err := lockGroupForAccountMembership(ctx, txClient, groupID); err != nil {
+			return err
+		}
+		groupEntity, err := txClient.Group.Query().Where(dbgroup.IDEQ(groupID)).Only(ctx)
+		if err != nil {
+			return translatePersistenceError(err, service.ErrGroupNotFound, nil)
+		}
+		snapshot.Groups = append(snapshot.Groups, *groupEntityToService(groupEntity))
+		memberIDs, err := lockGroupAccountMembershipRows(ctx, txClient, groupID)
+		if err != nil {
+			return err
+		}
+		memberIDsByGroup[groupID] = memberIDs
+		allMemberIDs = append(allMemberIDs, memberIDs...)
+	}
+
+	allMemberIDs = mergeSortedUniqueIDs(allMemberIDs)
+	if err := lockAccountsForGroupMembership(ctx, txClient, allMemberIDs); err != nil {
+		return err
+	}
+	accountsByID := make(map[int64]service.Account, len(allMemberIDs))
+	if len(allMemberIDs) > 0 {
+		entities, err := txClient.Account.Query().Where(dbaccount.IDIn(allMemberIDs...)).All(ctx)
+		if err != nil {
+			return err
+		}
+		for _, entity := range entities {
+			value := accountEntityToService(entity)
+			if value != nil {
+				accountsByID[value.ID] = *value
+			}
+		}
+	}
+	for _, groupID := range groupIDs {
+		accounts := make([]service.Account, 0, len(memberIDsByGroup[groupID]))
+		for _, accountID := range memberIDsByGroup[groupID] {
+			if value, exists := accountsByID[accountID]; exists {
+				accounts = append(accounts, value)
+			}
+		}
+		snapshot.CurrentAccountsByGroup[groupID] = accounts
+	}
+	if validate != nil {
+		if err := validate(snapshot); err != nil {
+			return err
+		}
+	}
+	if err := createAccountWithGroups(ctx, txClient, account, groups); err != nil {
+		return err
+	}
+	if tx != nil {
+		return tx.Commit()
+	}
+	return nil
+}
+
+func createAccountWithGroups(ctx context.Context, client *dbent.Client, account *service.Account, groups []service.AccountGroup) error {
+	if err := createAccountRecord(ctx, client, account); err != nil {
+		return err
+	}
+	groupIDs := make([]int64, 0, len(groups))
+	if len(groups) > 0 {
+		builders := make([]*dbent.AccountGroupCreate, 0, len(groups))
+		for i := range groups {
+			groups[i].AccountID = account.ID
+			groupIDs = append(groupIDs, groups[i].GroupID)
+			builders = append(builders, client.AccountGroup.Create().
+				SetAccountID(account.ID).
+				SetGroupID(groups[i].GroupID).
+				SetPriority(groups[i].Priority),
+			)
+		}
+		if _, err := client.AccountGroup.CreateBulk(builders...).Save(ctx); err != nil {
+			return err
+		}
+	}
+	account.GroupIDs = groupIDs
+	account.AccountGroups = append([]service.AccountGroup(nil), groups...)
+	return enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(groupIDs))
 }
 
 func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Account, error) {
@@ -1809,59 +1921,8 @@ func (r *accountRepository) GetGroups(ctx context.Context, accountID int64) ([]s
 }
 
 func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
-	existingGroupIDs, err := r.loadAccountGroupIDs(ctx, accountID)
-	if err != nil {
-		return err
-	}
-	// 使用事务保证删除旧绑定与创建新绑定的原子性
-	tx, err := r.client.Tx(ctx)
-	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
-		return err
-	}
-
-	var txClient *dbent.Client
-	if err == nil {
-		defer func() { _ = tx.Rollback() }()
-		txClient = tx.Client()
-	} else {
-		// 已处于外部事务中（ErrTxStarted），复用当前 client
-		txClient = r.client
-	}
-
-	if _, err := txClient.AccountGroup.Delete().Where(dbaccountgroup.AccountIDEQ(accountID)).Exec(ctx); err != nil {
-		return err
-	}
-
-	if len(groupIDs) == 0 {
-		if tx != nil {
-			return tx.Commit()
-		}
-		return nil
-	}
-
-	builders := make([]*dbent.AccountGroupCreate, 0, len(groupIDs))
-	for i, groupID := range groupIDs {
-		builders = append(builders, txClient.AccountGroup.Create().
-			SetAccountID(accountID).
-			SetGroupID(groupID).
-			SetPriority(i+1),
-		)
-	}
-
-	if _, err := txClient.AccountGroup.CreateBulk(builders...).Save(ctx); err != nil {
-		return err
-	}
-
-	if tx != nil {
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-	}
-	payload := buildSchedulerGroupPayload(mergeGroupIDs(existingGroupIDs, groupIDs))
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountGroupsChanged, &accountID, nil, payload); err != nil {
-		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue bind groups failed: account=%d err=%v", accountID, err)
-	}
-	return nil
+	_, err := r.ReplaceAccountGroupMemberships(ctx, accountID, groupIDs, 50, nil)
+	return err
 }
 
 func (r *accountRepository) ListSchedulable(ctx context.Context) ([]service.Account, error) {
@@ -3249,6 +3310,9 @@ func (r *accountRepository) loadAccountGroups(ctx context.Context, accountIDs []
 
 		for _, ag := range entries {
 			groupSvc := groupMap[ag.GroupID]
+			if groupSvc == nil {
+				continue
+			}
 			agSvc := service.AccountGroup{
 				AccountID: ag.AccountID,
 				GroupID:   ag.GroupID,
@@ -3258,9 +3322,7 @@ func (r *accountRepository) loadAccountGroups(ctx context.Context, accountIDs []
 			}
 			accountGroupsByAccount[ag.AccountID] = append(accountGroupsByAccount[ag.AccountID], agSvc)
 			groupIDsByAccount[ag.AccountID] = append(groupIDsByAccount[ag.AccountID], ag.GroupID)
-			if groupSvc != nil {
-				groupsByAccount[ag.AccountID] = append(groupsByAccount[ag.AccountID], groupSvc)
-			}
+			groupsByAccount[ag.AccountID] = append(groupsByAccount[ag.AccountID], groupSvc)
 		}
 	}
 
