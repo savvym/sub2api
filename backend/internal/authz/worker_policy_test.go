@@ -366,7 +366,7 @@ func TestWorkerPolicyFailsClosedWhenAuthorizationDataIsUnavailable(t *testing.T)
 
 	t.Run("nil context", func(t *testing.T) {
 		store := &stubWorkerPolicyStore{snapshot: mustOpenAIQuotaWorkerSnapshot(t, 0)}
-		err := NewWorkerPolicy(store).CheckWorkerCapability(nil, actor, capability)
+		err := NewWorkerPolicy(store).CheckWorkerCapability(nil, actor, capability) //nolint:staticcheck // Intentionally verifies the nil-context guard.
 		if !errors.Is(err, ErrAuthorizationUnavailable) {
 			t.Fatalf("error = %v, want %v", err, ErrAuthorizationUnavailable)
 		}

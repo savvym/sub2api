@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/authz"
@@ -133,7 +134,7 @@ func validOpenAIAutoResetAttemptHash(value string) bool {
 		return false
 	}
 	for _, char := range value {
-		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
+		if !strings.ContainsRune("0123456789abcdef", char) {
 			return false
 		}
 	}

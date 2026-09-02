@@ -606,7 +606,11 @@ func (s *OpenAIQuotaService) buildCodexQuotaHeaders(ctx context.Context, account
 		return nil, "", openAIQuotaRequestAuthIdentity{}, err
 	}
 	headers["authorization"] = assertion
-	return headers, key.taskID, openAIQuotaAgentAuthIdentity(key), nil
+	authIdentity, err := openAIQuotaAgentAuthIdentity(key)
+	if err != nil {
+		return nil, "", openAIQuotaRequestAuthIdentity{}, err
+	}
+	return headers, key.taskID, authIdentity, nil
 }
 
 func (s *OpenAIQuotaService) redactQuotaErrorBody(ctx context.Context, accountID int64, body string) string {

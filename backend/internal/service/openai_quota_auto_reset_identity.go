@@ -58,13 +58,16 @@ func openAIQuotaBearerAuthIdentity(accessToken string) openAIQuotaRequestAuthIde
 	return openAIQuotaRequestAuthIdentity{fingerprint: sha256.Sum256([]byte("bearer\x00" + strings.TrimSpace(accessToken)))}
 }
 
-func openAIQuotaAgentAuthIdentity(key agentIdentityKey) openAIQuotaRequestAuthIdentity {
-	publicKey := key.privateKey.Public().(ed25519.PublicKey)
+func openAIQuotaAgentAuthIdentity(key agentIdentityKey) (openAIQuotaRequestAuthIdentity, error) {
+	publicKey, ok := key.privateKey.Public().(ed25519.PublicKey)
+	if !ok || len(publicKey) != ed25519.PublicKeySize {
+		return openAIQuotaRequestAuthIdentity{}, errors.New("agent identity public key is not Ed25519")
+	}
 	material := append([]byte("agent\x00"+key.runtimeID+"\x00"), publicKey...)
 	return openAIQuotaRequestAuthIdentity{
 		fingerprint: sha256.Sum256(material),
 		taskID:      strings.TrimSpace(key.taskID),
-	}
+	}, nil
 }
 
 func openAIQuotaAuthIdentityFromAccount(account *Account) (openAIQuotaRequestAuthIdentity, error) {
@@ -76,7 +79,7 @@ func openAIQuotaAuthIdentityFromAccount(account *Account) (openAIQuotaRequestAut
 		if err != nil {
 			return openAIQuotaRequestAuthIdentity{}, err
 		}
-		return openAIQuotaAgentAuthIdentity(key), nil
+		return openAIQuotaAgentAuthIdentity(key)
 	}
 	accessToken := strings.TrimSpace(account.GetOpenAIAccessToken())
 	if accessToken == "" {

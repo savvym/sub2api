@@ -41,14 +41,18 @@ func TestListOpenAIAutoResetRecoveryCandidatePageBypassesMutableEligibilityWitho
 		}
 		rawExtra, marshalErr := json.Marshal(extra)
 		require.NoError(t, marshalErr)
+		quotaDimension := service.QuotaDimensionGlobal
+		if parentAccountID != nil {
+			quotaDimension = service.QuotaDimensionSpark
+		}
 		var id int64
 		err := scanSingleRow(ctx, tx, `
-			INSERT INTO accounts (
-				name, platform, type, status, schedulable, parent_account_id, extra
-			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
-			RETURNING id
-		`, []any{name, platform, accountType, status, schedulable, parentAccountID, string(rawExtra)}, &id)
+				INSERT INTO accounts (
+					name, platform, type, status, schedulable, parent_account_id, quota_dimension, extra
+				)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+				RETURNING id
+			`, []any{name, platform, accountType, status, schedulable, parentAccountID, quotaDimension, string(rawExtra)}, &id)
 		require.NoError(t, err)
 		return id
 	}

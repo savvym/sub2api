@@ -2029,7 +2029,7 @@ func TestOpenAIQuotaAutoResetRejectsAmbiguousSuccessfulResetCodesWithoutFinalizi
 			require.Nil(t, record.ErrorReason)
 
 			fixture.idempotency.inMemoryIdempotencyRepo.mu.Lock()
-			for _, stored := range fixture.idempotency.inMemoryIdempotencyRepo.data {
+			for _, stored := range fixture.idempotency.data {
 				if stored.ID == record.ID {
 					past := time.Now().Add(-time.Minute)
 					stored.LockedUntil = &past

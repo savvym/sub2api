@@ -556,10 +556,7 @@ func validOpenAIAutoResetAuditCode(value string) bool {
 		return false
 	}
 	for _, char := range value {
-		if !(char >= 'a' && char <= 'z' ||
-			char >= 'A' && char <= 'Z' ||
-			char >= '0' && char <= '9' ||
-			char == '_' || char == '-' || char == '.' || char == ':') {
+		if !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.:", char) {
 			return false
 		}
 	}

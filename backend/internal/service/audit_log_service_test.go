@@ -85,7 +85,7 @@ func TestAuditLogServiceRecordDurableFailsClosedOnInvalidInputs(t *testing.T) {
 	t.Run("nil context", func(t *testing.T) {
 		repo := &auditLogServiceRepositoryStub{}
 		service := NewAuditLogService(repo, nil)
-		err := service.RecordDurable(nil, &AuditLog{})
+		err := service.RecordDurable(nil, &AuditLog{}) //nolint:staticcheck // Intentionally verifies the nil-context guard.
 		require.ErrorContains(t, err, "nil context")
 		require.Zero(t, repo.insertCalls)
 	})
