@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -54,6 +55,14 @@ func (h *AuditLogHandler) List(c *gin.Context) {
 			return
 		}
 		filter.ActorUserID = &id
+	}
+	if v := strings.TrimSpace(c.Query("actor_service_principal_id")); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || id <= 0 {
+			response.BadRequest(c, "Invalid actor_service_principal_id")
+			return
+		}
+		filter.ActorServicePrincipalID = &id
 	}
 	if v := strings.TrimSpace(c.Query("start_time")); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
@@ -113,17 +122,22 @@ type auditLogClearRequest struct {
 //  3. admin API key（机器凭证）不允许清空
 //  4. 清空完成后同步写入一条留痕记录（操作者、IP、UA、删除行数）
 func (h *AuditLogHandler) Clear(c *gin.Context) {
-	if c.GetString("auth_method") == service.AuditAuthMethodAdminAPIKey {
+	actor, hasActor := authz.ActorFromContext(c.Request.Context())
+	actorUserID, actorIsUser := actor.UserID()
+	if (hasActor && !actorIsUser) || (!hasActor && c.GetString("auth_method") == service.AuditAuthMethodAdminAPIKey) {
 		response.ErrorWithDetails(c, http.StatusForbidden,
 			"Admin API key cannot clear audit logs; a two-factor verified admin session is required",
 			"STEP_UP_ADMIN_API_KEY_FORBIDDEN", nil)
 		return
 	}
 
-	subject, ok := middleware.GetAuthSubjectFromContext(c)
-	if !ok || subject.UserID <= 0 {
-		response.Unauthorized(c, "Unauthorized")
-		return
+	if !hasActor {
+		subject, ok := middleware.GetAuthSubjectFromContext(c)
+		if !ok || subject.UserID <= 0 {
+			response.Unauthorized(c, "Unauthorized")
+			return
+		}
+		actorUserID = subject.UserID
 	}
 
 	var req auditLogClearRequest
@@ -134,18 +148,31 @@ func (h *AuditLogHandler) Clear(c *gin.Context) {
 	}
 
 	// 校验 TOTP：未启用（ErrTotpNotSetup）、码错误、尝试过多均在此拦截。
-	if err := h.totpService.VerifyCode(c.Request.Context(), subject.UserID, strings.TrimSpace(req.TotpCode)); err != nil {
+	if err := h.totpService.VerifyCode(c.Request.Context(), actorUserID, strings.TrimSpace(req.TotpCode)); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	uid := subject.UserID
+	uid := actorUserID
 	role, _ := middleware.GetUserRoleFromContext(c)
+	authMethod := c.GetString("auth_method")
+	if hasActor {
+		authMethod = string(actor.AuthMethod())
+		if subject, ok := middleware.GetAuthSubjectFromContext(c); !ok || subject.UserID != actorUserID {
+			role = ""
+		}
+	}
+	actorEmail := c.GetString(middleware.ContextKeyAuthEmail)
+	if hasActor {
+		if subject, ok := middleware.GetAuthSubjectFromContext(c); !ok || subject.UserID != actorUserID {
+			actorEmail = ""
+		}
+	}
 	trace := &service.AuditLog{
 		ActorUserID:      &uid,
-		ActorEmail:       c.GetString(middleware.ContextKeyAuthEmail),
+		ActorEmail:       actorEmail,
 		ActorRole:        role,
-		AuthMethod:       c.GetString("auth_method"),
+		AuthMethod:       authMethod,
 		CredentialMasked: middleware.MaskedRequestCredential(c),
 		Method:           http.MethodPost,
 		Path:             c.FullPath(),

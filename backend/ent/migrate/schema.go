@@ -125,8 +125,12 @@ var (
 		{Name: "session_window_end", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "session_window_status", Type: field.TypeString, Nullable: true, Size: 20},
 		{Name: "quota_dimension", Type: field.TypeEnum, Enums: []string{"global", "spark"}, Default: "global"},
+		{Name: "public_access_level", Type: field.TypeString, Nullable: true, Size: 20},
+		{Name: "access_version", Type: field.TypeInt64, Default: 1},
 		{Name: "proxy_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "parent_account_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "owner_user_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "created_by_user_id", Type: field.TypeInt64, Nullable: true},
 	}
 	// AccountsTable holds the schema information for the "accounts" table.
 	AccountsTable = &schema.Table{
@@ -136,14 +140,26 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "accounts_proxies_proxy",
-				Columns:    []*schema.Column{AccountsColumns[30]},
+				Columns:    []*schema.Column{AccountsColumns[32]},
 				RefColumns: []*schema.Column{ProxiesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "accounts_accounts_children",
-				Columns:    []*schema.Column{AccountsColumns[31]},
+				Columns:    []*schema.Column{AccountsColumns[33]},
 				RefColumns: []*schema.Column{AccountsColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "accounts_owner_user_id_fkey",
+				Columns:    []*schema.Column{AccountsColumns[34]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "accounts_created_by_user_id_fkey",
+				Columns:    []*schema.Column{AccountsColumns[35]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.Restrict,
 			},
 		},
@@ -166,7 +182,7 @@ var (
 			{
 				Name:    "account_proxy_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[30]},
+				Columns: []*schema.Column{AccountsColumns[32]},
 			},
 			{
 				Name:    "account_priority",
@@ -216,7 +232,116 @@ var (
 			{
 				Name:    "account_parent_account_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[31]},
+				Columns: []*schema.Column{AccountsColumns[33]},
+			},
+			{
+				Name:    "idx_accounts_owner_user_id",
+				Unique:  false,
+				Columns: []*schema.Column{AccountsColumns[34]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "owner_user_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "idx_accounts_created_by_user_id",
+				Unique:  false,
+				Columns: []*schema.Column{AccountsColumns[35]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "created_by_user_id IS NOT NULL",
+				},
+			},
+		},
+	}
+	// AccountAccessGrantsColumns holds the columns for the "account_access_grants" table.
+	AccountAccessGrantsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "access_level", Type: field.TypeString, Size: 20},
+		{Name: "expires_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "account_id", Type: field.TypeInt64},
+		{Name: "grantee_user_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "grantee_role_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "granted_by_user_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "granted_by_service_principal_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// AccountAccessGrantsTable holds the schema information for the "account_access_grants" table.
+	AccountAccessGrantsTable = &schema.Table{
+		Name:       "account_access_grants",
+		Columns:    AccountAccessGrantsColumns,
+		PrimaryKey: []*schema.Column{AccountAccessGrantsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "account_access_grants_account_id_fkey",
+				Columns:    []*schema.Column{AccountAccessGrantsColumns[5]},
+				RefColumns: []*schema.Column{AccountsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "account_access_grants_grantee_user_id_fkey",
+				Columns:    []*schema.Column{AccountAccessGrantsColumns[6]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "account_access_grants_grantee_role_id_fkey",
+				Columns:    []*schema.Column{AccountAccessGrantsColumns[7]},
+				RefColumns: []*schema.Column{RolesColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "account_access_grants_granted_by_user_id_fkey",
+				Columns:    []*schema.Column{AccountAccessGrantsColumns[8]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "account_access_grants_granted_by_service_principal_id_fkey",
+				Columns:    []*schema.Column{AccountAccessGrantsColumns[9]},
+				RefColumns: []*schema.Column{ServicePrincipalsColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "account_access_grants_account_user_key",
+				Unique:  true,
+				Columns: []*schema.Column{AccountAccessGrantsColumns[5], AccountAccessGrantsColumns[6]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "grantee_user_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "account_access_grants_account_role_key",
+				Unique:  true,
+				Columns: []*schema.Column{AccountAccessGrantsColumns[5], AccountAccessGrantsColumns[7]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "grantee_role_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "idx_account_access_grants_grantee_user",
+				Unique:  false,
+				Columns: []*schema.Column{AccountAccessGrantsColumns[6], AccountAccessGrantsColumns[5]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "grantee_user_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "idx_account_access_grants_grantee_role",
+				Unique:  false,
+				Columns: []*schema.Column{AccountAccessGrantsColumns[7], AccountAccessGrantsColumns[5]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "grantee_role_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "idx_account_access_grants_expires_at",
+				Unique:  false,
+				Columns: []*schema.Column{AccountAccessGrantsColumns[4], AccountAccessGrantsColumns[0]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "expires_at IS NOT NULL",
+				},
 			},
 		},
 	}
@@ -962,15 +1087,34 @@ var (
 		{Name: "rpm_limit", Type: field.TypeInt, Default: 0},
 		{Name: "max_reasoning_effort", Type: field.TypeString, Size: 20, Default: ""},
 		{Name: "reasoning_effort_mappings", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "public_access_level", Type: field.TypeString, Nullable: true, Size: 20},
+		{Name: "access_version", Type: field.TypeInt64, Default: 1},
+		{Name: "authorization_mode", Type: field.TypeString, Size: 20, Default: "legacy"},
 		{Name: "profit_control_enabled", Type: field.TypeBool, Default: false},
 		{Name: "profit_min_margin", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
 		{Name: "profit_safety_buffer", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
+		{Name: "owner_user_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "created_by_user_id", Type: field.TypeInt64, Nullable: true},
 	}
 	// GroupsTable holds the schema information for the "groups" table.
 	GroupsTable = &schema.Table{
 		Name:       "groups",
 		Columns:    GroupsColumns,
 		PrimaryKey: []*schema.Column{GroupsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "groups_owner_user_id_fkey",
+				Columns:    []*schema.Column{GroupsColumns[66]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "groups_created_by_user_id_fkey",
+				Columns:    []*schema.Column{GroupsColumns[67]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+		},
 		Indexes: []*schema.Index{
 			{
 				Name:    "group_status",
@@ -1003,11 +1147,125 @@ var (
 				Columns: []*schema.Column{GroupsColumns[49]},
 			},
 			{
+				Name:    "idx_groups_owner_user_id",
+				Unique:  false,
+				Columns: []*schema.Column{GroupsColumns[66]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "owner_user_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "idx_groups_created_by_user_id",
+				Unique:  false,
+				Columns: []*schema.Column{GroupsColumns[67]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "created_by_user_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "idx_groups_authorization_mode",
+				Unique:  false,
+				Columns: []*schema.Column{GroupsColumns[62], GroupsColumns[0]},
+			},
+			{
 				Name:    "idx_groups_duplicate_operation_id_active",
 				Unique:  true,
 				Columns: []*schema.Column{GroupsColumns[13]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "duplicate_operation_id IS NOT NULL AND deleted_at IS NULL",
+				},
+			},
+		},
+	}
+	// GroupAccessGrantsColumns holds the columns for the "group_access_grants" table.
+	GroupAccessGrantsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "access_level", Type: field.TypeString, Size: 20},
+		{Name: "expires_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "group_id", Type: field.TypeInt64},
+		{Name: "grantee_user_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "grantee_role_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "granted_by_user_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "granted_by_service_principal_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// GroupAccessGrantsTable holds the schema information for the "group_access_grants" table.
+	GroupAccessGrantsTable = &schema.Table{
+		Name:       "group_access_grants",
+		Columns:    GroupAccessGrantsColumns,
+		PrimaryKey: []*schema.Column{GroupAccessGrantsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "group_access_grants_group_id_fkey",
+				Columns:    []*schema.Column{GroupAccessGrantsColumns[5]},
+				RefColumns: []*schema.Column{GroupsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "group_access_grants_grantee_user_id_fkey",
+				Columns:    []*schema.Column{GroupAccessGrantsColumns[6]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "group_access_grants_grantee_role_id_fkey",
+				Columns:    []*schema.Column{GroupAccessGrantsColumns[7]},
+				RefColumns: []*schema.Column{RolesColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "group_access_grants_granted_by_user_id_fkey",
+				Columns:    []*schema.Column{GroupAccessGrantsColumns[8]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "group_access_grants_granted_by_service_principal_id_fkey",
+				Columns:    []*schema.Column{GroupAccessGrantsColumns[9]},
+				RefColumns: []*schema.Column{ServicePrincipalsColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "group_access_grants_group_user_key",
+				Unique:  true,
+				Columns: []*schema.Column{GroupAccessGrantsColumns[5], GroupAccessGrantsColumns[6]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "grantee_user_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "group_access_grants_group_role_key",
+				Unique:  true,
+				Columns: []*schema.Column{GroupAccessGrantsColumns[5], GroupAccessGrantsColumns[7]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "grantee_role_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "idx_group_access_grants_grantee_user",
+				Unique:  false,
+				Columns: []*schema.Column{GroupAccessGrantsColumns[6], GroupAccessGrantsColumns[5]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "grantee_user_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "idx_group_access_grants_grantee_role",
+				Unique:  false,
+				Columns: []*schema.Column{GroupAccessGrantsColumns[7], GroupAccessGrantsColumns[5]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "grantee_role_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "idx_group_access_grants_expires_at",
+				Unique:  false,
+				Columns: []*schema.Column{GroupAccessGrantsColumns[4], GroupAccessGrantsColumns[0]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "expires_at IS NOT NULL",
 				},
 			},
 		},
@@ -1317,6 +1575,19 @@ var (
 			},
 		},
 	}
+	// PermissionsColumns holds the columns for the "permissions" table.
+	PermissionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "code", Type: field.TypeString, Unique: true, Size: 128},
+		{Name: "description", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+	}
+	// PermissionsTable holds the schema information for the "permissions" table.
+	PermissionsTable = &schema.Table{
+		Name:       "permissions",
+		Columns:    PermissionsColumns,
+		PrimaryKey: []*schema.Column{PermissionsColumns[0]},
+	}
 	// PromoCodesColumns holds the columns for the "promo_codes" table.
 	PromoCodesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -1504,6 +1775,168 @@ var (
 			},
 		},
 	}
+	// ResourceAuthorizationEventsColumns holds the columns for the "resource_authorization_events" table.
+	ResourceAuthorizationEventsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "event_type", Type: field.TypeString, Size: 64},
+		{Name: "resource_access_version", Type: field.TypeInt64},
+		{Name: "auth_method", Type: field.TypeString, Size: 32, Default: "unknown"},
+		{Name: "request_id", Type: field.TypeString, Size: 64, Default: ""},
+		{Name: "details", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "account_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "group_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "actor_user_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "actor_service_principal_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "resource_owner_user_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// ResourceAuthorizationEventsTable holds the schema information for the "resource_authorization_events" table.
+	ResourceAuthorizationEventsTable = &schema.Table{
+		Name:       "resource_authorization_events",
+		Columns:    ResourceAuthorizationEventsColumns,
+		PrimaryKey: []*schema.Column{ResourceAuthorizationEventsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "resource_authorization_events_account_id_fkey",
+				Columns:    []*schema.Column{ResourceAuthorizationEventsColumns[7]},
+				RefColumns: []*schema.Column{AccountsColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "resource_authorization_events_group_id_fkey",
+				Columns:    []*schema.Column{ResourceAuthorizationEventsColumns[8]},
+				RefColumns: []*schema.Column{GroupsColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "resource_authorization_events_actor_user_id_fkey",
+				Columns:    []*schema.Column{ResourceAuthorizationEventsColumns[9]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "resource_authorization_events_actor_service_principal_id_fkey",
+				Columns:    []*schema.Column{ResourceAuthorizationEventsColumns[10]},
+				RefColumns: []*schema.Column{ServicePrincipalsColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "resource_authorization_events_resource_owner_user_id_fkey",
+				Columns:    []*schema.Column{ResourceAuthorizationEventsColumns[11]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "idx_resource_authorization_events_account_created",
+				Unique:  false,
+				Columns: []*schema.Column{ResourceAuthorizationEventsColumns[7], ResourceAuthorizationEventsColumns[6], ResourceAuthorizationEventsColumns[0]},
+				Annotation: &entsql.IndexAnnotation{
+					DescColumns: map[string]bool{
+						ResourceAuthorizationEventsColumns[6].Name: true,
+
+						ResourceAuthorizationEventsColumns[0].Name: true,
+					},
+					Where: "account_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "idx_resource_authorization_events_group_created",
+				Unique:  false,
+				Columns: []*schema.Column{ResourceAuthorizationEventsColumns[8], ResourceAuthorizationEventsColumns[6], ResourceAuthorizationEventsColumns[0]},
+				Annotation: &entsql.IndexAnnotation{
+					DescColumns: map[string]bool{
+						ResourceAuthorizationEventsColumns[6].Name: true,
+
+						ResourceAuthorizationEventsColumns[0].Name: true,
+					},
+					Where: "group_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "idx_resource_authorization_events_actor_user_created",
+				Unique:  false,
+				Columns: []*schema.Column{ResourceAuthorizationEventsColumns[9], ResourceAuthorizationEventsColumns[6], ResourceAuthorizationEventsColumns[0]},
+				Annotation: &entsql.IndexAnnotation{
+					DescColumns: map[string]bool{
+						ResourceAuthorizationEventsColumns[6].Name: true,
+
+						ResourceAuthorizationEventsColumns[0].Name: true,
+					},
+					Where: "actor_user_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "idx_resource_authorization_events_actor_sp_created",
+				Unique:  false,
+				Columns: []*schema.Column{ResourceAuthorizationEventsColumns[10], ResourceAuthorizationEventsColumns[6], ResourceAuthorizationEventsColumns[0]},
+				Annotation: &entsql.IndexAnnotation{
+					DescColumns: map[string]bool{
+						ResourceAuthorizationEventsColumns[6].Name: true,
+
+						ResourceAuthorizationEventsColumns[0].Name: true,
+					},
+					Where: "actor_service_principal_id IS NOT NULL",
+				},
+			},
+			{
+				Name:    "idx_resource_authorization_events_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{ResourceAuthorizationEventsColumns[6], ResourceAuthorizationEventsColumns[0]},
+				Annotation: &entsql.IndexAnnotation{
+					DescColumns: map[string]bool{
+						ResourceAuthorizationEventsColumns[6].Name: true,
+
+						ResourceAuthorizationEventsColumns[0].Name: true,
+					},
+				},
+			},
+		},
+	}
+	// RolesColumns holds the columns for the "roles" table.
+	RolesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "code", Type: field.TypeString, Unique: true, Size: 64},
+		{Name: "name", Type: field.TypeString, Size: 100},
+		{Name: "description", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "is_system", Type: field.TypeBool, Default: false},
+		{Name: "authz_version", Type: field.TypeInt64, Default: 1},
+	}
+	// RolesTable holds the schema information for the "roles" table.
+	RolesTable = &schema.Table{
+		Name:       "roles",
+		Columns:    RolesColumns,
+		PrimaryKey: []*schema.Column{RolesColumns[0]},
+	}
+	// RolePermissionsColumns holds the columns for the "role_permissions" table.
+	RolePermissionsColumns = []*schema.Column{
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "role_id", Type: field.TypeInt64},
+		{Name: "permission_id", Type: field.TypeInt64},
+	}
+	// RolePermissionsTable holds the schema information for the "role_permissions" table.
+	RolePermissionsTable = &schema.Table{
+		Name:       "role_permissions",
+		Columns:    RolePermissionsColumns,
+		PrimaryKey: []*schema.Column{RolePermissionsColumns[1], RolePermissionsColumns[2]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "role_permissions_role_id_fkey",
+				Columns:    []*schema.Column{RolePermissionsColumns[1]},
+				RefColumns: []*schema.Column{RolesColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "role_permissions_permission_id_fkey",
+				Columns:    []*schema.Column{RolePermissionsColumns[2]},
+				RefColumns: []*schema.Column{PermissionsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
 	// SecuritySecretsColumns holds the columns for the "security_secrets" table.
 	SecuritySecretsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -1517,6 +1950,104 @@ var (
 		Name:       "security_secrets",
 		Columns:    SecuritySecretsColumns,
 		PrimaryKey: []*schema.Column{SecuritySecretsColumns[0]},
+	}
+	// ServicePrincipalsColumns holds the columns for the "service_principals" table.
+	ServicePrincipalsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "code", Type: field.TypeString, Unique: true, Size: 64},
+		{Name: "name", Type: field.TypeString, Size: 100},
+		{Name: "status", Type: field.TypeString, Size: 20, Default: "active"},
+		{Name: "authz_version", Type: field.TypeInt64, Default: 1},
+	}
+	// ServicePrincipalsTable holds the schema information for the "service_principals" table.
+	ServicePrincipalsTable = &schema.Table{
+		Name:       "service_principals",
+		Columns:    ServicePrincipalsColumns,
+		PrimaryKey: []*schema.Column{ServicePrincipalsColumns[0]},
+	}
+	// ServicePrincipalRolesColumns holds the columns for the "service_principal_roles" table.
+	ServicePrincipalRolesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "expires_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "service_principal_id", Type: field.TypeInt64},
+		{Name: "role_id", Type: field.TypeInt64},
+		{Name: "granted_by_user_id", Type: field.TypeInt64},
+	}
+	// ServicePrincipalRolesTable holds the schema information for the "service_principal_roles" table.
+	ServicePrincipalRolesTable = &schema.Table{
+		Name:       "service_principal_roles",
+		Columns:    ServicePrincipalRolesColumns,
+		PrimaryKey: []*schema.Column{ServicePrincipalRolesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "service_principal_roles_service_principal_id_fkey",
+				Columns:    []*schema.Column{ServicePrincipalRolesColumns[4]},
+				RefColumns: []*schema.Column{ServicePrincipalsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "service_principal_roles_role_id_fkey",
+				Columns:    []*schema.Column{ServicePrincipalRolesColumns[5]},
+				RefColumns: []*schema.Column{RolesColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "service_principal_roles_granted_by_user_id_fkey",
+				Columns:    []*schema.Column{ServicePrincipalRolesColumns[6]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "service_principal_roles_principal_role_key",
+				Unique:  true,
+				Columns: []*schema.Column{ServicePrincipalRolesColumns[4], ServicePrincipalRolesColumns[5]},
+			},
+			{
+				Name:    "idx_service_principal_roles_role_id",
+				Unique:  false,
+				Columns: []*schema.Column{ServicePrincipalRolesColumns[5], ServicePrincipalRolesColumns[4]},
+			},
+			{
+				Name:    "idx_service_principal_roles_expires_at",
+				Unique:  false,
+				Columns: []*schema.Column{ServicePrincipalRolesColumns[3], ServicePrincipalRolesColumns[0]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "expires_at IS NOT NULL",
+				},
+			},
+		},
+	}
+	// ServicePrincipalWorkerPermissionsColumns holds the columns for the "service_principal_worker_permissions" table.
+	ServicePrincipalWorkerPermissionsColumns = []*schema.Column{
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "service_principal_id", Type: field.TypeInt64},
+		{Name: "permission_id", Type: field.TypeInt64},
+	}
+	// ServicePrincipalWorkerPermissionsTable holds the schema information for the "service_principal_worker_permissions" table.
+	ServicePrincipalWorkerPermissionsTable = &schema.Table{
+		Name:       "service_principal_worker_permissions",
+		Columns:    ServicePrincipalWorkerPermissionsColumns,
+		PrimaryKey: []*schema.Column{ServicePrincipalWorkerPermissionsColumns[1], ServicePrincipalWorkerPermissionsColumns[2]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "sp_worker_permissions_principal_id_fkey",
+				Columns:    []*schema.Column{ServicePrincipalWorkerPermissionsColumns[1]},
+				RefColumns: []*schema.Column{ServicePrincipalsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "sp_worker_permissions_permission_id_fkey",
+				Columns:    []*schema.Column{ServicePrincipalWorkerPermissionsColumns[2]},
+				RefColumns: []*schema.Column{PermissionsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
 	}
 	// SettingsColumns holds the columns for the "settings" table.
 	SettingsColumns = []*schema.Column{
@@ -1789,6 +2320,7 @@ var (
 		{Name: "email", Type: field.TypeString, Size: 255},
 		{Name: "password_hash", Type: field.TypeString, Size: 255},
 		{Name: "role", Type: field.TypeString, Size: 20, Default: "user"},
+		{Name: "authz_version", Type: field.TypeInt64, Default: 1},
 		{Name: "balance", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
 		{Name: "frozen_balance", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
 		{Name: "concurrency", Type: field.TypeInt, Default: 5},
@@ -1817,7 +2349,7 @@ var (
 			{
 				Name:    "user_status",
 				Unique:  false,
-				Columns: []*schema.Column{UsersColumns[10]},
+				Columns: []*schema.Column{UsersColumns[11]},
 			},
 			{
 				Name:    "user_deleted_at",
@@ -1945,6 +2477,44 @@ var (
 			},
 		},
 	}
+	// UserHostingEntitlementsColumns holds the columns for the "user_hosting_entitlements" table.
+	UserHostingEntitlementsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "account_limit", Type: field.TypeInt64, Default: 0},
+		{Name: "group_limit", Type: field.TypeInt64, Default: 0},
+		{Name: "version", Type: field.TypeInt64, Default: 1},
+		{Name: "user_id", Type: field.TypeInt64, Unique: true},
+		{Name: "created_by_user_id", Type: field.TypeInt64},
+		{Name: "updated_by_user_id", Type: field.TypeInt64},
+	}
+	// UserHostingEntitlementsTable holds the schema information for the "user_hosting_entitlements" table.
+	UserHostingEntitlementsTable = &schema.Table{
+		Name:       "user_hosting_entitlements",
+		Columns:    UserHostingEntitlementsColumns,
+		PrimaryKey: []*schema.Column{UserHostingEntitlementsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "user_hosting_entitlements_user_id_fkey",
+				Columns:    []*schema.Column{UserHostingEntitlementsColumns[6]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "user_hosting_entitlements_created_by_user_id_fkey",
+				Columns:    []*schema.Column{UserHostingEntitlementsColumns[7]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "user_hosting_entitlements_updated_by_user_id_fkey",
+				Columns:    []*schema.Column{UserHostingEntitlementsColumns[8]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+		},
+	}
 	// UserPlatformQuotasColumns holds the columns for the "user_platform_quotas" table.
 	UserPlatformQuotasColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -1989,6 +2559,69 @@ var (
 				Name:    "userplatformquota_user_id",
 				Unique:  false,
 				Columns: []*schema.Column{UserPlatformQuotasColumns[14]},
+			},
+		},
+	}
+	// UserRolesColumns holds the columns for the "user_roles" table.
+	UserRolesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "expires_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "user_id", Type: field.TypeInt64},
+		{Name: "role_id", Type: field.TypeInt64},
+		{Name: "granted_by_user_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "granted_by_service_principal_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// UserRolesTable holds the schema information for the "user_roles" table.
+	UserRolesTable = &schema.Table{
+		Name:       "user_roles",
+		Columns:    UserRolesColumns,
+		PrimaryKey: []*schema.Column{UserRolesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "user_roles_user_id_fkey",
+				Columns:    []*schema.Column{UserRolesColumns[4]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "user_roles_role_id_fkey",
+				Columns:    []*schema.Column{UserRolesColumns[5]},
+				RefColumns: []*schema.Column{RolesColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "user_roles_granted_by_user_id_fkey",
+				Columns:    []*schema.Column{UserRolesColumns[6]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "user_roles_granted_by_service_principal_id_fkey",
+				Columns:    []*schema.Column{UserRolesColumns[7]},
+				RefColumns: []*schema.Column{ServicePrincipalsColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "user_roles_user_role_key",
+				Unique:  true,
+				Columns: []*schema.Column{UserRolesColumns[4], UserRolesColumns[5]},
+			},
+			{
+				Name:    "idx_user_roles_role_id",
+				Unique:  false,
+				Columns: []*schema.Column{UserRolesColumns[5], UserRolesColumns[4]},
+			},
+			{
+				Name:    "idx_user_roles_expires_at",
+				Unique:  false,
+				Columns: []*schema.Column{UserRolesColumns[3], UserRolesColumns[0]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "expires_at IS NOT NULL",
+				},
 			},
 		},
 	}
@@ -2085,6 +2718,7 @@ var (
 	Tables = []*schema.Table{
 		APIKeysTable,
 		AccountsTable,
+		AccountAccessGrantsTable,
 		AccountGroupsTable,
 		AnnouncementsTable,
 		AnnouncementReadsTable,
@@ -2100,17 +2734,25 @@ var (
 		CompositeModelRoutesTable,
 		ErrorPassthroughRulesTable,
 		GroupsTable,
+		GroupAccessGrantsTable,
 		IdempotencyRecordsTable,
 		IdentityAdoptionDecisionsTable,
 		PaymentAuditLogsTable,
 		PaymentOrdersTable,
 		PaymentProviderInstancesTable,
 		PendingAuthSessionsTable,
+		PermissionsTable,
 		PromoCodesTable,
 		PromoCodeUsagesTable,
 		ProxiesTable,
 		RedeemCodesTable,
+		ResourceAuthorizationEventsTable,
+		RolesTable,
+		RolePermissionsTable,
 		SecuritySecretsTable,
+		ServicePrincipalsTable,
+		ServicePrincipalRolesTable,
+		ServicePrincipalWorkerPermissionsTable,
 		SettingsTable,
 		SubscriptionPlansTable,
 		TLSFingerprintProfilesTable,
@@ -2120,7 +2762,9 @@ var (
 		UserAllowedGroupsTable,
 		UserAttributeDefinitionsTable,
 		UserAttributeValuesTable,
+		UserHostingEntitlementsTable,
 		UserPlatformQuotasTable,
+		UserRolesTable,
 		UserSubscriptionsTable,
 	}
 )
@@ -2133,8 +2777,27 @@ func init() {
 	}
 	AccountsTable.ForeignKeys[0].RefTable = ProxiesTable
 	AccountsTable.ForeignKeys[1].RefTable = AccountsTable
+	AccountsTable.ForeignKeys[2].RefTable = UsersTable
+	AccountsTable.ForeignKeys[3].RefTable = UsersTable
 	AccountsTable.Annotation = &entsql.Annotation{
 		Table: "accounts",
+	}
+	AccountsTable.Annotation.Checks = map[string]string{
+		"accounts_access_version_positive":   "access_version > 0",
+		"accounts_public_access_level_check": "public_access_level IS NULL OR public_access_level IN ('viewer', 'consumer')",
+	}
+	AccountAccessGrantsTable.ForeignKeys[0].RefTable = AccountsTable
+	AccountAccessGrantsTable.ForeignKeys[1].RefTable = UsersTable
+	AccountAccessGrantsTable.ForeignKeys[2].RefTable = RolesTable
+	AccountAccessGrantsTable.ForeignKeys[3].RefTable = UsersTable
+	AccountAccessGrantsTable.ForeignKeys[4].RefTable = ServicePrincipalsTable
+	AccountAccessGrantsTable.Annotation = &entsql.Annotation{
+		Table: "account_access_grants",
+	}
+	AccountAccessGrantsTable.Annotation.Checks = map[string]string{
+		"account_access_grants_access_level_check":        "access_level IN ('viewer', 'consumer', 'maintainer', 'manager')",
+		"account_access_grants_grantee_exactly_one_check": "(CASE WHEN grantee_user_id IS NULL THEN 0 ELSE 1 END + CASE WHEN grantee_role_id IS NULL THEN 0 ELSE 1 END) = 1",
+		"account_access_grants_grantor_exactly_one_check": "(CASE WHEN granted_by_user_id IS NULL THEN 0 ELSE 1 END + CASE WHEN granted_by_service_principal_id IS NULL THEN 0 ELSE 1 END) = 1",
 	}
 	AccountGroupsTable.ForeignKeys[0].RefTable = AccountsTable
 	AccountGroupsTable.ForeignKeys[1].RefTable = GroupsTable
@@ -2188,8 +2851,28 @@ func init() {
 	ErrorPassthroughRulesTable.Annotation = &entsql.Annotation{
 		Table: "error_passthrough_rules",
 	}
+	GroupsTable.ForeignKeys[0].RefTable = UsersTable
+	GroupsTable.ForeignKeys[1].RefTable = UsersTable
 	GroupsTable.Annotation = &entsql.Annotation{
 		Table: "groups",
+	}
+	GroupsTable.Annotation.Checks = map[string]string{
+		"groups_access_version_positive":   "access_version > 0",
+		"groups_authorization_mode_check":  "authorization_mode IN ('legacy', 'shadow', 'acl')",
+		"groups_public_access_level_check": "public_access_level IS NULL OR public_access_level IN ('viewer', 'consumer')",
+	}
+	GroupAccessGrantsTable.ForeignKeys[0].RefTable = GroupsTable
+	GroupAccessGrantsTable.ForeignKeys[1].RefTable = UsersTable
+	GroupAccessGrantsTable.ForeignKeys[2].RefTable = RolesTable
+	GroupAccessGrantsTable.ForeignKeys[3].RefTable = UsersTable
+	GroupAccessGrantsTable.ForeignKeys[4].RefTable = ServicePrincipalsTable
+	GroupAccessGrantsTable.Annotation = &entsql.Annotation{
+		Table: "group_access_grants",
+	}
+	GroupAccessGrantsTable.Annotation.Checks = map[string]string{
+		"group_access_grants_access_level_check":        "access_level IN ('viewer', 'consumer', 'maintainer', 'manager')",
+		"group_access_grants_grantee_exactly_one_check": "(CASE WHEN grantee_user_id IS NULL THEN 0 ELSE 1 END + CASE WHEN grantee_role_id IS NULL THEN 0 ELSE 1 END) = 1",
+		"group_access_grants_grantor_exactly_one_check": "(CASE WHEN granted_by_user_id IS NULL THEN 0 ELSE 1 END + CASE WHEN granted_by_service_principal_id IS NULL THEN 0 ELSE 1 END) = 1",
 	}
 	IdempotencyRecordsTable.Annotation = &entsql.Annotation{
 		Table: "idempotency_records",
@@ -2213,6 +2896,9 @@ func init() {
 	PendingAuthSessionsTable.Annotation = &entsql.Annotation{
 		Table: "pending_auth_sessions",
 	}
+	PermissionsTable.Annotation = &entsql.Annotation{
+		Table: "permissions",
+	}
 	PromoCodesTable.Annotation = &entsql.Annotation{
 		Table: "promo_codes",
 	}
@@ -2230,8 +2916,52 @@ func init() {
 	RedeemCodesTable.Annotation = &entsql.Annotation{
 		Table: "redeem_codes",
 	}
+	ResourceAuthorizationEventsTable.ForeignKeys[0].RefTable = AccountsTable
+	ResourceAuthorizationEventsTable.ForeignKeys[1].RefTable = GroupsTable
+	ResourceAuthorizationEventsTable.ForeignKeys[2].RefTable = UsersTable
+	ResourceAuthorizationEventsTable.ForeignKeys[3].RefTable = ServicePrincipalsTable
+	ResourceAuthorizationEventsTable.ForeignKeys[4].RefTable = UsersTable
+	ResourceAuthorizationEventsTable.Annotation = &entsql.Annotation{
+		Table: "resource_authorization_events",
+	}
+	ResourceAuthorizationEventsTable.Annotation.Checks = map[string]string{
+		"resource_authorization_events_access_version_positive":     "resource_access_version > 0",
+		"resource_authorization_events_actor_exactly_one_check":     "(CASE WHEN actor_user_id IS NULL THEN 0 ELSE 1 END + CASE WHEN actor_service_principal_id IS NULL THEN 0 ELSE 1 END) = 1",
+		"resource_authorization_events_auth_method_not_empty_check": "TRIM(auth_method) <> ''",
+		"resource_authorization_events_event_type_not_empty_check":  "TRIM(event_type) <> ''",
+		"resource_authorization_events_resource_exactly_one_check":  "(CASE WHEN account_id IS NULL THEN 0 ELSE 1 END + CASE WHEN group_id IS NULL THEN 0 ELSE 1 END) = 1",
+	}
+	RolesTable.Annotation = &entsql.Annotation{
+		Table: "roles",
+	}
+	RolesTable.Annotation.Checks = map[string]string{
+		"roles_authz_version_positive": "authz_version > 0",
+	}
+	RolePermissionsTable.ForeignKeys[0].RefTable = RolesTable
+	RolePermissionsTable.ForeignKeys[1].RefTable = PermissionsTable
+	RolePermissionsTable.Annotation = &entsql.Annotation{
+		Table: "role_permissions",
+	}
 	SecuritySecretsTable.Annotation = &entsql.Annotation{
 		Table: "security_secrets",
+	}
+	ServicePrincipalsTable.Annotation = &entsql.Annotation{
+		Table: "service_principals",
+	}
+	ServicePrincipalsTable.Annotation.Checks = map[string]string{
+		"service_principals_authz_version_positive": "authz_version > 0",
+		"service_principals_status_check":           "status IN ('active', 'disabled')",
+	}
+	ServicePrincipalRolesTable.ForeignKeys[0].RefTable = ServicePrincipalsTable
+	ServicePrincipalRolesTable.ForeignKeys[1].RefTable = RolesTable
+	ServicePrincipalRolesTable.ForeignKeys[2].RefTable = UsersTable
+	ServicePrincipalRolesTable.Annotation = &entsql.Annotation{
+		Table: "service_principal_roles",
+	}
+	ServicePrincipalWorkerPermissionsTable.ForeignKeys[0].RefTable = ServicePrincipalsTable
+	ServicePrincipalWorkerPermissionsTable.ForeignKeys[1].RefTable = PermissionsTable
+	ServicePrincipalWorkerPermissionsTable.Annotation = &entsql.Annotation{
+		Table: "service_principal_worker_permissions",
 	}
 	SettingsTable.Annotation = &entsql.Annotation{
 		Table: "settings",
@@ -2256,6 +2986,9 @@ func init() {
 	UsersTable.Annotation = &entsql.Annotation{
 		Table: "users",
 	}
+	UsersTable.Annotation.Checks = map[string]string{
+		"users_authz_version_positive": "authz_version > 0",
+	}
 	UserAllowedGroupsTable.ForeignKeys[0].RefTable = UsersTable
 	UserAllowedGroupsTable.ForeignKeys[1].RefTable = GroupsTable
 	UserAllowedGroupsTable.Annotation = &entsql.Annotation{
@@ -2269,9 +3002,30 @@ func init() {
 	UserAttributeValuesTable.Annotation = &entsql.Annotation{
 		Table: "user_attribute_values",
 	}
+	UserHostingEntitlementsTable.ForeignKeys[0].RefTable = UsersTable
+	UserHostingEntitlementsTable.ForeignKeys[1].RefTable = UsersTable
+	UserHostingEntitlementsTable.ForeignKeys[2].RefTable = UsersTable
+	UserHostingEntitlementsTable.Annotation = &entsql.Annotation{
+		Table: "user_hosting_entitlements",
+	}
+	UserHostingEntitlementsTable.Annotation.Checks = map[string]string{
+		"user_hosting_entitlements_account_limit_nonnegative": "account_limit >= 0",
+		"user_hosting_entitlements_group_limit_nonnegative":   "group_limit >= 0",
+		"user_hosting_entitlements_version_positive":          "version > 0",
+	}
 	UserPlatformQuotasTable.ForeignKeys[0].RefTable = UsersTable
 	UserPlatformQuotasTable.Annotation = &entsql.Annotation{
 		Table: "user_platform_quotas",
+	}
+	UserRolesTable.ForeignKeys[0].RefTable = UsersTable
+	UserRolesTable.ForeignKeys[1].RefTable = RolesTable
+	UserRolesTable.ForeignKeys[2].RefTable = UsersTable
+	UserRolesTable.ForeignKeys[3].RefTable = ServicePrincipalsTable
+	UserRolesTable.Annotation = &entsql.Annotation{
+		Table: "user_roles",
+	}
+	UserRolesTable.Annotation.Checks = map[string]string{
+		"user_roles_grantor_exactly_one_check": "(CASE WHEN granted_by_user_id IS NULL THEN 0 ELSE 1 END + CASE WHEN granted_by_service_principal_id IS NULL THEN 0 ELSE 1 END) = 1",
 	}
 	UserSubscriptionsTable.ForeignKeys[0].RefTable = GroupsTable
 	UserSubscriptionsTable.ForeignKeys[1].RefTable = UsersTable

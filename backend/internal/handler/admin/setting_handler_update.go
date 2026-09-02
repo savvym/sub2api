@@ -242,6 +242,14 @@ type UpdateSettingsRequest struct {
 	// Backend Mode
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
+	// Resource access control dark-launch settings
+	ResourceAccessControlEnabled   bool   `json:"resource_access_control_enabled"`
+	SelfServiceHostingEnabled      bool   `json:"self_service_hosting_enabled"`
+	GroupSharingEnabled            bool   `json:"group_sharing_enabled"`
+	AccountSharingEnabled          bool   `json:"account_sharing_enabled"`
+	RoleBasedResourceGrantsEnabled bool   `json:"role_based_resource_grants_enabled"`
+	RoleAuthorizationMode          string `json:"role_authorization_mode"`
+
 	// Gateway forwarding behavior
 	EnableFingerprintUnification           *bool   `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              *bool   `json:"enable_metadata_passthrough"`
@@ -479,6 +487,10 @@ func settingsAuditRequest(req UpdateSettingsRequest) UpdateSettingsRequest {
 }
 
 func (h *SettingHandler) UpdateSettings(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	var sentFields map[string]json.RawMessage
 	if err := c.ShouldBindBodyWith(&sentFields, binding.JSON); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -492,12 +504,17 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	auditReq := settingsAuditRequest(req)
 	omitted := omittedSettingKeys(sentFields)
 
-	previousSettings, err := h.settingService.GetAllSettings(c.Request.Context())
+	previousSettings, err := h.settingService.AdminGetAllSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	previousAuthSourceDefaults, err := h.settingService.GetAuthSourceDefaultSettings(c.Request.Context())
+	if _, sent := sentFields["role_authorization_mode"]; sent &&
+		strings.TrimSpace(req.RoleAuthorizationMode) != previousSettings.RoleAuthorizationMode {
+		response.ErrorFrom(c, service.ErrRoleAuthorizationModeTransitionRequired)
+		return
+	}
+	previousAuthSourceDefaults, err := h.settingService.AdminGetAuthSourceDefaultSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -545,6 +562,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	// previousSettings 已证实开关处于开启状态，使用无条件门控变体，
 	// 避免门控内部二次读取开关时因存储故障 fail-open（前端捕获 STEP_UP_REQUIRED 弹码重试）。
 	if !stepUpEnabled && previousSettings.StepUpEnabled {
+		if c.GetString("auth_method") != service.AuditAuthMethodAdminAPIKey && (h.totpService == nil || h.userService == nil) {
+			response.InternalError(c, "Step-up verification unavailable")
+			return
+		}
 		if !middleware.EnforceStepUpAlways(c, h.totpService, h.userService) {
 			return
 		}
@@ -1647,6 +1668,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                   req.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:            req.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                     req.BackendModeEnabled,
+		ResourceAccessControlEnabled:           req.ResourceAccessControlEnabled,
+		SelfServiceHostingEnabled:              req.SelfServiceHostingEnabled,
+		GroupSharingEnabled:                    req.GroupSharingEnabled,
+		AccountSharingEnabled:                  req.AccountSharingEnabled,
+		RoleBasedResourceGrantsEnabled:         req.RoleBasedResourceGrantsEnabled,
+		RoleAuthorizationMode:                  req.RoleAuthorizationMode,
 		AllowUserViewErrorRequests: func() bool {
 			if req.AllowUserViewErrorRequests != nil {
 				return *req.AllowUserViewErrorRequests
@@ -2034,7 +2061,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		},
 		ForceEmailOnThirdPartySignup: boolValueOrDefault(req.ForceEmailOnThirdPartySignup, previousAuthSourceDefaults.ForceEmailOnThirdPartySignup),
 	}
-	if err := h.settingService.UpdateSettingsWithAuthSourceDefaultsOmitting(c.Request.Context(), settings, authSourceDefaults, omitted); err != nil {
+	if err := h.settingService.AdminUpdateSettingsWithAuthSourceDefaultsOmitting(c.Request.Context(), actor, settings, authSourceDefaults, omitted); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -2088,20 +2115,21 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
-	h.auditSettingsUpdate(c, previousSettings, settings, previousAuthSourceDefaults, authSourceDefaults, auditReq)
-
 	// 重新获取设置返回
-	updatedSettings, err := h.settingService.GetAllSettings(c.Request.Context())
+	updatedSettings, err := h.settingService.AdminGetAllSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 	h.ensureDingTalkSyncAttributes(c.Request.Context(), updatedSettings)
-	updatedAuthSourceDefaults, err := h.settingService.GetAuthSourceDefaultSettings(c.Request.Context())
+	updatedAuthSourceDefaults, err := h.settingService.AdminGetAuthSourceDefaultSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
+	// Partial payloads are merged while persisting. Audit the complete values
+	// read back from storage so omitted fields are not reported as changes.
+	h.auditSettingsUpdate(c, previousSettings, updatedSettings, previousAuthSourceDefaults, updatedAuthSourceDefaults, auditReq)
 	updatedDefaultSubscriptions := make([]dto.DefaultSubscriptionSetting, 0, len(updatedSettings.DefaultSubscriptions))
 	for _, sub := range updatedSettings.DefaultSubscriptions {
 		updatedDefaultSubscriptions = append(updatedDefaultSubscriptions, dto.DefaultSubscriptionSetting{
@@ -2273,6 +2301,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                                   updatedSettings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:                            updatedSettings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,
+		ResourceAccessControlEnabled:                           updatedSettings.ResourceAccessControlEnabled,
+		SelfServiceHostingEnabled:                              updatedSettings.SelfServiceHostingEnabled,
+		GroupSharingEnabled:                                    updatedSettings.GroupSharingEnabled,
+		AccountSharingEnabled:                                  updatedSettings.AccountSharingEnabled,
+		RoleBasedResourceGrantsEnabled:                         updatedSettings.RoleBasedResourceGrantsEnabled,
+		RoleAuthorizationMode:                                  updatedSettings.RoleAuthorizationMode,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       updatedSettings.EnableCCHSigning,

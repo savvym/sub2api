@@ -144,7 +144,7 @@ func TestOAuthService_GenerateAuthURL(t *testing.T) {
 	svc := NewOAuthService(&mockProxyRepoForOAuth{}, &mockClaudeOAuthClient{})
 	defer svc.Stop()
 
-	result, err := svc.GenerateAuthURL(context.Background(), nil)
+	result, err := svc.AdminGenerateAuthURL(context.Background(), adminResourceUserTestActor(t), nil)
 	if err != nil {
 		t.Fatalf("GenerateAuthURL 返回错误: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestOAuthService_GenerateAuthURL_WithProxy(t *testing.T) {
 	defer svc.Stop()
 
 	proxyID := int64(1)
-	result, err := svc.GenerateAuthURL(context.Background(), &proxyID)
+	result, err := svc.AdminGenerateAuthURL(context.Background(), adminResourceUserTestActor(t), &proxyID)
 	if err != nil {
 		t.Fatalf("GenerateAuthURL 返回错误: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestOAuthService_GenerateSetupTokenURL(t *testing.T) {
 	svc := NewOAuthService(&mockProxyRepoForOAuth{}, &mockClaudeOAuthClient{})
 	defer svc.Stop()
 
-	result, err := svc.GenerateSetupTokenURL(context.Background(), nil)
+	result, err := svc.AdminGenerateSetupTokenURL(context.Background(), adminResourceUserTestActor(t), nil)
 	if err != nil {
 		t.Fatalf("GenerateSetupTokenURL 返回错误: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestOAuthService_ExchangeCode_SessionNotFound(t *testing.T) {
 	svc := NewOAuthService(&mockProxyRepoForOAuth{}, &mockClaudeOAuthClient{})
 	defer svc.Stop()
 
-	_, err := svc.ExchangeCode(context.Background(), &ExchangeCodeInput{
+	_, err := svc.AdminExchangeCode(context.Background(), adminResourceUserTestActor(t), &ExchangeCodeInput{
 		SessionID: "nonexistent-session",
 		Code:      "test-code",
 	})
@@ -270,13 +270,13 @@ func TestOAuthService_ExchangeCode_Success(t *testing.T) {
 	defer svc.Stop()
 
 	// 先生成 URL 以创建 session
-	result, err := svc.GenerateAuthURL(context.Background(), nil)
+	result, err := svc.AdminGenerateAuthURL(context.Background(), adminResourceUserTestActor(t), nil)
 	if err != nil {
 		t.Fatalf("GenerateAuthURL 返回错误: %v", err)
 	}
 
 	// 交换 code
-	tokenInfo, err := svc.ExchangeCode(context.Background(), &ExchangeCodeInput{
+	tokenInfo, err := svc.AdminExchangeCode(context.Background(), adminResourceUserTestActor(t), &ExchangeCodeInput{
 		SessionID: result.SessionID,
 		Code:      "auth-code-123",
 	})
@@ -340,12 +340,12 @@ func TestOAuthService_ExchangeCode_SetupToken(t *testing.T) {
 	defer svc.Stop()
 
 	// 使用 SetupToken URL（inference scope）
-	result, err := svc.GenerateSetupTokenURL(context.Background(), nil)
+	result, err := svc.AdminGenerateSetupTokenURL(context.Background(), adminResourceUserTestActor(t), nil)
 	if err != nil {
 		t.Fatalf("GenerateSetupTokenURL 返回错误: %v", err)
 	}
 
-	tokenInfo, err := svc.ExchangeCode(context.Background(), &ExchangeCodeInput{
+	tokenInfo, err := svc.AdminExchangeCode(context.Background(), adminResourceUserTestActor(t), &ExchangeCodeInput{
 		SessionID: result.SessionID,
 		Code:      "setup-code",
 	})
@@ -369,8 +369,8 @@ func TestOAuthService_ExchangeCode_ClientError(t *testing.T) {
 	svc := NewOAuthService(&mockProxyRepoForOAuth{}, client)
 	defer svc.Stop()
 
-	result, _ := svc.GenerateAuthURL(context.Background(), nil)
-	_, err := svc.ExchangeCode(context.Background(), &ExchangeCodeInput{
+	result, _ := svc.AdminGenerateAuthURL(context.Background(), adminResourceUserTestActor(t), nil)
+	_, err := svc.AdminExchangeCode(context.Background(), adminResourceUserTestActor(t), &ExchangeCodeInput{
 		SessionID: result.SessionID,
 		Code:      "bad-code",
 	})
@@ -591,8 +591,8 @@ func TestOAuthService_ExchangeCode_NilOrg(t *testing.T) {
 	svc := NewOAuthService(&mockProxyRepoForOAuth{}, client)
 	defer svc.Stop()
 
-	result, _ := svc.GenerateAuthURL(context.Background(), nil)
-	tokenInfo, err := svc.ExchangeCode(context.Background(), &ExchangeCodeInput{
+	result, _ := svc.AdminGenerateAuthURL(context.Background(), adminResourceUserTestActor(t), nil)
+	tokenInfo, err := svc.AdminExchangeCode(context.Background(), adminResourceUserTestActor(t), &ExchangeCodeInput{
 		SessionID: result.SessionID,
 		Code:      "code",
 	})

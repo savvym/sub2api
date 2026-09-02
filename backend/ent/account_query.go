@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
+	"github.com/Wei-Shaw/sub2api/ent/user"
 )
 
 // AccountQuery is the builder for querying Account entities.
@@ -32,6 +33,8 @@ type AccountQuery struct {
 	withProxy         *ProxyQuery
 	withParent        *AccountQuery
 	withChildren      *AccountQuery
+	withOwner         *UserQuery
+	withCreatedBy     *UserQuery
 	withUsageLogs     *UsageLogQuery
 	withAccountGroups *AccountGroupQuery
 	modifiers         []func(*sql.Selector)
@@ -152,6 +155,50 @@ func (_q *AccountQuery) QueryChildren() *AccountQuery {
 			sqlgraph.From(account.Table, account.FieldID, selector),
 			sqlgraph.To(account.Table, account.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, account.ChildrenTable, account.ChildrenColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryOwner chains the current query on the "owner" edge.
+func (_q *AccountQuery) QueryOwner() *UserQuery {
+	query := (&UserClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(account.Table, account.FieldID, selector),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, account.OwnerTable, account.OwnerColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryCreatedBy chains the current query on the "created_by" edge.
+func (_q *AccountQuery) QueryCreatedBy() *UserQuery {
+	query := (&UserClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(account.Table, account.FieldID, selector),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, account.CreatedByTable, account.CreatedByColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -399,6 +446,8 @@ func (_q *AccountQuery) Clone() *AccountQuery {
 		withProxy:         _q.withProxy.Clone(),
 		withParent:        _q.withParent.Clone(),
 		withChildren:      _q.withChildren.Clone(),
+		withOwner:         _q.withOwner.Clone(),
+		withCreatedBy:     _q.withCreatedBy.Clone(),
 		withUsageLogs:     _q.withUsageLogs.Clone(),
 		withAccountGroups: _q.withAccountGroups.Clone(),
 		// clone intermediate query.
@@ -448,6 +497,28 @@ func (_q *AccountQuery) WithChildren(opts ...func(*AccountQuery)) *AccountQuery 
 		opt(query)
 	}
 	_q.withChildren = query
+	return _q
+}
+
+// WithOwner tells the query-builder to eager-load the nodes that are connected to
+// the "owner" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *AccountQuery) WithOwner(opts ...func(*UserQuery)) *AccountQuery {
+	query := (&UserClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withOwner = query
+	return _q
+}
+
+// WithCreatedBy tells the query-builder to eager-load the nodes that are connected to
+// the "created_by" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *AccountQuery) WithCreatedBy(opts ...func(*UserQuery)) *AccountQuery {
+	query := (&UserClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withCreatedBy = query
 	return _q
 }
 
@@ -551,11 +622,13 @@ func (_q *AccountQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Acco
 	var (
 		nodes       = []*Account{}
 		_spec       = _q.querySpec()
-		loadedTypes = [6]bool{
+		loadedTypes = [8]bool{
 			_q.withGroups != nil,
 			_q.withProxy != nil,
 			_q.withParent != nil,
 			_q.withChildren != nil,
+			_q.withOwner != nil,
+			_q.withCreatedBy != nil,
 			_q.withUsageLogs != nil,
 			_q.withAccountGroups != nil,
 		}
@@ -604,6 +677,18 @@ func (_q *AccountQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Acco
 		if err := _q.loadChildren(ctx, query, nodes,
 			func(n *Account) { n.Edges.Children = []*Account{} },
 			func(n *Account, e *Account) { n.Edges.Children = append(n.Edges.Children, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withOwner; query != nil {
+		if err := _q.loadOwner(ctx, query, nodes, nil,
+			func(n *Account, e *User) { n.Edges.Owner = e }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withCreatedBy; query != nil {
+		if err := _q.loadCreatedBy(ctx, query, nodes, nil,
+			func(n *Account, e *User) { n.Edges.CreatedBy = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -782,6 +867,70 @@ func (_q *AccountQuery) loadChildren(ctx context.Context, query *AccountQuery, n
 	}
 	return nil
 }
+func (_q *AccountQuery) loadOwner(ctx context.Context, query *UserQuery, nodes []*Account, init func(*Account), assign func(*Account, *User)) error {
+	ids := make([]int64, 0, len(nodes))
+	nodeids := make(map[int64][]*Account)
+	for i := range nodes {
+		if nodes[i].OwnerUserID == nil {
+			continue
+		}
+		fk := *nodes[i].OwnerUserID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(user.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "owner_user_id" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
+func (_q *AccountQuery) loadCreatedBy(ctx context.Context, query *UserQuery, nodes []*Account, init func(*Account), assign func(*Account, *User)) error {
+	ids := make([]int64, 0, len(nodes))
+	nodeids := make(map[int64][]*Account)
+	for i := range nodes {
+		if nodes[i].CreatedByUserID == nil {
+			continue
+		}
+		fk := *nodes[i].CreatedByUserID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(user.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "created_by_user_id" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
 func (_q *AccountQuery) loadUsageLogs(ctx context.Context, query *UsageLogQuery, nodes []*Account, init func(*Account), assign func(*Account, *UsageLog)) error {
 	fks := make([]driver.Value, 0, len(nodes))
 	nodeids := make(map[int64]*Account)
@@ -876,6 +1025,12 @@ func (_q *AccountQuery) querySpec() *sqlgraph.QuerySpec {
 		}
 		if _q.withParent != nil {
 			_spec.Node.AddColumnOnce(account.FieldParentAccountID)
+		}
+		if _q.withOwner != nil {
+			_spec.Node.AddColumnOnce(account.FieldOwnerUserID)
+		}
+		if _q.withCreatedBy != nil {
+			_spec.Node.AddColumnOnce(account.FieldCreatedByUserID)
 		}
 	}
 	if ps := _q.predicates; len(ps) > 0 {

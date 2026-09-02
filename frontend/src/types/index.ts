@@ -254,6 +254,8 @@ export interface PublicSettings {
   github_oauth_enabled: boolean
   google_oauth_enabled: boolean
   backend_mode_enabled: boolean
+  /** Effective self-service state; absent on older injected configs and therefore opt-in. */
+  self_service_hosting_enabled?: boolean
   version: string
   // 服务器全局时区（IANA 名称与当前 UTC 偏移），高峰时段等服务端本地时间窗口的展示标注用；
   // 可选：注入的 __APP_CONFIG__ 旧缓存可能缺失
@@ -889,6 +891,88 @@ export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' 
 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
+
+export type ResourceAccessLevel = 'viewer' | 'consumer' | 'maintainer' | 'manager'
+
+export interface SelfServiceAccount {
+  id: number
+  name: string
+  platform: AccountPlatform
+  type: AccountType
+  status: string
+  credential_configured: boolean
+  owned_by_me: boolean
+  public_access_level: ResourceAccessLevel | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SelfServiceAccountProduct {
+  id: string
+  name: string
+  platform: AccountPlatform
+  type: AccountType
+}
+
+export interface SelfServiceAccountListParams {
+  page?: number
+  page_size?: number
+  platform?: AccountPlatform | ''
+  type?: AccountType | ''
+  status?: string
+  search?: string
+  sort_by?: 'id' | 'name' | 'platform' | 'type' | 'status' | 'created_at' | 'updated_at'
+  sort_order?: 'asc' | 'desc'
+}
+
+export interface CreateSelfServiceAccountRequest {
+  name: string
+  product_id: string
+  api_key: string
+}
+
+export interface RenameSelfServiceAccountRequest {
+  name: string
+}
+
+export interface SelfServiceGroup {
+  id: number
+  name: string
+  description: string
+  platform: AccountPlatform
+  status: string
+  owned_by_me: boolean
+  public_access_level: ResourceAccessLevel | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SelfServiceGroupPlatform {
+  id: string
+  name: string
+  platform: AccountPlatform
+}
+
+export interface SelfServiceGroupListParams {
+  page?: number
+  page_size?: number
+  platform?: AccountPlatform | ''
+  status?: string
+  search?: string
+  sort_by?: 'id' | 'name' | 'platform' | 'status' | 'created_at' | 'updated_at'
+  sort_order?: 'asc' | 'desc'
+}
+
+export interface CreateSelfServiceGroupRequest {
+  name: string
+  description?: string
+  platform_id: string
+}
+
+export interface UpdateSelfServiceGroupRequest {
+  name?: string
+  description?: string
+}
 
 // Claude Model type (returned by /v1/models and account models API)
 export interface ClaudeModel {

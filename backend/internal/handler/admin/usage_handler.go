@@ -377,6 +377,10 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 // SearchUsers handles searching users by email keyword
 // GET /api/v1/admin/usage/search-users
 func (h *UsageHandler) SearchUsers(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	keyword := c.Query("q")
 	if keyword == "" {
 		response.Success(c, []any{})
@@ -384,7 +388,7 @@ func (h *UsageHandler) SearchUsers(c *gin.Context) {
 	}
 
 	// Limit to 30 results
-	users, _, err := h.adminService.ListUsers(c.Request.Context(), 1, 30, service.UserListFilters{Search: keyword, IncludeDeleted: true}, "email", "asc")
+	users, _, err := h.adminService.ListUsers(c.Request.Context(), actor, 1, 30, service.UserListFilters{Search: keyword, IncludeDeleted: true}, "email", "asc")
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

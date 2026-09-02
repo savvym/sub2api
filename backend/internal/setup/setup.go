@@ -30,6 +30,7 @@ const (
 	defaultUserConcurrency     = 5
 	simpleModeAdminConcurrency = 30
 	defaultMigrationTimeout    = 60 * time.Second
+	installationAdvisoryLockID = int64(694208311321144029)
 )
 
 func setupDefaultAdminConcurrency() int {
@@ -179,10 +180,14 @@ func NeedsSetup() bool {
 }
 
 func buildPostgresDSN(cfg *DatabaseConfig, dbName string) string {
-	return fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, dbName, cfg.SSLMode,
-	)
+	return (&config.DatabaseConfig{
+		Host:     cfg.Host,
+		Port:     cfg.Port,
+		User:     cfg.User,
+		Password: cfg.Password,
+		DBName:   dbName,
+		SSLMode:  cfg.SSLMode,
+	}).DSN()
 }
 
 func buildDatabaseConnectionDSNs(cfg *DatabaseConfig) (bootstrapDSN, targetDSN string) {
@@ -303,6 +308,56 @@ func Install(cfg *SetupConfig) error {
 		return fmt.Errorf("system is already installed, re-installation is not allowed")
 	}
 
+	lockDB, err := sql.Open("postgres", buildPostgresDSN(&cfg.Database, "postgres"))
+	if err != nil {
+		return fmt.Errorf("open installation lock database: %w", err)
+	}
+	defer func() {
+		if err := lockDB.Close(); err != nil {
+			logger.LegacyPrintf("setup", "failed to close installation lock database: %v", err)
+		}
+	}()
+
+	lockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return withInstallationLock(lockCtx, lockDB, func() error {
+		// Another process may have completed setup between the first check and
+		// acquiring the database lock.
+		if !NeedsSetup() {
+			return fmt.Errorf("system is already installed, re-installation is not allowed")
+		}
+		return installWhileLocked(cfg)
+	})
+}
+
+func withInstallationLock(ctx context.Context, db *sql.DB, install func() error) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire installation lock connection: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	var acquired bool
+	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", installationAdvisoryLockID).Scan(&acquired); err != nil {
+		return fmt.Errorf("acquire installation advisory lock: %w", err)
+	}
+	if !acquired {
+		return fmt.Errorf("another installation is already in progress")
+	}
+	defer func() {
+		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var unlocked bool
+		if err := conn.QueryRowContext(unlockCtx, "SELECT pg_advisory_unlock($1)", installationAdvisoryLockID).Scan(&unlocked); err != nil || !unlocked {
+			logger.LegacyPrintf("setup", "failed to release installation advisory lock: unlocked=%v err=%v", unlocked, err)
+		}
+	}()
+
+	return install()
+}
+
+func installWhileLocked(cfg *SetupConfig) error {
+
 	// Generate JWT secret if not provided
 	if cfg.JWT.Secret == "" {
 		secret, err := generateSecret(32)
@@ -352,11 +407,7 @@ func createInstallLock() error {
 }
 
 func initializeDatabase(cfg *SetupConfig) error {
-	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User,
-		cfg.Database.Password, cfg.Database.DBName, cfg.Database.SSLMode,
-	)
+	dsn := buildPostgresDSN(&cfg.Database, cfg.Database.DBName)
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -382,11 +433,7 @@ func (cfg *SetupConfig) migrationTimeout() time.Duration {
 }
 
 func createAdminUser(cfg *SetupConfig) (bool, string, error) {
-	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User,
-		cfg.Database.Password, cfg.Database.DBName, cfg.Database.SSLMode,
-	)
+	dsn := buildPostgresDSN(&cfg.Database, cfg.Database.DBName)
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -402,17 +449,82 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 	// 使用超时上下文避免安装流程因数据库异常而长时间阻塞。
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	return createAdminUserWithDB(ctx, db, cfg)
+}
+
+const (
+	lockUsersForAdminBootstrapSQL = `LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE`
+	deleteStaleBootstrapRoleSQL   = `
+DELETE FROM user_roles
+USING users, roles, service_principals
+WHERE user_roles.user_id = users.id
+  AND user_roles.role_id = roles.id
+  AND user_roles.granted_by_service_principal_id = service_principals.id
+  AND users.id = $1
+  AND service_principals.code = 'system_bootstrap'
+  AND roles.code IN ('user', 'admin')
+  AND roles.code <> CASE WHEN users.role = 'admin' THEN 'admin' ELSE 'user' END`
+	insertBootstrapRoleSQL = `
+INSERT INTO user_roles (
+    user_id,
+    role_id,
+    granted_by_service_principal_id
+)
+SELECT
+    users.id,
+    roles.id,
+    service_principals.id
+FROM users
+JOIN roles
+    ON roles.code = CASE WHEN users.role = 'admin' THEN 'admin' ELSE 'user' END
+JOIN service_principals
+    ON service_principals.code = 'system_bootstrap'
+WHERE users.id = $1
+ON CONFLICT (user_id, role_id) DO NOTHING`
+	verifyBootstrapRoleSQL = `
+SELECT EXISTS (
+    SELECT 1
+    FROM user_roles
+    JOIN users ON users.id = user_roles.user_id
+    JOIN roles ON roles.id = user_roles.role_id
+    JOIN service_principals
+        ON service_principals.id = user_roles.granted_by_service_principal_id
+    WHERE users.id = $1
+      AND roles.code = CASE WHEN users.role = 'admin' THEN 'admin' ELSE 'user' END
+      AND service_principals.code = 'system_bootstrap'
+      AND user_roles.granted_by_user_id IS NULL
+      AND user_roles.expires_at IS NULL
+)`
+)
+
+func createAdminUserWithDB(ctx context.Context, db *sql.DB, cfg *SetupConfig) (created bool, reason string, err error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, "", fmt.Errorf("begin admin bootstrap transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	// Serialize every setup entry point, including CLI/auto setup running in a
+	// different process from the web setup mutex.
+	if _, err := tx.ExecContext(ctx, lockUsersForAdminBootstrapSQL); err != nil {
+		return false, "", fmt.Errorf("lock users for admin bootstrap: %w", err)
+	}
 
 	var totalUsers int64
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(1) FROM users").Scan(&totalUsers); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(1) FROM users").Scan(&totalUsers); err != nil {
 		return false, "", err
 	}
 	var adminUsers int64
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(1) FROM users WHERE role = $1", service.RoleAdmin).Scan(&adminUsers); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(1) FROM users WHERE role = $1", service.RoleAdmin).Scan(&adminUsers); err != nil {
 		return false, "", err
 	}
 	decision := decideAdminBootstrap(totalUsers, adminUsers)
 	if !decision.shouldCreate {
+		if err := tx.Commit(); err != nil {
+			return false, "", fmt.Errorf("commit admin bootstrap decision: %w", err)
+		}
 		return false, decision.reason, nil
 	}
 
@@ -440,10 +552,12 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 		return false, "", err
 	}
 
-	_, err = db.ExecContext(
+	var adminUserID int64
+	err = tx.QueryRowContext(
 		ctx,
 		`INSERT INTO users (email, password_hash, role, balance, concurrency, status, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 RETURNING id`,
 		admin.Email,
 		admin.PasswordHash,
 		admin.Role,
@@ -452,11 +566,36 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 		admin.Status,
 		admin.CreatedAt,
 		admin.UpdatedAt,
-	)
+	).Scan(&adminUserID)
 	if err != nil {
 		return false, "", err
 	}
+
+	if err := convergeBootstrapCompatibilityRole(ctx, tx, adminUserID); err != nil {
+		return false, "", fmt.Errorf("assign admin compatibility role: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, "", fmt.Errorf("commit admin bootstrap transaction: %w", err)
+	}
 	return true, decision.reason, nil
+}
+
+func convergeBootstrapCompatibilityRole(ctx context.Context, tx *sql.Tx, userID int64) error {
+	if _, err := tx.ExecContext(ctx, deleteStaleBootstrapRoleSQL, userID); err != nil {
+		return fmt.Errorf("remove stale compatibility role: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, insertBootstrapRoleSQL, userID); err != nil {
+		return fmt.Errorf("insert compatibility role: %w", err)
+	}
+
+	var assigned bool
+	if err := tx.QueryRowContext(ctx, verifyBootstrapRoleSQL, userID).Scan(&assigned); err != nil {
+		return fmt.Errorf("verify compatibility role: %w", err)
+	}
+	if !assigned {
+		return fmt.Errorf("system_bootstrap compatibility role is missing for user %d", userID)
+	}
+	return nil
 }
 
 func writeConfigFile(cfg *SetupConfig) error {
@@ -609,68 +748,9 @@ func AutoSetupFromEnv() error {
 		MigrationTimeoutSeconds: getEnvIntOrDefault("SETUP_MIGRATION_TIMEOUT_SECONDS", 0),
 	}
 
-	// Generate JWT secret if not provided
-	if cfg.JWT.Secret == "" {
-		secret, err := generateSecret(32)
-		if err != nil {
-			return fmt.Errorf("failed to generate jwt secret: %w", err)
-		}
-		cfg.JWT.Secret = secret
-		logger.LegacyPrintf("setup", "%s", "Warning: JWT secret auto-generated. Consider setting a fixed secret for production.")
+	if err := Install(cfg); err != nil {
+		return err
 	}
-
-	// Test database connection
-	logger.LegacyPrintf("setup", "%s", "Testing database connection...")
-	if err := TestDatabaseConnection(&cfg.Database); err != nil {
-		return fmt.Errorf("database connection failed: %w", err)
-	}
-	logger.LegacyPrintf("setup", "%s", "Database connection successful")
-
-	// Test Redis connection
-	logger.LegacyPrintf("setup", "%s", "Testing Redis connection...")
-	if err := TestRedisConnection(&cfg.Redis); err != nil {
-		return fmt.Errorf("redis connection failed: %w", err)
-	}
-	logger.LegacyPrintf("setup", "%s", "Redis connection successful")
-
-	// Initialize database
-	logger.LegacyPrintf("setup", "%s", "Initializing database...")
-	if err := initializeDatabase(cfg); err != nil {
-		return fmt.Errorf("database initialization failed: %w", err)
-	}
-	logger.LegacyPrintf("setup", "%s", "Database initialized successfully")
-
-	// Create admin user
-	logger.LegacyPrintf("setup", "%s", "Creating admin user...")
-	created, reason, err := createAdminUser(cfg)
-	if err != nil {
-		return fmt.Errorf("admin user creation failed: %w", err)
-	}
-	if created {
-		logger.LegacyPrintf("setup", "Admin user created: %s", cfg.Admin.Email)
-	} else {
-		switch reason {
-		case adminBootstrapReasonAdminExists:
-			logger.LegacyPrintf("setup", "%s", "Admin user already exists, skipping admin bootstrap")
-		case adminBootstrapReasonUsersExistWithoutAdmin:
-			logger.LegacyPrintf("setup", "%s", "Database already has user data; skipping auto admin bootstrap to avoid password overwrite")
-		default:
-			logger.LegacyPrintf("setup", "%s", "Admin bootstrap skipped")
-		}
-	}
-
-	// Write config file
-	logger.LegacyPrintf("setup", "%s", "Writing configuration file...")
-	if err := writeConfigFile(cfg); err != nil {
-		return fmt.Errorf("config file creation failed: %w", err)
-	}
-	logger.LegacyPrintf("setup", "%s", "Configuration file created")
-
-	// Create installation lock file
-	if err := createInstallLock(); err != nil {
-		return fmt.Errorf("failed to create install lock: %w", err)
-	}
-	logger.LegacyPrintf("setup", "%s", "Installation lock created")
 
 	logger.LegacyPrintf("setup", "%s", "Auto setup completed successfully!")
 	return nil

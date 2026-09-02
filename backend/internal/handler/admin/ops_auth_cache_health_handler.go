@@ -19,3 +19,13 @@ func (h *OpsHandler) GetAuthCacheInvalidationHealth(c *gin.Context) {
 	}
 	response.Success(c, h.opsService.GetAuthCacheInvalidationHealth(c.Request.Context()))
 }
+
+// GetAuthorizationPropagationHealth exposes the 5-second target, 30-second
+// safety limit, durable queue lag, worker state, and expansion gate decision.
+func (h *OpsHandler) GetAuthorizationPropagationHealth(c *gin.Context) {
+	if h.opsService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
+		return
+	}
+	response.Success(c, h.opsService.GetAuthorizationPropagationHealth(c.Request.Context()))
+}

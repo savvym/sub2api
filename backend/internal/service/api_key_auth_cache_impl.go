@@ -14,7 +14,10 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 20 // v20: group long-context and model pricing fields (force refresh of pre-fix snapshots)
+const (
+	apiKeyAuthSnapshotVersion = 22 // v22: enforce an absolute positive-snapshot lifetime across cache tiers
+	apiKeyAuthPositiveTTLMax  = 30 * time.Second
+)
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -72,6 +75,62 @@ func (c apiKeyAuthCacheConfig) jitterTTL(ttl time.Duration) time.Duration {
 		return ttl
 	}
 	return time.Duration(float64(ttl) * factor)
+}
+
+func (c apiKeyAuthCacheConfig) positiveTTL(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return ttl
+	}
+	if ttl > apiKeyAuthPositiveTTLMax {
+		ttl = apiKeyAuthPositiveTTLMax
+	}
+	ttl = c.jitterTTL(ttl)
+	if ttl <= 0 {
+		return time.Nanosecond
+	}
+	if ttl > apiKeyAuthPositiveTTLMax {
+		return apiKeyAuthPositiveTTLMax
+	}
+	return ttl
+}
+
+func positiveAuthSnapshotRemaining(snapshot *APIKeyAuthSnapshot, now time.Time) time.Duration {
+	if snapshot == nil || snapshot.Version != apiKeyAuthSnapshotVersion || snapshot.CacheCreatedAt.IsZero() {
+		return 0
+	}
+	if now.Before(snapshot.CacheCreatedAt) {
+		return 0
+	}
+	age := now.Sub(snapshot.CacheCreatedAt)
+	if age >= apiKeyAuthPositiveTTLMax {
+		return 0
+	}
+	return apiKeyAuthPositiveTTLMax - age
+}
+
+func positiveAuthSnapshotLocalWriteRemaining(snapshot *APIKeyAuthSnapshot, now time.Time) time.Duration {
+	if snapshot == nil || snapshot.localCacheExpiresAt.IsZero() || !snapshot.localCacheExpiresAt.After(now) {
+		return 0
+	}
+	return snapshot.localCacheExpiresAt.Sub(now)
+}
+
+func (c apiKeyAuthCacheConfig) positiveSnapshotTTL(
+	snapshot *APIKeyAuthSnapshot,
+	ttl time.Duration,
+	now time.Time,
+) time.Duration {
+	ttl = c.positiveTTL(ttl)
+	wallRemaining := positiveAuthSnapshotRemaining(snapshot, now)
+	localRemaining := positiveAuthSnapshotLocalWriteRemaining(snapshot, now)
+	if ttl <= 0 || wallRemaining <= 0 || localRemaining <= 0 {
+		return 0
+	}
+	remaining := min(wallRemaining, localRemaining)
+	if ttl > remaining {
+		return remaining
+	}
+	return ttl
 }
 
 func (s *APIKeyService) initAuthCache(cfg *config.Config) {
@@ -199,8 +258,11 @@ func (s *APIKeyService) authCacheKey(key string) string {
 func (s *APIKeyService) getAuthCacheEntry(ctx context.Context, cacheKey string) (*APIKeyAuthCacheEntry, bool) {
 	if s.authCacheL1 != nil {
 		if val, ok := s.authCacheL1.Get(cacheKey); ok {
-			if entry, ok := val.(*APIKeyAuthCacheEntry); ok {
-				return entry, true
+			if entry, ok := val.(*APIKeyAuthCacheEntry); ok && entry != nil {
+				if entry.NotFound || positiveAuthSnapshotRemaining(entry.Snapshot, time.Now()) > 0 {
+					return entry, true
+				}
+				s.authCacheL1.Del(cacheKey)
 			}
 		}
 	}
@@ -218,7 +280,18 @@ func (s *APIKeyService) getAuthCacheEntry(ctx context.Context, cacheKey string) 
 	if err != nil {
 		return nil, false
 	}
-	s.setAuthCacheL1(cacheKey, entry)
+	if entry == nil {
+		return nil, false
+	}
+	if !entry.NotFound && positiveAuthSnapshotRemaining(entry.Snapshot, time.Now()) <= 0 {
+		return nil, false
+	}
+	// Positive L2 entries deliberately stay in L2. Redis's relative TTL is the
+	// only cross-instance deadline that does not depend on clock alignment; a
+	// receiver must not mint a fresh process-local TTL from CacheCreatedAt.
+	if entry.NotFound {
+		s.setAuthCacheL1(cacheKey, entry)
+	}
 	return entry, true
 }
 
@@ -235,8 +308,10 @@ func (s *APIKeyService) setAuthCacheL1(cacheKey string, entry *APIKeyAuthCacheEn
 	if s.authCacheL1 == nil {
 		return
 	}
-	ttl := s.authCfg.l1TTL
-	ttl = s.authCfg.jitterTTL(ttl)
+	ttl := s.authCfg.positiveSnapshotTTL(entry.Snapshot, s.authCfg.l1TTL, time.Now())
+	if ttl <= 0 {
+		return
+	}
 	_ = s.authCacheL1.SetWithTTL(cacheKey, entry, 1, ttl)
 }
 
@@ -248,7 +323,11 @@ func (s *APIKeyService) setAuthCacheEntry(ctx context.Context, cacheKey string, 
 	if s.cache == nil || !s.authCfg.l2Enabled() {
 		return
 	}
-	_ = s.cache.SetAuthCache(ctx, cacheKey, entry, s.authCfg.jitterTTL(ttl))
+	ttl = s.authCfg.positiveSnapshotTTL(entry.Snapshot, ttl, time.Now())
+	if ttl <= 0 {
+		return
+	}
+	_ = s.cache.SetAuthCache(ctx, cacheKey, entry, ttl)
 }
 
 func (s *APIKeyService) deleteAuthCache(ctx context.Context, cacheKey string) {
@@ -328,6 +407,9 @@ func (s *APIKeyService) applyAuthCacheEntry(key string, entry *APIKeyAuthCacheEn
 	if entry.Snapshot.Version != apiKeyAuthSnapshotVersion {
 		return nil, false, nil
 	}
+	if positiveAuthSnapshotRemaining(entry.Snapshot, time.Now()) <= 0 {
+		return nil, false, nil
+	}
 	return s.snapshotToAPIKey(key, entry.Snapshot), true, nil
 }
 
@@ -335,21 +417,24 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 	if apiKey == nil || apiKey.User == nil {
 		return nil
 	}
+	now := time.Now()
 	snapshot := &APIKeyAuthSnapshot{
-		Version:     apiKeyAuthSnapshotVersion,
-		APIKeyID:    apiKey.ID,
-		UserID:      apiKey.UserID,
-		GroupID:     apiKey.GroupID,
-		Name:        apiKey.Name,
-		Status:      apiKey.Status,
-		IPWhitelist: apiKey.IPWhitelist,
-		IPBlacklist: apiKey.IPBlacklist,
-		Quota:       apiKey.Quota,
-		QuotaUsed:   apiKey.QuotaUsed,
-		ExpiresAt:   apiKey.ExpiresAt,
-		RateLimit5h: apiKey.RateLimit5h,
-		RateLimit1d: apiKey.RateLimit1d,
-		RateLimit7d: apiKey.RateLimit7d,
+		Version:             apiKeyAuthSnapshotVersion,
+		CacheCreatedAt:      now.UTC(),
+		localCacheExpiresAt: now.Add(apiKeyAuthPositiveTTLMax),
+		APIKeyID:            apiKey.ID,
+		UserID:              apiKey.UserID,
+		GroupID:             apiKey.GroupID,
+		Name:                apiKey.Name,
+		Status:              apiKey.Status,
+		IPWhitelist:         apiKey.IPWhitelist,
+		IPBlacklist:         apiKey.IPBlacklist,
+		Quota:               apiKey.Quota,
+		QuotaUsed:           apiKey.QuotaUsed,
+		ExpiresAt:           apiKey.ExpiresAt,
+		RateLimit5h:         apiKey.RateLimit5h,
+		RateLimit1d:         apiKey.RateLimit1d,
+		RateLimit7d:         apiKey.RateLimit7d,
 		User: APIKeyAuthUserSnapshot{
 			ID:                         apiKey.User.ID,
 			Status:                     apiKey.User.Status,

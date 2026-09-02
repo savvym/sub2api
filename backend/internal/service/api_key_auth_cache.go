@@ -4,16 +4,23 @@ import "time"
 
 // APIKeyAuthSnapshot API Key 认证缓存快照（仅包含认证所需字段）
 type APIKeyAuthSnapshot struct {
-	Version     int                      `json:"version"`
-	APIKeyID    int64                    `json:"api_key_id"`
-	UserID      int64                    `json:"user_id"`
-	GroupID     *int64                   `json:"group_id,omitempty"`
-	Name        string                   `json:"name"`
-	Status      string                   `json:"status"`
-	IPWhitelist []string                 `json:"ip_whitelist,omitempty"`
-	IPBlacklist []string                 `json:"ip_blacklist,omitempty"`
-	User        APIKeyAuthUserSnapshot   `json:"user"`
-	Group       *APIKeyAuthGroupSnapshot `json:"group,omitempty"`
+	Version int `json:"version"`
+	// CacheCreatedAt is immutable across cache transport and rewrites. A zero or
+	// future value is invalid so an allow snapshot cannot acquire a new lifetime.
+	CacheCreatedAt time.Time `json:"cache_created_at"`
+	// localCacheExpiresAt carries the process-local monotonic deadline used for
+	// initial L1/L2 writes. It is intentionally not serialized: an L2 reader
+	// cannot safely derive a new local TTL from another process's wall clock.
+	localCacheExpiresAt time.Time
+	APIKeyID            int64                    `json:"api_key_id"`
+	UserID              int64                    `json:"user_id"`
+	GroupID             *int64                   `json:"group_id,omitempty"`
+	Name                string                   `json:"name"`
+	Status              string                   `json:"status"`
+	IPWhitelist         []string                 `json:"ip_whitelist,omitempty"`
+	IPBlacklist         []string                 `json:"ip_blacklist,omitempty"`
+	User                APIKeyAuthUserSnapshot   `json:"user"`
+	Group               *APIKeyAuthGroupSnapshot `json:"group,omitempty"`
 
 	// Quota fields for API Key independent quota feature
 	Quota     float64 `json:"quota"`      // Quota limit in USD (0 = unlimited)

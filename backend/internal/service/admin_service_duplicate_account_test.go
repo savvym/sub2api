@@ -11,14 +11,16 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
 type duplicateAccountRepoStub struct {
 	*sparkShadowRepoStub
-	atomicCreateErr error
-	accountGroupsOf map[int64][]AccountGroup
+	atomicCreateErr               error
+	hideDuplicateOperationLookups int
+	accountGroupsOf               map[int64][]AccountGroup
 }
 
 func newDuplicateAccountRepoStub() *duplicateAccountRepoStub {
@@ -57,6 +59,10 @@ func (s *duplicateAccountRepoStub) CreateWithAccountGroups(ctx context.Context, 
 }
 
 func (s *duplicateAccountRepoStub) FindByExtraField(_ context.Context, key string, value any) ([]Account, error) {
+	if s.hideDuplicateOperationLookups > 0 {
+		s.hideDuplicateOperationLookups--
+		return nil, nil
+	}
 	wanted, ok := value.(string)
 	if !ok {
 		return nil, nil
@@ -87,6 +93,9 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 	tempUnschedulableUntil := time.Now().Add(3 * time.Hour)
 	sessionWindowStart := time.Now().Add(-2 * time.Hour)
 	sessionWindowEnd := time.Now().Add(2 * time.Hour)
+	sourceOwnerID := int64(91)
+	sourceCreatorID := int64(92)
+	sourceAccess := "public"
 
 	source := &Account{
 		Name:                  "primary",
@@ -104,6 +113,9 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 		ErrorMessage:          "upstream unavailable",
 		ExpiresAt:             &expiresAt,
 		AutoPauseOnExpired:    false,
+		OwnerUserID:           &sourceOwnerID,
+		CreatedByUserID:       &sourceCreatorID,
+		PublicAccessLevel:     &sourceAccess,
 		Credentials: map[string]any{
 			"api_key": "secret",
 			"nested":  map[string]any{"token": "source-token"},
@@ -145,7 +157,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 	source.Extra[UpstreamBillingProbeExtraKey] = map[string]any{"status": "ok"}
 	require.NoError(t, repo.Create(ctx, source))
 
-	duplicate, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
+	duplicate, err := svc.DuplicateAccount(ctx, adminResourceUserTestActor(t), source.ID, "")
 
 	require.NoError(t, err)
 	require.NotEqual(t, source.ID, duplicate.ID)
@@ -170,6 +182,9 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 	require.Equal(t, source.ProxyFallbackOriginID, duplicate.ProxyID)
 	require.Equal(t, source.RateMultiplier, duplicate.RateMultiplier)
 	require.Equal(t, source.LoadFactor, duplicate.LoadFactor)
+	require.Nil(t, duplicate.OwnerUserID, "admin duplicate must be platform-owned")
+	require.Equal(t, int64(1), *duplicate.CreatedByUserID, "JWT actor must be the creator")
+	require.Nil(t, duplicate.PublicAccessLevel)
 	require.Equal(t, source.GroupIDs, repo.groupsOf[duplicate.ID])
 	require.Equal(t, []AccountGroup{
 		{AccountID: duplicate.ID, GroupID: 7, Priority: 50},
@@ -214,7 +229,7 @@ func TestDuplicateAccountRejectsCredentialShadow(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, shadow))
 
-	_, err := svc.DuplicateAccount(ctx, shadow.ID, "admin:1", "")
+	_, err := svc.DuplicateAccount(ctx, adminResourceUserTestActor(t), shadow.ID, "")
 
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
@@ -236,7 +251,7 @@ func TestDuplicateAccountRejectsRotatingOrUnknownCredentialTypes(t *testing.T) {
 			}
 			require.NoError(t, repo.Create(ctx, source))
 
-			_, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
+			_, err := svc.DuplicateAccount(ctx, adminResourceUserTestActor(t), source.ID, "")
 
 			require.Error(t, err)
 			require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
@@ -259,7 +274,7 @@ func TestDuplicateAccountPreservesUngroupedState(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, source))
 
-	duplicate, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
+	duplicate, err := svc.DuplicateAccount(ctx, adminResourceUserTestActor(t), source.ID, "")
 
 	require.NoError(t, err)
 	require.Empty(t, duplicate.GroupIDs)
@@ -281,7 +296,7 @@ func TestDuplicateAccountAtomicCreateFailureLeavesNoOrphan(t *testing.T) {
 	require.NoError(t, repo.Create(ctx, source))
 	repo.atomicCreateErr = errors.New("group binding failed")
 
-	_, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
+	_, err := svc.DuplicateAccount(ctx, adminResourceUserTestActor(t), source.ID, "")
 
 	require.ErrorContains(t, err, "group binding failed")
 	require.Len(t, repo.accounts, 1)
@@ -306,15 +321,17 @@ func TestDuplicateAccountReturnsExistingCopyForSameOperationKey(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, source))
 
-	first, err := svc.DuplicateAccount(ctx, source.ID, "admin:7", "stable-operation-key")
+	actor7 := adminResourceTestActor(t, authz.SubjectKindUser, 7)
+	actor8 := adminResourceTestActor(t, authz.SubjectKindUser, 8)
+	first, err := svc.DuplicateAccount(ctx, actor7, source.ID, "stable-operation-key")
 	require.NoError(t, err)
-	second, err := svc.DuplicateAccount(ctx, source.ID, "admin:7", "stable-operation-key")
+	second, err := svc.DuplicateAccount(ctx, actor7, source.ID, "stable-operation-key")
 	require.NoError(t, err)
-	recovered, err := svc.RecoverDuplicateAccount(ctx, source.ID, "admin:7", "stable-operation-key")
+	recovered, err := svc.RecoverDuplicateAccount(ctx, actor7, source.ID, "stable-operation-key")
 	require.NoError(t, err)
-	otherAdminRecovery, err := svc.RecoverDuplicateAccount(ctx, source.ID, "admin:8", "stable-operation-key")
+	otherAdminRecovery, err := svc.RecoverDuplicateAccount(ctx, actor8, source.ID, "stable-operation-key")
 	require.NoError(t, err)
-	otherAdminCopy, err := svc.DuplicateAccount(ctx, source.ID, "admin:8", "stable-operation-key")
+	otherAdminCopy, err := svc.DuplicateAccount(ctx, actor8, source.ID, "stable-operation-key")
 	require.NoError(t, err)
 
 	require.Equal(t, first.ID, second.ID)
@@ -323,4 +340,66 @@ func TestDuplicateAccountReturnsExistingCopyForSameOperationKey(t *testing.T) {
 	require.NotEqual(t, first.ID, otherAdminCopy.ID)
 	require.Len(t, repo.accounts, 3)
 	require.NotEmpty(t, first.Extra[duplicateAccountOperationIDExtraKey])
+}
+
+func TestDuplicateAccountConcurrentRecoveryIsResourceMutationNoop(t *testing.T) {
+	ctx := WithResourceMutationAuditTrace(context.Background(), ResourceMutationAuditTrace{RequestID: "account-replay"})
+	repo := newDuplicateAccountRepoStub()
+	actor := adminResourceUserTestActor(t)
+	source := &Account{
+		Name:          "source",
+		Platform:      PlatformAnthropic,
+		Type:          AccountTypeAPIKey,
+		Credentials:   map[string]any{"api_key": "secret"},
+		AccessVersion: 3,
+	}
+	require.NoError(t, repo.Create(ctx, source))
+	actorScope, err := adminResourceActorSubjectKey(actor)
+	require.NoError(t, err)
+	operationKey := "stable-operation-key"
+	existing := &Account{
+		Name:          "source (Copy)",
+		Platform:      PlatformAnthropic,
+		Type:          AccountTypeAPIKey,
+		Credentials:   map[string]any{"api_key": "secret"},
+		Extra:         map[string]any{duplicateAccountOperationIDExtraKey: duplicateAccountOperationID(source.ID, actorScope, operationKey)},
+		AccessVersion: 1,
+	}
+	require.NoError(t, repo.Create(ctx, existing))
+	repo.hideDuplicateOperationLookups = 1
+
+	_, subjectSnapshot, _ := resourceMutationPolicyFixtures(t, actor, true)
+	sourceRef, err := authz.NewResourceRef(authz.ResourceTypeAccount, source.ID)
+	require.NoError(t, err)
+	sourceSnapshot, err := authz.NewResourceAccessSnapshot(authz.ResourceAccessSnapshotInput{
+		Subject:       subjectSnapshot,
+		Resource:      sourceRef,
+		Exists:        true,
+		AccessVersion: source.AccessVersion,
+	})
+	require.NoError(t, err)
+	sourceKey := ResourceMutationKeyFromRef(sourceRef)
+	mutationRepo := &resourceMutationRepositoryStub{states: map[ResourceMutationKey]ResourceMutationState{
+		sourceKey: {Key: sourceKey, AccessVersion: source.AccessVersion},
+	}}
+	svc := &adminServiceImpl{
+		accountRepo:          repo,
+		accountDuplicateRepo: repo,
+		resourceMutations: NewResourceMutationCoordinator(
+			mutationRepo,
+			resourceMutationResolverStub{actor: actor},
+			authz.NewPolicyService(resourceMutationPolicyStoreStub{subject: subjectSnapshot, resource: sourceSnapshot}),
+		),
+	}
+
+	duplicate, err := svc.DuplicateAccount(ctx, actor, source.ID, operationKey)
+
+	require.NoError(t, err)
+	require.Equal(t, existing.ID, duplicate.ID)
+	require.True(t, mutationRepo.rolledBack)
+	require.Empty(t, mutationRepo.incremented)
+	require.Empty(t, mutationRepo.events)
+	require.EqualValues(t, 3, mutationRepo.states[sourceKey].AccessVersion)
+	require.False(t, ResourceMutationAuditCommitted(ctx))
+	require.Len(t, repo.accounts, 2)
 }

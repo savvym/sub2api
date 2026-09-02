@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/oauth"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/oauthflow"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
@@ -31,6 +34,7 @@ type GrokOAuthClient interface {
 // GrokOAuthTokenService is the narrow refresh port used by Grok token providers.
 type GrokOAuthTokenService interface {
 	RefreshAccountToken(ctx context.Context, account *Account) (*GrokTokenInfo, error)
+	AdminRefreshAccountToken(ctx context.Context, actor authz.Actor, account *Account) (*GrokTokenInfo, error)
 	BuildAccountCredentials(tokenInfo *GrokTokenInfo) map[string]any
 }
 
@@ -64,18 +68,21 @@ type GenerateAuthURLResult struct {
 	SessionID string `json:"session_id"`
 }
 
-// GenerateAuthURL generates an OAuth authorization URL with full scope
-func (s *OAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64) (*GenerateAuthURLResult, error) {
-	return s.generateAuthURLWithScope(ctx, oauth.ScopeOAuth, proxyID)
+// generateAuthURL generates an OAuth authorization URL with full scope.
+func (s *OAuthService) generateAuthURL(ctx context.Context, binding oauthflow.Binding, proxyID *int64) (*GenerateAuthURLResult, error) {
+	return s.generateAuthURLWithScope(ctx, binding, oauth.ScopeOAuth, proxyID)
 }
 
-// GenerateSetupTokenURL generates an OAuth authorization URL for setup token (inference only)
-func (s *OAuthService) GenerateSetupTokenURL(ctx context.Context, proxyID *int64) (*GenerateAuthURLResult, error) {
+// generateSetupTokenURL generates an OAuth authorization URL for setup token (inference only).
+func (s *OAuthService) generateSetupTokenURL(ctx context.Context, binding oauthflow.Binding, proxyID *int64) (*GenerateAuthURLResult, error) {
 	scope := oauth.ScopeInference
-	return s.generateAuthURLWithScope(ctx, scope, proxyID)
+	return s.generateAuthURLWithScope(ctx, binding, scope, proxyID)
 }
 
-func (s *OAuthService) generateAuthURLWithScope(ctx context.Context, scope string, proxyID *int64) (*GenerateAuthURLResult, error) {
+func (s *OAuthService) generateAuthURLWithScope(ctx context.Context, binding oauthflow.Binding, scope string, proxyID *int64) (*GenerateAuthURLResult, error) {
+	if !binding.Valid() {
+		return nil, fmt.Errorf("oauth flow binding is invalid")
+	}
 	// Generate PKCE values
 	state, err := oauth.GenerateState()
 	if err != nil {
@@ -109,7 +116,9 @@ func (s *OAuthService) generateAuthURLWithScope(ctx context.Context, scope strin
 		State:        state,
 		CodeVerifier: codeVerifier,
 		Scope:        scope,
+		ProxyID:      cloneOAuthFlowInt64Pointer(proxyID),
 		ProxyURL:     proxyURL,
+		Binding:      binding,
 		CreatedAt:    time.Now(),
 	}
 	s.sessionStore.Set(sessionID, session)
@@ -143,34 +152,45 @@ type TokenInfo struct {
 	EmailAddress string `json:"email_address,omitempty"`
 }
 
-// ExchangeCode exchanges authorization code for tokens
-func (s *OAuthService) ExchangeCode(ctx context.Context, input *ExchangeCodeInput) (*TokenInfo, error) {
+// exchangeCode exchanges authorization code for tokens.
+func (s *OAuthService) exchangeCode(ctx context.Context, binding oauthflow.Binding, input *ExchangeCodeInput) (*TokenInfo, error) {
+	if input == nil {
+		return nil, fmt.Errorf("input is required")
+	}
 	// Get session
 	session, ok := s.sessionStore.Get(input.SessionID)
 	if !ok {
 		return nil, fmt.Errorf("session not found or expired")
 	}
-
-	// Get proxy URL
-	proxyURL := session.ProxyURL
-	if input.ProxyID != nil {
-		proxy, err := s.proxyRepo.GetByID(ctx, *input.ProxyID)
-		if err == nil && proxy != nil {
-			proxyURL = proxy.URL()
-		}
+	if err := validateOAuthFlowBinding(session.Binding, binding, "CLAUDE_OAUTH"); err != nil {
+		return nil, err
 	}
+	if err := validateOAuthProxyBinding(input.ProxyID, session.ProxyID, "CLAUDE_OAUTH"); err != nil {
+		return nil, err
+	}
+	code := strings.TrimSpace(input.Code)
+	if code == "" {
+		return nil, fmt.Errorf("authorization code is required")
+	}
+
+	// The proxy is fixed by the server-owned session; callbacks cannot replace it.
+	proxyURL := session.ProxyURL
 
 	// Determine if this is a setup token (scope is inference only)
 	isSetupToken := session.Scope == oauth.ScopeInference
+	if s.oauthClient == nil {
+		return nil, fmt.Errorf("oauth client is not configured")
+	}
+	if !s.sessionStore.TryConsumeSession(input.SessionID) {
+		return nil, oauthSessionAlreadyUsed("CLAUDE_OAUTH")
+	}
+	defer s.sessionStore.Delete(input.SessionID)
 
 	// Exchange code for token
-	tokenInfo, err := s.exchangeCodeForToken(ctx, input.Code, session.CodeVerifier, session.State, proxyURL, isSetupToken)
+	tokenInfo, err := s.exchangeCodeForToken(ctx, code, session.CodeVerifier, session.State, proxyURL, isSetupToken)
 	if err != nil {
 		return nil, err
 	}
-
-	// Delete session after successful exchange
-	s.sessionStore.Delete(input.SessionID)
 
 	return tokenInfo, nil
 }

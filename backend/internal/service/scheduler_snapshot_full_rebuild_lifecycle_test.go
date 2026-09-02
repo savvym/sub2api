@@ -282,9 +282,11 @@ func TestSchedulerFullRebuildActiveTombstoneDoesNotBlockFollowingGroupEvent(t *t
 
 	svc.pollOutbox()
 
-	require.Equal(t, int64(2), cache.currentWatermark())
+	require.Equal(t, []int64{1, 2}, outbox.acknowledged)
+	require.Empty(t, outbox.events)
+	require.Zero(t, cache.currentWatermark())
 	cache.mu.Lock()
-	require.Equal(t, []int64{2}, cache.watermarkWrites)
+	require.Empty(t, cache.watermarkWrites)
 	cache.mu.Unlock()
 	activeCalls, fallbackCalls, freshCalls := groups.stats()
 	require.Equal(t, 1, activeCalls)
@@ -630,12 +632,17 @@ func TestSchedulerFullRebuildFreshReopenLockBusyRetriesWithoutBlockingOrdinaryTa
 
 	svc.pollOutbox()
 	require.Zero(t, cache.currentWatermark())
+	require.Equal(t, []int64{1}, outbox.retried)
+	require.Empty(t, outbox.acknowledged)
 	_, groupZeroPublished := cache.counts(schedulerCanonicalBuckets(0)[0])
 	require.Equal(t, 1, groupZeroPublished, "ordinary tasks must still run when one strict Reopen task is busy")
 	require.Equal(t, 20, accounts.callCount())
 
+	outbox.retryAt[1] = time.Now().Add(-time.Second)
 	svc.pollOutbox()
-	require.Equal(t, int64(1), cache.currentWatermark())
+	require.Equal(t, []int64{1}, outbox.acknowledged)
+	require.Empty(t, outbox.events)
+	require.Zero(t, cache.currentWatermark())
 	require.Equal(t, 40, accounts.callCount())
 	_, busyBucketPublished := cache.counts(canonical[0])
 	require.Equal(t, 1, busyBucketPublished)
@@ -643,6 +650,35 @@ func TestSchedulerFullRebuildFreshReopenLockBusyRetriesWithoutBlockingOrdinaryTa
 	require.Equal(t, 2, activeCalls)
 	require.Zero(t, fallbackCalls)
 	require.Equal(t, []int64{groupID}, freshCalls)
+}
+
+func TestSchedulerFullRebuildOutboxOrdinaryLockBusyRetriesThenAcknowledges(t *testing.T) {
+	busyBucket := schedulerCanonicalBuckets(0)[0]
+	cache := newFullRebuildLifecycleCache()
+	cache.lockBusyOnce[busyBucket.String()] = true
+	groups := &fullRebuildLifecycleGroupRepo{fresh: make(map[int64]*Group), freshErr: make(map[int64]error)}
+	accounts := &fullRebuildAccountRepo{}
+	outbox := &outboxCleanupRepo{events: []SchedulerOutboxEvent{{ID: 2, EventType: SchedulerOutboxEventFullRebuild}}}
+	svc := newFullRebuildLifecycleService(cache, outbox, accounts, groups, config.RunModeStandard)
+
+	svc.pollOutbox()
+
+	require.Equal(t, []int64{2}, outbox.retried)
+	require.Empty(t, outbox.acknowledged)
+	require.Len(t, outbox.retryErrors, 1)
+	require.Contains(t, outbox.retryErrors[0], ErrSchedulerBucketRebuildBusy.Error())
+	_, published := cache.counts(busyBucket)
+	require.Zero(t, published)
+	require.Equal(t, 10, accounts.callCount())
+
+	outbox.retryAt[2] = time.Now().Add(-time.Second)
+	svc.pollOutbox()
+
+	require.Equal(t, []int64{2}, outbox.acknowledged)
+	require.Empty(t, outbox.events)
+	_, published = cache.counts(busyBucket)
+	require.Equal(t, 1, published)
+	require.Equal(t, 20, accounts.callCount())
 }
 
 func TestSchedulerFullRebuildOrdinaryLockBusyKeepsExistingSkipSemantics(t *testing.T) {

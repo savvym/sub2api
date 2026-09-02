@@ -101,12 +101,16 @@ func (h *SettingHandler) SetStepUpDeps(totpService *service.TotpService, userSer
 // GetSettings 获取所有系统设置
 // GET /api/v1/admin/settings
 func (h *SettingHandler) GetSettings(c *gin.Context) {
-	settings, err := h.settingService.GetAllSettings(c.Request.Context())
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+	settings, err := h.settingService.AdminGetAllSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	authSourceDefaults, err := h.settingService.GetAuthSourceDefaultSettings(c.Request.Context())
+	authSourceDefaults, err := h.settingService.AdminGetAuthSourceDefaultSettings(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -288,6 +292,12 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                                   settings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:                            settings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                                     settings.BackendModeEnabled,
+		ResourceAccessControlEnabled:                           settings.ResourceAccessControlEnabled,
+		SelfServiceHostingEnabled:                              settings.SelfServiceHostingEnabled,
+		GroupSharingEnabled:                                    settings.GroupSharingEnabled,
+		AccountSharingEnabled:                                  settings.AccountSharingEnabled,
+		RoleBasedResourceGrantsEnabled:                         settings.RoleBasedResourceGrantsEnabled,
+		RoleAuthorizationMode:                                  settings.RoleAuthorizationMode,
 		EnableFingerprintUnification:                           settings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              settings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       settings.EnableCCHSigning,

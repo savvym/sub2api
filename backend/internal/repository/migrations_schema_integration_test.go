@@ -145,9 +145,20 @@ WHERE ns.nspname = 'public'
 	require.NoError(t, tx.QueryRowContext(context.Background(), "SELECT to_regclass('public.security_secrets')").Scan(&securitySecretsRegclass))
 	require.True(t, securitySecretsRegclass.Valid, "expected security_secrets table to exist")
 
-	// scheduler_outbox pending dedup support
+	// scheduler_outbox pending dedup and claim/lease support
 	requireColumn(t, tx, "scheduler_outbox", "dedup_key", "text", 0, true)
+	requireColumn(t, tx, "scheduler_outbox", "lease_token", "character varying", 64, true)
+	requireColumn(t, tx, "scheduler_outbox", "lease_expires_at", "timestamp with time zone", 0, true)
+	requireColumn(t, tx, "scheduler_outbox", "next_attempt_at", "timestamp with time zone", 0, false)
+	requireColumnDefaultContains(t, tx, "scheduler_outbox", "next_attempt_at", "statement_timestamp()")
+	requireColumn(t, tx, "scheduler_outbox", "attempt_count", "bigint", 0, false)
+	requireColumnDefaultContains(t, tx, "scheduler_outbox", "attempt_count", "0")
+	requireColumn(t, tx, "scheduler_outbox", "last_error", "character varying", 1024, true)
 	requireIndex(t, tx, "scheduler_outbox", "idx_scheduler_outbox_pending_dedup_key")
+	requireIndex(t, tx, "scheduler_outbox", "idx_scheduler_outbox_claimable")
+	requireConstraintDefinitionContains(t, tx, "scheduler_outbox", "scheduler_outbox_attempt_count_nonnegative", "attempt_count >= 0")
+	requireConstraintDefinitionContains(t, tx, "scheduler_outbox", "scheduler_outbox_lease_pair_consistent", "lease_token IS NULL", "lease_expires_at IS NULL")
+	requireIndex(t, tx, "auth_cache_invalidation_outbox", "idx_auth_cache_invalidation_outbox_stage_available")
 
 	// ops_system_logs: API key id index for operational log triage
 	requireColumn(t, tx, "ops_system_logs", "api_key_id", "bigint", 0, true)

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -57,7 +58,7 @@ type channelMonitorTemplateResponse struct {
 	AssociatedMonitors int64             `json:"associated_monitors"`
 }
 
-func (h *ChannelMonitorRequestTemplateHandler) toResponse(c *gin.Context, t *service.ChannelMonitorRequestTemplate) *channelMonitorTemplateResponse {
+func (h *ChannelMonitorRequestTemplateHandler) toResponse(c *gin.Context, actor authz.Actor, t *service.ChannelMonitorRequestTemplate) *channelMonitorTemplateResponse {
 	if t == nil {
 		return nil
 	}
@@ -65,7 +66,7 @@ func (h *ChannelMonitorRequestTemplateHandler) toResponse(c *gin.Context, t *ser
 	if headers == nil {
 		headers = map[string]string{}
 	}
-	count, _ := h.templateService.CountAssociatedMonitors(c.Request.Context(), t.ID)
+	count, _ := h.templateService.AdminCountAssociatedChannelMonitors(c.Request.Context(), actor, t.ID)
 	return &channelMonitorTemplateResponse{
 		ID:                 t.ID,
 		Name:               t.Name,
@@ -95,7 +96,11 @@ func parseTemplateID(c *gin.Context) (int64, bool) {
 
 // List GET /api/v1/admin/channel-monitor-templates?provider=anthropic
 func (h *ChannelMonitorRequestTemplateHandler) List(c *gin.Context) {
-	items, err := h.templateService.List(c.Request.Context(), service.ChannelMonitorRequestTemplateListParams{
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+	items, err := h.templateService.AdminListChannelMonitorRequestTemplates(c.Request.Context(), actor, service.ChannelMonitorRequestTemplateListParams{
 		Provider: strings.TrimSpace(c.Query("provider")),
 		APIMode:  strings.TrimSpace(c.Query("api_mode")),
 	})
@@ -105,33 +110,41 @@ func (h *ChannelMonitorRequestTemplateHandler) List(c *gin.Context) {
 	}
 	out := make([]*channelMonitorTemplateResponse, 0, len(items))
 	for _, t := range items {
-		out = append(out, h.toResponse(c, t))
+		out = append(out, h.toResponse(c, actor, t))
 	}
 	response.Success(c, gin.H{"items": out})
 }
 
 // Get GET /api/v1/admin/channel-monitor-templates/:id
 func (h *ChannelMonitorRequestTemplateHandler) Get(c *gin.Context) {
+	actor, actorOK := adminResourceActor(c)
+	if !actorOK {
+		return
+	}
 	id, ok := parseTemplateID(c)
 	if !ok {
 		return
 	}
-	t, err := h.templateService.Get(c.Request.Context(), id)
+	t, err := h.templateService.AdminGetChannelMonitorRequestTemplate(c.Request.Context(), actor, id)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, h.toResponse(c, t))
+	response.Success(c, h.toResponse(c, actor, t))
 }
 
 // Create POST /api/v1/admin/channel-monitor-templates
 func (h *ChannelMonitorRequestTemplateHandler) Create(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	var req channelMonitorTemplateCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
 		return
 	}
-	t, err := h.templateService.Create(c.Request.Context(), service.ChannelMonitorRequestTemplateCreateParams{
+	t, err := h.templateService.AdminCreateChannelMonitorRequestTemplate(c.Request.Context(), actor, service.ChannelMonitorRequestTemplateCreateParams{
 		Name:             req.Name,
 		Provider:         req.Provider,
 		APIMode:          req.APIMode,
@@ -144,11 +157,15 @@ func (h *ChannelMonitorRequestTemplateHandler) Create(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Created(c, h.toResponse(c, t))
+	response.Created(c, h.toResponse(c, actor, t))
 }
 
 // Update PUT /api/v1/admin/channel-monitor-templates/:id
 func (h *ChannelMonitorRequestTemplateHandler) Update(c *gin.Context) {
+	actor, actorOK := adminResourceActor(c)
+	if !actorOK {
+		return
+	}
 	id, ok := parseTemplateID(c)
 	if !ok {
 		return
@@ -158,7 +175,7 @@ func (h *ChannelMonitorRequestTemplateHandler) Update(c *gin.Context) {
 		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
 		return
 	}
-	t, err := h.templateService.Update(c.Request.Context(), id, service.ChannelMonitorRequestTemplateUpdateParams{
+	t, err := h.templateService.AdminUpdateChannelMonitorRequestTemplate(c.Request.Context(), actor, id, service.ChannelMonitorRequestTemplateUpdateParams{
 		Name:             req.Name,
 		APIMode:          req.APIMode,
 		Description:      req.Description,
@@ -170,16 +187,20 @@ func (h *ChannelMonitorRequestTemplateHandler) Update(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, h.toResponse(c, t))
+	response.Success(c, h.toResponse(c, actor, t))
 }
 
 // Delete DELETE /api/v1/admin/channel-monitor-templates/:id
 func (h *ChannelMonitorRequestTemplateHandler) Delete(c *gin.Context) {
+	actor, actorOK := adminResourceActor(c)
+	if !actorOK {
+		return
+	}
 	id, ok := parseTemplateID(c)
 	if !ok {
 		return
 	}
-	if err := h.templateService.Delete(c.Request.Context(), id); err != nil {
+	if err := h.templateService.AdminDeleteChannelMonitorRequestTemplate(c.Request.Context(), actor, id); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -195,6 +216,10 @@ type channelMonitorTemplateApplyRequest struct {
 // Apply POST /api/v1/admin/channel-monitor-templates/:id/apply
 // 把模板当前配置覆盖到 monitor_ids 列表里的关联监控（picker 选中的子集）。
 func (h *ChannelMonitorRequestTemplateHandler) Apply(c *gin.Context) {
+	actor, actorOK := adminResourceActor(c)
+	if !actorOK {
+		return
+	}
 	id, ok := parseTemplateID(c)
 	if !ok {
 		return
@@ -204,7 +229,7 @@ func (h *ChannelMonitorRequestTemplateHandler) Apply(c *gin.Context) {
 		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
 		return
 	}
-	affected, err := h.templateService.ApplyToMonitors(c.Request.Context(), id, req.MonitorIDs)
+	affected, err := h.templateService.AdminApplyChannelMonitorRequestTemplate(c.Request.Context(), actor, id, req.MonitorIDs)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -223,11 +248,15 @@ type associatedMonitorBriefResponse struct {
 // AssociatedMonitors GET /api/v1/admin/channel-monitor-templates/:id/monitors
 // 列出关联监控（picker 弹窗用）。
 func (h *ChannelMonitorRequestTemplateHandler) AssociatedMonitors(c *gin.Context) {
+	actor, actorOK := adminResourceActor(c)
+	if !actorOK {
+		return
+	}
 	id, ok := parseTemplateID(c)
 	if !ok {
 		return
 	}
-	items, err := h.templateService.ListAssociatedMonitors(c.Request.Context(), id)
+	items, err := h.templateService.AdminListAssociatedChannelMonitors(c.Request.Context(), actor, id)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

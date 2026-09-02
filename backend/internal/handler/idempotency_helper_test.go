@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -24,6 +25,9 @@ func (userStoreUnavailableRepoStub) CreateProcessing(context.Context, *service.I
 }
 func (userStoreUnavailableRepoStub) GetByScopeAndKeyHash(context.Context, string, string) (*service.IdempotencyRecord, error) {
 	return nil, errors.New("store unavailable")
+}
+func (userStoreUnavailableRepoStub) ExtendExpiration(context.Context, int64, string, time.Time) (bool, error) {
+	return false, errors.New("store unavailable")
 }
 func (userStoreUnavailableRepoStub) TryReclaim(context.Context, int64, string, time.Time, time.Time, time.Time) (bool, error) {
 	return false, errors.New("store unavailable")
@@ -103,6 +107,21 @@ func (r *userMemoryIdempotencyRepoStub) GetByScopeAndKeyHash(_ context.Context, 
 	return r.clone(r.data[r.key(scope, keyHash)]), nil
 }
 
+func (r *userMemoryIdempotencyRepoStub) ExtendExpiration(_ context.Context, id int64, requestFingerprint string, newExpiresAt time.Time) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, rec := range r.data {
+		if rec.ID != id || rec.RequestFingerprint != requestFingerprint {
+			continue
+		}
+		if newExpiresAt.After(rec.ExpiresAt) {
+			rec.ExpiresAt = newExpiresAt
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
 func (r *userMemoryIdempotencyRepoStub) TryReclaim(_ context.Context, id int64, fromStatus string, now, newLockedUntil, newExpiresAt time.Time) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -180,9 +199,43 @@ func (r *userMemoryIdempotencyRepoStub) DeleteExpired(_ context.Context, _ time.
 	return 0, nil
 }
 
-func withUserSubject(userID int64) gin.HandlerFunc {
+type userIdempotencyActorStore struct {
+	snapshot authz.SubjectSnapshot
+}
+
+func (s userIdempotencyActorStore) LoadSubjectSnapshot(context.Context, authz.SubjectRef) (authz.SubjectSnapshot, error) {
+	return s.snapshot, nil
+}
+
+func (s userIdempotencyActorStore) LoadServicePrincipalSubjectSnapshotByCode(context.Context, string) (authz.SubjectSnapshot, error) {
+	return authz.SubjectSnapshot{}, errors.New("unexpected service principal lookup")
+}
+
+func withUserSubject(t testing.TB, userID int64) gin.HandlerFunc {
+	t.Helper()
+	subject, err := authz.NewSubjectRef(authz.SubjectKindUser, userID)
+	require.NoError(t, err)
+	configuration, err := authz.NewPolicyConfiguration(authz.PolicyConfigurationInput{
+		RoleAuthorizationMode: authz.RoleAuthorizationModeLegacy,
+	})
+	require.NoError(t, err)
+	snapshot, err := authz.NewSubjectSnapshot(authz.SubjectSnapshotInput{
+		Subject:       subject,
+		Exists:        true,
+		Active:        true,
+		AuthzVersion:  1,
+		Configuration: configuration,
+	})
+	require.NoError(t, err)
+	actor, err := authz.NewActorResolver(userIdempotencyActorStore{snapshot: snapshot}).ResolveUser(
+		context.Background(),
+		userID,
+		authz.AuthMethodJWT,
+	)
+	require.NoError(t, err)
 	return func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: userID})
+		c.Request = c.Request.WithContext(authz.ContextWithActor(c.Request.Context(), actor))
 		c.Next()
 	}
 }
@@ -193,7 +246,7 @@ func TestExecuteUserIdempotentJSONFallbackWithoutCoordinator(t *testing.T) {
 
 	var executed int
 	router := gin.New()
-	router.Use(withUserSubject(1))
+	router.Use(withUserSubject(t, 1))
 	router.POST("/idempotent", func(c *gin.Context) {
 		executeUserIdempotentJSON(c, "user.test.scope", map[string]any{"a": 1}, time.Minute, func(ctx context.Context) (any, error) {
 			executed++
@@ -210,6 +263,32 @@ func TestExecuteUserIdempotentJSONFallbackWithoutCoordinator(t *testing.T) {
 	require.Equal(t, 1, executed)
 }
 
+func TestExecuteUserIdempotentJSONRequiresResolvedActor(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service.SetDefaultIdempotencyCoordinator(nil)
+	t.Cleanup(func() { service.SetDefaultIdempotencyCoordinator(nil) })
+
+	executed := 0
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1})
+		c.Next()
+	})
+	router.POST("/idempotent", func(c *gin.Context) {
+		executeUserIdempotentJSON(c, "user.test.actor", nil, time.Minute, func(context.Context) (any, error) {
+			executed++
+			return gin.H{"ok": true}, nil
+		})
+	})
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/idempotent", nil))
+
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "AUTHORIZATION_UNAVAILABLE")
+	require.Zero(t, executed)
+}
+
 func TestExecuteUserIdempotentJSONFailCloseOnStoreUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service.SetDefaultIdempotencyCoordinator(service.NewIdempotencyCoordinator(userStoreUnavailableRepoStub{}, service.DefaultIdempotencyConfig()))
@@ -219,7 +298,7 @@ func TestExecuteUserIdempotentJSONFailCloseOnStoreUnavailable(t *testing.T) {
 
 	var executed int
 	router := gin.New()
-	router.Use(withUserSubject(2))
+	router.Use(withUserSubject(t, 2))
 	router.POST("/idempotent", func(c *gin.Context) {
 		executeUserIdempotentJSON(c, "user.test.scope", map[string]any{"a": 1}, time.Minute, func(ctx context.Context) (any, error) {
 			executed++
@@ -249,7 +328,7 @@ func TestExecuteUserIdempotentJSONConcurrentRetrySingleSideEffectAndReplay(t *te
 
 	var executed atomic.Int32
 	router := gin.New()
-	router.Use(withUserSubject(3))
+	router.Use(withUserSubject(t, 3))
 	router.POST("/idempotent", func(c *gin.Context) {
 		executeUserIdempotentJSON(c, "user.test.scope", map[string]any{"a": 1}, time.Minute, func(ctx context.Context) (any, error) {
 			executed.Add(1)

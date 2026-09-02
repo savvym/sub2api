@@ -62,6 +62,31 @@ const usageLogsUpstreamModelMismatchIndex = "idx_usage_logs_upstream_model_misma
 const usageLogsEffectiveModelIndexesMigration = "226_add_usage_log_effective_model_indexes_notx.sql"
 const usageLogsEffectiveRequestedModelIndex = "idx_usage_logs_effective_requested_model_created"
 const usageLogsEffectiveUpstreamModelIndex = "idx_usage_logs_effective_upstream_model_created"
+const resourceAccessControlFoundationIndexesMigration = "231_resource_access_control_foundation_indexes_notx.sql"
+const authCacheInvalidationPriorityIndexMigration = "240_auth_cache_invalidation_priority_index_notx.sql"
+const authCacheInvalidationPriorityIndex = "idx_auth_cache_invalidation_outbox_stage_available"
+const schedulerOutboxClaimIndexMigration = "241_scheduler_outbox_claim_index_notx.sql"
+const schedulerOutboxClaimIndex = "idx_scheduler_outbox_claimable"
+const resourcePublicAccessScopeIndexesMigration = "242_resource_public_access_scope_indexes_notx.sql"
+const groupOwnerScopedNameUniqueMigration = "245_group_owner_scoped_name_unique_notx.sql"
+
+var resourceAccessControlFoundationIndexes = [...]string{
+	"idx_accounts_owner_user_id",
+	"idx_accounts_created_by_user_id",
+	"idx_groups_owner_user_id",
+	"idx_groups_created_by_user_id",
+	"idx_groups_authorization_mode",
+}
+
+var resourcePublicAccessScopeIndexes = [...]string{
+	"idx_accounts_public_access_level",
+	"idx_groups_public_access_level",
+}
+
+var groupOwnerScopedNameUniqueIndexes = [...]string{
+	"idx_groups_platform_name_unique_active",
+	"idx_groups_owner_name_unique_active",
+}
 
 type migrationChecksumCompatibilityRule struct {
 	fileChecksum       string
@@ -305,6 +330,31 @@ func prepareNonTransactionalMigration(ctx context.Context, db migrationConnectio
 			}
 		}
 		return nil
+	case resourceAccessControlFoundationIndexesMigration:
+		for _, indexName := range resourceAccessControlFoundationIndexes {
+			if err := dropInvalidIndexIfPresent(ctx, db, indexName); err != nil {
+				return err
+			}
+		}
+		return nil
+	case authCacheInvalidationPriorityIndexMigration:
+		return dropInvalidIndexIfPresent(ctx, db, authCacheInvalidationPriorityIndex)
+	case schedulerOutboxClaimIndexMigration:
+		return dropInvalidIndexIfPresent(ctx, db, schedulerOutboxClaimIndex)
+	case resourcePublicAccessScopeIndexesMigration:
+		for _, indexName := range resourcePublicAccessScopeIndexes {
+			if err := dropInvalidIndexIfPresent(ctx, db, indexName); err != nil {
+				return err
+			}
+		}
+		return nil
+	case groupOwnerScopedNameUniqueMigration:
+		for _, indexName := range groupOwnerScopedNameUniqueIndexes {
+			if err := dropInvalidIndexIfPresent(ctx, db, indexName); err != nil {
+				return err
+			}
+		}
+		return nil
 	default:
 		return nil
 	}
@@ -516,8 +566,9 @@ func validateMigrationExecutionMode(name, content string) (bool, error) {
 		}
 
 		if strings.Contains(normalizedStmt, "CONCURRENTLY") {
-			isCreateIndex := strings.Contains(normalizedStmt, "CREATE") && strings.Contains(normalizedStmt, "INDEX")
-			isDropIndex := strings.Contains(normalizedStmt, "DROP") && strings.Contains(normalizedStmt, "INDEX")
+			isCreateIndex := strings.HasPrefix(normalizedStmt, "CREATE INDEX ") ||
+				strings.HasPrefix(normalizedStmt, "CREATE UNIQUE INDEX ")
+			isDropIndex := strings.HasPrefix(normalizedStmt, "DROP INDEX ")
 			if !isCreateIndex && !isDropIndex {
 				return false, errors.New("*_notx.sql currently only supports CREATE/DROP INDEX CONCURRENTLY statements")
 			}

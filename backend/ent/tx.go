@@ -18,6 +18,8 @@ type Tx struct {
 	APIKey *APIKeyClient
 	// Account is the client for interacting with the Account builders.
 	Account *AccountClient
+	// AccountAccessGrant is the client for interacting with the AccountAccessGrant builders.
+	AccountAccessGrant *AccountAccessGrantClient
 	// AccountGroup is the client for interacting with the AccountGroup builders.
 	AccountGroup *AccountGroupClient
 	// Announcement is the client for interacting with the Announcement builders.
@@ -48,6 +50,8 @@ type Tx struct {
 	ErrorPassthroughRule *ErrorPassthroughRuleClient
 	// Group is the client for interacting with the Group builders.
 	Group *GroupClient
+	// GroupAccessGrant is the client for interacting with the GroupAccessGrant builders.
+	GroupAccessGrant *GroupAccessGrantClient
 	// IdempotencyRecord is the client for interacting with the IdempotencyRecord builders.
 	IdempotencyRecord *IdempotencyRecordClient
 	// IdentityAdoptionDecision is the client for interacting with the IdentityAdoptionDecision builders.
@@ -60,6 +64,8 @@ type Tx struct {
 	PaymentProviderInstance *PaymentProviderInstanceClient
 	// PendingAuthSession is the client for interacting with the PendingAuthSession builders.
 	PendingAuthSession *PendingAuthSessionClient
+	// Permission is the client for interacting with the Permission builders.
+	Permission *PermissionClient
 	// PromoCode is the client for interacting with the PromoCode builders.
 	PromoCode *PromoCodeClient
 	// PromoCodeUsage is the client for interacting with the PromoCodeUsage builders.
@@ -68,8 +74,20 @@ type Tx struct {
 	Proxy *ProxyClient
 	// RedeemCode is the client for interacting with the RedeemCode builders.
 	RedeemCode *RedeemCodeClient
+	// ResourceAuthorizationEvent is the client for interacting with the ResourceAuthorizationEvent builders.
+	ResourceAuthorizationEvent *ResourceAuthorizationEventClient
+	// Role is the client for interacting with the Role builders.
+	Role *RoleClient
+	// RolePermission is the client for interacting with the RolePermission builders.
+	RolePermission *RolePermissionClient
 	// SecuritySecret is the client for interacting with the SecuritySecret builders.
 	SecuritySecret *SecuritySecretClient
+	// ServicePrincipal is the client for interacting with the ServicePrincipal builders.
+	ServicePrincipal *ServicePrincipalClient
+	// ServicePrincipalRole is the client for interacting with the ServicePrincipalRole builders.
+	ServicePrincipalRole *ServicePrincipalRoleClient
+	// ServicePrincipalWorkerPermission is the client for interacting with the ServicePrincipalWorkerPermission builders.
+	ServicePrincipalWorkerPermission *ServicePrincipalWorkerPermissionClient
 	// Setting is the client for interacting with the Setting builders.
 	Setting *SettingClient
 	// SubscriptionPlan is the client for interacting with the SubscriptionPlan builders.
@@ -88,8 +106,12 @@ type Tx struct {
 	UserAttributeDefinition *UserAttributeDefinitionClient
 	// UserAttributeValue is the client for interacting with the UserAttributeValue builders.
 	UserAttributeValue *UserAttributeValueClient
+	// UserHostingEntitlement is the client for interacting with the UserHostingEntitlement builders.
+	UserHostingEntitlement *UserHostingEntitlementClient
 	// UserPlatformQuota is the client for interacting with the UserPlatformQuota builders.
 	UserPlatformQuota *UserPlatformQuotaClient
+	// UserRole is the client for interacting with the UserRole builders.
+	UserRole *UserRoleClient
 	// UserSubscription is the client for interacting with the UserSubscription builders.
 	UserSubscription *UserSubscriptionClient
 
@@ -225,6 +247,7 @@ func (tx *Tx) Client() *Client {
 func (tx *Tx) init() {
 	tx.APIKey = NewAPIKeyClient(tx.config)
 	tx.Account = NewAccountClient(tx.config)
+	tx.AccountAccessGrant = NewAccountAccessGrantClient(tx.config)
 	tx.AccountGroup = NewAccountGroupClient(tx.config)
 	tx.Announcement = NewAnnouncementClient(tx.config)
 	tx.AnnouncementRead = NewAnnouncementReadClient(tx.config)
@@ -240,17 +263,25 @@ func (tx *Tx) init() {
 	tx.CompositeModelRoute = NewCompositeModelRouteClient(tx.config)
 	tx.ErrorPassthroughRule = NewErrorPassthroughRuleClient(tx.config)
 	tx.Group = NewGroupClient(tx.config)
+	tx.GroupAccessGrant = NewGroupAccessGrantClient(tx.config)
 	tx.IdempotencyRecord = NewIdempotencyRecordClient(tx.config)
 	tx.IdentityAdoptionDecision = NewIdentityAdoptionDecisionClient(tx.config)
 	tx.PaymentAuditLog = NewPaymentAuditLogClient(tx.config)
 	tx.PaymentOrder = NewPaymentOrderClient(tx.config)
 	tx.PaymentProviderInstance = NewPaymentProviderInstanceClient(tx.config)
 	tx.PendingAuthSession = NewPendingAuthSessionClient(tx.config)
+	tx.Permission = NewPermissionClient(tx.config)
 	tx.PromoCode = NewPromoCodeClient(tx.config)
 	tx.PromoCodeUsage = NewPromoCodeUsageClient(tx.config)
 	tx.Proxy = NewProxyClient(tx.config)
 	tx.RedeemCode = NewRedeemCodeClient(tx.config)
+	tx.ResourceAuthorizationEvent = NewResourceAuthorizationEventClient(tx.config)
+	tx.Role = NewRoleClient(tx.config)
+	tx.RolePermission = NewRolePermissionClient(tx.config)
 	tx.SecuritySecret = NewSecuritySecretClient(tx.config)
+	tx.ServicePrincipal = NewServicePrincipalClient(tx.config)
+	tx.ServicePrincipalRole = NewServicePrincipalRoleClient(tx.config)
+	tx.ServicePrincipalWorkerPermission = NewServicePrincipalWorkerPermissionClient(tx.config)
 	tx.Setting = NewSettingClient(tx.config)
 	tx.SubscriptionPlan = NewSubscriptionPlanClient(tx.config)
 	tx.TLSFingerprintProfile = NewTLSFingerprintProfileClient(tx.config)
@@ -260,7 +291,9 @@ func (tx *Tx) init() {
 	tx.UserAllowedGroup = NewUserAllowedGroupClient(tx.config)
 	tx.UserAttributeDefinition = NewUserAttributeDefinitionClient(tx.config)
 	tx.UserAttributeValue = NewUserAttributeValueClient(tx.config)
+	tx.UserHostingEntitlement = NewUserHostingEntitlementClient(tx.config)
 	tx.UserPlatformQuota = NewUserPlatformQuotaClient(tx.config)
+	tx.UserRole = NewUserRoleClient(tx.config)
 	tx.UserSubscription = NewUserSubscriptionClient(tx.config)
 }
 

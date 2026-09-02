@@ -617,6 +617,15 @@ const (
 	// SettingKeyBackendModeEnabled Backend 模式：禁用用户注册和自助服务，仅管理员可登录
 	SettingKeyBackendModeEnabled = "backend_mode_enabled"
 
+	// Resource access control dark-launch settings. All feature flags default to
+	// disabled; role authorization remains on the legacy users.role authority.
+	SettingKeyResourceAccessControlEnabled   = "resource_access_control_enabled"
+	SettingKeySelfServiceHostingEnabled      = "self_service_hosting_enabled"
+	SettingKeyGroupSharingEnabled            = "group_sharing_enabled"
+	SettingKeyAccountSharingEnabled          = "account_sharing_enabled"
+	SettingKeyRoleBasedResourceGrantsEnabled = "role_based_resource_grants_enabled"
+	SettingKeyRoleAuthorizationMode          = "role_authorization_mode"
+
 	// Gateway Forwarding Behavior
 	// SettingKeyEnableFingerprintUnification 是否统一 OAuth 账号的 X-Stainless-* 指纹头（默认 true）
 	SettingKeyEnableFingerprintUnification = "enable_fingerprint_unification"
@@ -677,6 +686,12 @@ const (
 
 	// Web Search Emulation
 	SettingKeyWebSearchEmulationConfig = "web_search_emulation_config" // JSON 配置
+)
+
+const (
+	RoleAuthorizationModeLegacy = "legacy"
+	RoleAuthorizationModeShadow = "shadow"
+	RoleAuthorizationModeRBAC   = "rbac"
 )
 
 // SettingKeyDefaultPlatformQuotas —— 系统全局：每用户 × 平台日/周/月 USD 上限（JSON）。

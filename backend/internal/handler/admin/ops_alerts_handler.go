@@ -240,6 +240,10 @@ func validateOpsAlertRulePayload(raw map[string]json.RawMessage) (*opsAlertRuleV
 // ListAlertRules returns all ops alert rules.
 // GET /api/v1/admin/ops/alert-rules
 func (h *OpsHandler) ListAlertRules(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	if h.opsService == nil {
 		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
 		return
@@ -249,7 +253,7 @@ func (h *OpsHandler) ListAlertRules(c *gin.Context) {
 		return
 	}
 
-	rules, err := h.opsService.ListAlertRules(c.Request.Context())
+	rules, err := h.opsService.AdminListAlertRules(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -260,6 +264,10 @@ func (h *OpsHandler) ListAlertRules(c *gin.Context) {
 // CreateAlertRule creates an ops alert rule.
 // POST /api/v1/admin/ops/alert-rules
 func (h *OpsHandler) CreateAlertRule(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	if h.opsService == nil {
 		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
 		return
@@ -297,7 +305,7 @@ func (h *OpsHandler) CreateAlertRule(c *gin.Context) {
 	rule.Enabled = validated.Enabled
 	rule.NotifyEmail = validated.NotifyEmail
 
-	created, err := h.opsService.CreateAlertRule(c.Request.Context(), &rule)
+	created, err := h.opsService.AdminCreateAlertRule(c.Request.Context(), actor, &rule)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -308,6 +316,10 @@ func (h *OpsHandler) CreateAlertRule(c *gin.Context) {
 // UpdateAlertRule updates an existing ops alert rule.
 // PUT /api/v1/admin/ops/alert-rules/:id
 func (h *OpsHandler) UpdateAlertRule(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	if h.opsService == nil {
 		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
 		return
@@ -352,7 +364,7 @@ func (h *OpsHandler) UpdateAlertRule(c *gin.Context) {
 	rule.Enabled = validated.Enabled
 	rule.NotifyEmail = validated.NotifyEmail
 
-	updated, err := h.opsService.UpdateAlertRule(c.Request.Context(), &rule)
+	updated, err := h.opsService.AdminUpdateAlertRule(c.Request.Context(), actor, &rule)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -363,6 +375,10 @@ func (h *OpsHandler) UpdateAlertRule(c *gin.Context) {
 // DeleteAlertRule deletes an ops alert rule.
 // DELETE /api/v1/admin/ops/alert-rules/:id
 func (h *OpsHandler) DeleteAlertRule(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	if h.opsService == nil {
 		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
 		return
@@ -378,7 +394,7 @@ func (h *OpsHandler) DeleteAlertRule(c *gin.Context) {
 		return
 	}
 
-	if err := h.opsService.DeleteAlertRule(c.Request.Context(), id); err != nil {
+	if err := h.opsService.AdminDeleteAlertRule(c.Request.Context(), actor, id); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -463,6 +479,10 @@ func (h *OpsHandler) UpdateAlertEventStatus(c *gin.Context) {
 // CreateAlertSilence creates a scoped silence for ops alerts.
 // POST /api/v1/admin/ops/alert-silences
 func (h *OpsHandler) CreateAlertSilence(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	if h.opsService == nil {
 		response.Error(c, http.StatusServiceUnavailable, "Ops service not available")
 		return
@@ -506,7 +526,7 @@ func (h *OpsHandler) CreateAlertSilence(c *gin.Context) {
 		CreatedBy: createdBy,
 	}
 
-	created, err := h.opsService.CreateAlertSilence(c.Request.Context(), silence)
+	created, err := h.opsService.AdminCreateAlertSilence(c.Request.Context(), actor, silence)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

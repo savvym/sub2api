@@ -21,13 +21,18 @@ type AntigravityGenerateAuthURLRequest struct {
 // GenerateAuthURL generates Google OAuth authorization URL
 // POST /api/v1/admin/antigravity/oauth/auth-url
 func (h *AntigravityOAuthHandler) GenerateAuthURL(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req AntigravityGenerateAuthURLRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "请求无效: "+err.Error())
 		return
 	}
 
-	result, err := h.antigravityOAuthService.GenerateAuthURL(c.Request.Context(), req.ProxyID)
+	result, err := h.antigravityOAuthService.AdminGenerateAuthURL(c.Request.Context(), actor, req.ProxyID)
 	if err != nil {
 		response.InternalError(c, "生成授权链接失败: "+err.Error())
 		return
@@ -46,13 +51,18 @@ type AntigravityExchangeCodeRequest struct {
 // ExchangeCode 用 authorization code 交换 token
 // POST /api/v1/admin/antigravity/oauth/exchange-code
 func (h *AntigravityOAuthHandler) ExchangeCode(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req AntigravityExchangeCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "请求无效: "+err.Error())
 		return
 	}
 
-	tokenInfo, err := h.antigravityOAuthService.ExchangeCode(c.Request.Context(), &service.AntigravityExchangeCodeInput{
+	tokenInfo, err := h.antigravityOAuthService.AdminExchangeCode(c.Request.Context(), actor, &service.AntigravityExchangeCodeInput{
 		SessionID: req.SessionID,
 		State:     req.State,
 		Code:      req.Code,
@@ -75,13 +85,18 @@ type AntigravityRefreshTokenRequest struct {
 // RefreshToken validates an Antigravity refresh token and returns full token info
 // POST /api/v1/admin/antigravity/oauth/refresh-token
 func (h *AntigravityOAuthHandler) RefreshToken(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req AntigravityRefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "请求无效: "+err.Error())
 		return
 	}
 
-	tokenInfo, err := h.antigravityOAuthService.ValidateRefreshToken(c.Request.Context(), req.RefreshToken, req.ProxyID)
+	tokenInfo, err := h.antigravityOAuthService.AdminValidateRefreshToken(c.Request.Context(), actor, req.RefreshToken, req.ProxyID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

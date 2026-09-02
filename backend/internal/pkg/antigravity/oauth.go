@@ -16,6 +16,7 @@ import (
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/oauthflow"
 )
 
 const (
@@ -275,10 +276,13 @@ func (u *URLAvailability) GetAvailableURLsWithBase(baseURLs []string) []string {
 
 // OAuthSession 保存 OAuth 授权流程的临时状态
 type OAuthSession struct {
-	State        string    `json:"state"`
-	CodeVerifier string    `json:"code_verifier"`
-	ProxyURL     string    `json:"proxy_url,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
+	State        string            `json:"state"`
+	CodeVerifier string            `json:"code_verifier"`
+	ProxyID      *int64            `json:"proxy_id,omitempty"`
+	ProxyURL     string            `json:"proxy_url,omitempty"`
+	Binding      oauthflow.Binding `json:"binding"`
+	CreatedAt    time.Time         `json:"created_at"`
+	consumed     bool
 }
 
 // SessionStore OAuth session 存储
@@ -320,6 +324,21 @@ func (s *SessionStore) Delete(sessionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, sessionID)
+}
+
+// TryConsumeSession atomically claims a live session exactly once.
+func (s *SessionStore) TryConsumeSession(sessionID string) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[sessionID]
+	if !ok || session == nil || time.Since(session.CreatedAt) > SessionTTL || session.consumed {
+		return false
+	}
+	session.consumed = true
+	return true
 }
 
 func (s *SessionStore) Stop() {

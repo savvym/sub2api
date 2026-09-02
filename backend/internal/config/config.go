@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"net/textproto"
 	"net/url"
 	"os"
@@ -1529,17 +1530,7 @@ type DatabaseConfig struct {
 }
 
 func (d *DatabaseConfig) DSN() string {
-	// 当密码为空时不包含 password 参数，避免 libpq 解析错误
-	if d.Password == "" {
-		return fmt.Sprintf(
-			"host=%s port=%d user=%s dbname=%s sslmode=%s",
-			d.Host, d.Port, d.User, d.DBName, d.SSLMode,
-		)
-	}
-	return fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		d.Host, d.Port, d.User, d.Password, d.DBName, d.SSLMode,
-	)
+	return d.postgresURL("")
 }
 
 // DSNWithTimezone returns DSN with timezone setting
@@ -1547,17 +1538,27 @@ func (d *DatabaseConfig) DSNWithTimezone(tz string) string {
 	if tz == "" {
 		tz = "Asia/Shanghai"
 	}
-	// 当密码为空时不包含 password 参数，避免 libpq 解析错误
-	if d.Password == "" {
-		return fmt.Sprintf(
-			"host=%s port=%d user=%s dbname=%s sslmode=%s TimeZone=%s",
-			d.Host, d.Port, d.User, d.DBName, d.SSLMode, tz,
-		)
+	return d.postgresURL(tz)
+}
+
+func (d *DatabaseConfig) postgresURL(timezone string) string {
+	user := url.User(d.User)
+	if d.Password != "" {
+		user = url.UserPassword(d.User, d.Password)
 	}
-	return fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s TimeZone=%s",
-		d.Host, d.Port, d.User, d.Password, d.DBName, d.SSLMode, tz,
-	)
+	dsn := &url.URL{
+		Scheme: "postgres",
+		User:   user,
+		Host:   net.JoinHostPort(d.Host, fmt.Sprintf("%d", d.Port)),
+		Path:   "/" + d.DBName,
+	}
+	query := dsn.Query()
+	query.Set("sslmode", d.SSLMode)
+	if timezone != "" {
+		query.Set("TimeZone", timezone)
+	}
+	dsn.RawQuery = query.Encode()
+	return dsn.String()
 }
 
 // RedisConfig Redis 连接配置

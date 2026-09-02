@@ -23,6 +23,11 @@ type Group struct {
 func (Group) Annotations() []schema.Annotation {
 	return []schema.Annotation{
 		entsql.Annotation{Table: "groups"},
+		entsql.Checks(map[string]string{
+			"groups_public_access_level_check": "public_access_level IS NULL OR public_access_level IN ('viewer', 'consumer')",
+			"groups_access_version_positive":   "access_version > 0",
+			"groups_authorization_mode_check":  "authorization_mode IN ('legacy', 'shadow', 'acl')",
+		}),
 	}
 }
 
@@ -35,8 +40,9 @@ func (Group) Mixin() []ent.Mixin {
 
 func (Group) Fields() []ent.Field {
 	return []ent.Field{
-		// 唯一约束通过部分索引实现（WHERE deleted_at IS NULL），支持软删除后重用
-		// 见迁移文件 016_soft_delete_partial_unique_indexes.sql
+		// Active platform groups are unique by folded name, while tenant groups
+		// are unique by owner and folded name. The expression indexes live in
+		// migration 245 and permit different owners to reuse the same name.
 		field.String("name").
 			MaxLen(100).
 			NotEmpty(),
@@ -276,6 +282,24 @@ func (Group) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
 			Comment("OpenAI reasoning effort 自定义精确映射；先映射再应用上限"),
 
+		// Resource authorization foundation. Authorization remains legacy until
+		// an explicit, transactional per-group cutover.
+		field.Int64("owner_user_id").
+			Optional().
+			Nillable(),
+		field.Int64("created_by_user_id").
+			Optional().
+			Nillable(),
+		field.String("public_access_level").
+			MaxLen(20).
+			Optional().
+			Nillable(),
+		field.Int64("access_version").
+			Default(1),
+		field.String("authorization_mode").
+			MaxLen(20).
+			Default("legacy"),
+
 		// 分组利润控制（migration 192/193）：openai/anthropic/gemini/grok/antigravity
 		// 的 token 分组可启用，composite 分组不能直接启用。
 		field.Bool("profit_control_enabled").
@@ -304,6 +328,16 @@ func (Group) Edges() []ent.Edge {
 		edge.From("allowed_users", User.Type).
 			Ref("allowed_groups").
 			Through("user_allowed_groups", UserAllowedGroup.Type),
+		edge.To("owner", User.Type).
+			Field("owner_user_id").
+			Unique().
+			StorageKey(edge.Column("owner_user_id"), edge.Symbol("groups_owner_user_id_fkey")).
+			Annotations(entsql.OnDelete(entsql.Restrict)),
+		edge.To("created_by", User.Type).
+			Field("created_by_user_id").
+			Unique().
+			StorageKey(edge.Column("created_by_user_id"), edge.Symbol("groups_created_by_user_id_fkey")).
+			Annotations(entsql.OnDelete(entsql.Restrict)),
 		// 注意：fallback_group_id 直接作为字段使用，不定义 edge
 		// 这样允许多个分组指向同一个降级分组（M2O 关系）
 	}
@@ -311,13 +345,21 @@ func (Group) Edges() []ent.Edge {
 
 func (Group) Indexes() []ent.Index {
 	return []ent.Index{
-		// name 字段已在 Fields() 中声明 Unique()，无需重复索引
+		// Folded-name uniqueness uses SQL expression indexes from migration 245.
 		index.Fields("status"),
 		index.Fields("platform"),
 		index.Fields("subscription_type"),
 		index.Fields("is_exclusive"),
 		index.Fields("deleted_at"),
 		index.Fields("sort_order"),
+		index.Fields("owner_user_id").
+			StorageKey("idx_groups_owner_user_id").
+			Annotations(entsql.IndexWhere("owner_user_id IS NOT NULL")),
+		index.Fields("created_by_user_id").
+			StorageKey("idx_groups_created_by_user_id").
+			Annotations(entsql.IndexWhere("created_by_user_id IS NOT NULL")),
+		index.Fields("authorization_mode", "id").
+			StorageKey("idx_groups_authorization_mode"),
 		index.Fields("duplicate_operation_id").
 			Unique().
 			StorageKey("idx_groups_duplicate_operation_id_active").

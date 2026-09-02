@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -14,12 +16,19 @@ import (
 )
 
 // 角色提升为管理员的 step-up 门控条件测试。
-// 测试环境不注入认证上下文，因此门控一旦触发会以 401 中止；
-// 借此区分「触发了 step-up 校验」与「直接放行到业务层（200）」。
+// Admin API Key 具备可信 Service Principal Actor，但不能通过 step-up；
+// 借此区分「触发了 step-up 校验（403）」与「直接放行到业务层（200）」。
 func setupRoleStepUpRouter(t *testing.T) (*gin.Engine, *stubAdminService) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	actor := adminHandlerTestActor(t, authz.SubjectKindServicePrincipal, 73)
+	router.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(authz.ContextWithActor(c.Request.Context(), actor))
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 99})
+		c.Set("auth_method", service.AuditAuthMethodAdminAPIKey)
+		c.Next()
+	})
 	adminSvc := newStubAdminService()
 	// 追加一个已是管理员的目标用户，验证「目标已是 admin 不触发门控」。
 	adminSvc.users = append(adminSvc.users, service.User{
@@ -50,7 +59,7 @@ func TestUpdateUserPromoteToAdminRequiresStepUp(t *testing.T) {
 	router, _ := setupRoleStepUpRouter(t)
 
 	rec := doJSON(t, router, http.MethodPut, "/api/v1/admin/users/1", map[string]any{"role": "admin"})
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	require.Equal(t, http.StatusForbidden, rec.Code)
 }
 
 func TestUpdateUserKeepAdminRoleSkipsStepUp(t *testing.T) {
@@ -73,7 +82,7 @@ func TestCreateAdminUserRequiresStepUp(t *testing.T) {
 	rec := doJSON(t, router, http.MethodPost, "/api/v1/admin/users", map[string]any{
 		"email": "new-admin@example.com", "password": "pass123", "role": "admin",
 	})
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	require.Equal(t, http.StatusForbidden, rec.Code)
 }
 
 func TestCreateRegularUserSkipsStepUp(t *testing.T) {

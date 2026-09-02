@@ -85,6 +85,11 @@ func Role(v string) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldRole, v))
 }
 
+// AuthzVersion applies equality check predicate on the "authz_version" field. It's identical to AuthzVersionEQ.
+func AuthzVersion(v int64) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldAuthzVersion, v))
+}
+
 // Balance applies equality check predicate on the "balance" field. It's identical to BalanceEQ.
 func Balance(v float64) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldBalance, v))
@@ -498,6 +503,46 @@ func RoleEqualFold(v string) predicate.User {
 // RoleContainsFold applies the ContainsFold predicate on the "role" field.
 func RoleContainsFold(v string) predicate.User {
 	return predicate.User(sql.FieldContainsFold(FieldRole, v))
+}
+
+// AuthzVersionEQ applies the EQ predicate on the "authz_version" field.
+func AuthzVersionEQ(v int64) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldAuthzVersion, v))
+}
+
+// AuthzVersionNEQ applies the NEQ predicate on the "authz_version" field.
+func AuthzVersionNEQ(v int64) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldAuthzVersion, v))
+}
+
+// AuthzVersionIn applies the In predicate on the "authz_version" field.
+func AuthzVersionIn(vs ...int64) predicate.User {
+	return predicate.User(sql.FieldIn(FieldAuthzVersion, vs...))
+}
+
+// AuthzVersionNotIn applies the NotIn predicate on the "authz_version" field.
+func AuthzVersionNotIn(vs ...int64) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldAuthzVersion, vs...))
+}
+
+// AuthzVersionGT applies the GT predicate on the "authz_version" field.
+func AuthzVersionGT(v int64) predicate.User {
+	return predicate.User(sql.FieldGT(FieldAuthzVersion, v))
+}
+
+// AuthzVersionGTE applies the GTE predicate on the "authz_version" field.
+func AuthzVersionGTE(v int64) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldAuthzVersion, v))
+}
+
+// AuthzVersionLT applies the LT predicate on the "authz_version" field.
+func AuthzVersionLT(v int64) predicate.User {
+	return predicate.User(sql.FieldLT(FieldAuthzVersion, v))
+}
+
+// AuthzVersionLTE applies the LTE predicate on the "authz_version" field.
+func AuthzVersionLTE(v int64) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldAuthzVersion, v))
 }
 
 // BalanceEQ applies the EQ predicate on the "balance" field.
@@ -1523,6 +1568,29 @@ func HasAllowedGroupsWith(preds ...predicate.Group) predicate.User {
 	})
 }
 
+// HasAuthorizationRoles applies the HasEdge predicate on the "authorization_roles" edge.
+func HasAuthorizationRoles() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, false, AuthorizationRolesTable, AuthorizationRolesPrimaryKey...),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasAuthorizationRolesWith applies the HasEdge predicate on the "authorization_roles" edge with a given conditions (other predicates).
+func HasAuthorizationRolesWith(preds ...predicate.Role) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newAuthorizationRolesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasUsageLogs applies the HasEdge predicate on the "usage_logs" edge.
 func HasUsageLogs() predicate.User {
 	return predicate.User(func(s *sql.Selector) {
@@ -1684,6 +1752,75 @@ func HasPlatformQuotasWith(preds ...predicate.UserPlatformQuota) predicate.User 
 	})
 }
 
+// HasHostingEntitlement applies the HasEdge predicate on the "hosting_entitlement" edge.
+func HasHostingEntitlement() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, HostingEntitlementTable, HostingEntitlementColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasHostingEntitlementWith applies the HasEdge predicate on the "hosting_entitlement" edge with a given conditions (other predicates).
+func HasHostingEntitlementWith(preds ...predicate.UserHostingEntitlement) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newHostingEntitlementStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasCreatedHostingEntitlements applies the HasEdge predicate on the "created_hosting_entitlements" edge.
+func HasCreatedHostingEntitlements() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, CreatedHostingEntitlementsTable, CreatedHostingEntitlementsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasCreatedHostingEntitlementsWith applies the HasEdge predicate on the "created_hosting_entitlements" edge with a given conditions (other predicates).
+func HasCreatedHostingEntitlementsWith(preds ...predicate.UserHostingEntitlement) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newCreatedHostingEntitlementsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasUpdatedHostingEntitlements applies the HasEdge predicate on the "updated_hosting_entitlements" edge.
+func HasUpdatedHostingEntitlements() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, UpdatedHostingEntitlementsTable, UpdatedHostingEntitlementsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasUpdatedHostingEntitlementsWith applies the HasEdge predicate on the "updated_hosting_entitlements" edge with a given conditions (other predicates).
+func HasUpdatedHostingEntitlementsWith(preds ...predicate.UserHostingEntitlement) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newUpdatedHostingEntitlementsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasUserAllowedGroups applies the HasEdge predicate on the "user_allowed_groups" edge.
 func HasUserAllowedGroups() predicate.User {
 	return predicate.User(func(s *sql.Selector) {
@@ -1699,6 +1836,29 @@ func HasUserAllowedGroups() predicate.User {
 func HasUserAllowedGroupsWith(preds ...predicate.UserAllowedGroup) predicate.User {
 	return predicate.User(func(s *sql.Selector) {
 		step := newUserAllowedGroupsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasUserRoles applies the HasEdge predicate on the "user_roles" edge.
+func HasUserRoles() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, UserRolesTable, UserRolesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasUserRolesWith applies the HasEdge predicate on the "user_roles" edge with a given conditions (other predicates).
+func HasUserRolesWith(preds ...predicate.UserRole) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newUserRolesStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

@@ -227,6 +227,16 @@ type SystemSettings struct {
 	// Backend 模式：禁用用户注册和自助服务，仅管理员可登录
 	BackendModeEnabled bool
 
+	// Resource access control dark-launch settings. These fields represent the
+	// stored operator configuration; runtime consumers must use
+	// GetResourceAccessControlRuntimeSettings for effective values.
+	ResourceAccessControlEnabled   bool
+	SelfServiceHostingEnabled      bool
+	GroupSharingEnabled            bool
+	AccountSharingEnabled          bool
+	RoleBasedResourceGrantsEnabled bool
+	RoleAuthorizationMode          string
+
 	// Gateway forwarding behavior
 	EnableFingerprintUnification           bool   // 是否统一 OAuth 账号的指纹头（默认 true）
 	EnableMetadataPassthrough              bool   // 是否透传客户端原始 metadata（默认 false）
@@ -364,11 +374,15 @@ type PublicSettings struct {
 	WeChatOAuthMobileEnabled bool
 	BackendModeEnabled       bool
 	PaymentEnabled           bool
-	OIDCOAuthEnabled         bool
-	OIDCOAuthProviderName    string
-	GitHubOAuthEnabled       bool
-	GoogleOAuthEnabled       bool
-	Version                  string
+	// SelfServiceHostingEnabled is the public, effective self-service state.
+	// It is false unless the ACL master switch and stored self-service switch
+	// are enabled, and is forced off in Backend Mode and SIMPLE Mode.
+	SelfServiceHostingEnabled bool
+	OIDCOAuthEnabled          bool
+	OIDCOAuthProviderName     string
+	GitHubOAuthEnabled        bool
+	GoogleOAuthEnabled        bool
+	Version                   string
 
 	BalanceLowNotifyEnabled     bool
 	AccountQuotaNotifyEnabled   bool

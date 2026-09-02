@@ -72,7 +72,11 @@ type contentModerationHashRequest struct {
 }
 
 func (h *ContentModerationHandler) GetConfig(c *gin.Context) {
-	cfg, err := h.service.GetConfig(c.Request.Context())
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+	cfg, err := h.service.AdminGetContentModerationConfig(c.Request.Context(), actor)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -81,12 +85,16 @@ func (h *ContentModerationHandler) GetConfig(c *gin.Context) {
 }
 
 func (h *ContentModerationHandler) UpdateConfig(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	var req contentModerationConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	cfg, err := h.service.UpdateConfig(c.Request.Context(), service.UpdateContentModerationConfigInput{
+	cfg, err := h.service.AdminUpdateContentModerationConfig(c.Request.Context(), actor, service.UpdateContentModerationConfigInput{
 		Enabled:                        req.Enabled,
 		Mode:                           req.Mode,
 		BaseURL:                        req.BaseURL,
@@ -128,12 +136,16 @@ func (h *ContentModerationHandler) UpdateConfig(c *gin.Context) {
 }
 
 func (h *ContentModerationHandler) TestAPIKeys(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	var req contentModerationAPIKeyTestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	result, err := h.service.TestAPIKeys(c.Request.Context(), service.TestContentModerationAPIKeysInput{
+	result, err := h.service.AdminTestContentModerationAPIKeys(c.Request.Context(), actor, service.TestContentModerationAPIKeysInput{
 		APIKeys:   req.APIKeys,
 		BaseURL:   req.BaseURL,
 		Model:     req.Model,

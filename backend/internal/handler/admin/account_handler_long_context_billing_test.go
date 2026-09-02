@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -80,6 +81,7 @@ func TestAccountAdminBoundariesRejectMalformedOpenAILongContextBillingValue(t *t
 			}
 			handler := NewAccountHandler(stub, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 			router := gin.New()
+			router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 			tt.mount(router, handler)
 			recorder := httptest.NewRecorder()
 			request := httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString(tt.body))
@@ -101,6 +103,7 @@ func TestAccountCreateBoundaryDoesNotApplyOpenAIValidationToOtherPlatforms(t *te
 	gin.SetMode(gin.TestMode)
 	handler := NewAccountHandler(newStubAdminService(), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router := gin.New()
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 	router.POST("/accounts", handler.Create)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/accounts", bytes.NewBufferString(
@@ -123,6 +126,7 @@ func TestApplyOAuthCredentialsRejectsMalformedOpenAILongContextBillingBeforeMuta
 	}
 	handler := NewAccountHandler(stub, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router := gin.New()
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 	router.POST("/accounts/:id/apply-oauth-credentials", handler.ApplyOAuthCredentials)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/accounts/1/apply-oauth-credentials", bytes.NewBufferString(
@@ -147,6 +151,7 @@ func TestOpenAIOAuthCodexPATBoundaryRejectsMalformedOpenAILongContextBillingValu
 	handler := NewOpenAIOAuthHandler(nil, newStubAdminService(), nil, nil)
 	router := gin.New()
 	router.Use(gin.Recovery())
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 	router.POST("/openai/create-from-codex-pat", handler.CreateAccountFromCodexPAT)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/openai/create-from-codex-pat", bytes.NewBufferString(

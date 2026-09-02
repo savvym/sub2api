@@ -28,6 +28,9 @@ type GroupHandler struct {
 
 // GetLiveCapability 返回当前服务端是否具备生成 Live attestation 的运行环境。
 func (h *GroupHandler) GetLiveCapability(c *gin.Context) {
+	if _, ok := adminResourceActor(c); !ok {
+		return
+	}
 	err := liveattestation.NewProvider().Check(c.Request.Context())
 	result := gin.H{"supported": err == nil}
 	if err != nil {
@@ -250,6 +253,11 @@ type CompositeRoutePreviewRequest struct {
 // List handles listing all groups with pagination
 // GET /api/v1/admin/groups
 func (h *GroupHandler) List(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	page, pageSize := response.ParsePagination(c)
 	platform := c.Query("platform")
 	status := c.Query("status")
@@ -269,7 +277,7 @@ func (h *GroupHandler) List(c *gin.Context) {
 		isExclusive = &val
 	}
 
-	groups, total, err := h.adminService.ListGroups(c.Request.Context(), page, pageSize, platform, status, search, isExclusive, sortBy, sortOrder)
+	groups, total, err := h.adminService.ListGroups(c.Request.Context(), actor, page, pageSize, platform, status, search, isExclusive, sortBy, sortOrder)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -285,11 +293,16 @@ func (h *GroupHandler) List(c *gin.Context) {
 // ListCompositeRoutes handles listing composite model routes for one group.
 // GET /api/v1/admin/groups/:id/composite-routes
 func (h *GroupHandler) ListCompositeRoutes(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, ok := parsePositiveIDParam(c, "id")
 	if !ok {
 		return
 	}
-	routes, err := h.adminService.ListCompositeRoutes(c.Request.Context(), groupID)
+	routes, err := h.adminService.ListCompositeRoutes(c.Request.Context(), actor, groupID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -300,6 +313,11 @@ func (h *GroupHandler) ListCompositeRoutes(c *gin.Context) {
 // CreateCompositeRoute handles creating one composite model route.
 // POST /api/v1/admin/groups/:id/composite-routes
 func (h *GroupHandler) CreateCompositeRoute(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, ok := parsePositiveIDParam(c, "id")
 	if !ok {
 		return
@@ -309,7 +327,7 @@ func (h *GroupHandler) CreateCompositeRoute(c *gin.Context) {
 		response.BadRequest(c, "Invalid request body: "+err.Error())
 		return
 	}
-	route, err := h.adminService.CreateCompositeRoute(c.Request.Context(), groupID, compositeRouteRequestToInput(req, true))
+	route, err := h.adminService.CreateCompositeRoute(c.Request.Context(), actor, groupID, compositeRouteRequestToInput(req, true))
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -320,6 +338,11 @@ func (h *GroupHandler) CreateCompositeRoute(c *gin.Context) {
 // UpdateCompositeRoute handles replacing one composite model route.
 // PUT /api/v1/admin/groups/:id/composite-routes/:route_id
 func (h *GroupHandler) UpdateCompositeRoute(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, ok := parsePositiveIDParam(c, "id")
 	if !ok {
 		return
@@ -333,7 +356,7 @@ func (h *GroupHandler) UpdateCompositeRoute(c *gin.Context) {
 		response.BadRequest(c, "Invalid request body: "+err.Error())
 		return
 	}
-	route, err := h.adminService.UpdateCompositeRoute(c.Request.Context(), groupID, routeID, compositeRouteRequestToInput(req, true))
+	route, err := h.adminService.UpdateCompositeRoute(c.Request.Context(), actor, groupID, routeID, compositeRouteRequestToInput(req, true))
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -344,6 +367,11 @@ func (h *GroupHandler) UpdateCompositeRoute(c *gin.Context) {
 // DeleteCompositeRoute handles deleting one composite model route.
 // DELETE /api/v1/admin/groups/:id/composite-routes/:route_id
 func (h *GroupHandler) DeleteCompositeRoute(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, ok := parsePositiveIDParam(c, "id")
 	if !ok {
 		return
@@ -352,7 +380,7 @@ func (h *GroupHandler) DeleteCompositeRoute(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.adminService.DeleteCompositeRoute(c.Request.Context(), groupID, routeID); err != nil {
+	if err := h.adminService.DeleteCompositeRoute(c.Request.Context(), actor, groupID, routeID); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -362,6 +390,11 @@ func (h *GroupHandler) DeleteCompositeRoute(c *gin.Context) {
 // PreviewCompositeRoute resolves a model without mutating routes.
 // POST /api/v1/admin/groups/:id/composite-routes/preview
 func (h *GroupHandler) PreviewCompositeRoute(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, ok := parsePositiveIDParam(c, "id")
 	if !ok {
 		return
@@ -371,7 +404,7 @@ func (h *GroupHandler) PreviewCompositeRoute(c *gin.Context) {
 		response.BadRequest(c, "Invalid request body: "+err.Error())
 		return
 	}
-	decision, err := h.adminService.PreviewCompositeRoute(c.Request.Context(), groupID, service.CompositeRoutePreviewRequest{
+	decision, err := h.adminService.PreviewCompositeRoute(c.Request.Context(), actor, groupID, service.CompositeRoutePreviewRequest{
 		Model:    req.Model,
 		Endpoint: req.Endpoint,
 	})
@@ -415,6 +448,11 @@ func parsePositiveIDParam(c *gin.Context, name string) (int64, bool) {
 // bound to them even after the group is disabled).
 // GET /api/v1/admin/groups/all
 func (h *GroupHandler) GetAll(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	platform := c.Query("platform")
 	includeInactive := c.Query("include_inactive") == "true"
 
@@ -422,11 +460,11 @@ func (h *GroupHandler) GetAll(c *gin.Context) {
 	var err error
 
 	if includeInactive {
-		groups, err = h.adminService.GetAllGroupsIncludingInactive(c.Request.Context())
+		groups, err = h.adminService.GetAllGroupsIncludingInactive(c.Request.Context(), actor)
 	} else if platform != "" {
-		groups, err = h.adminService.GetAllGroupsByPlatform(c.Request.Context(), platform)
+		groups, err = h.adminService.GetAllGroupsByPlatform(c.Request.Context(), actor, platform)
 	} else {
-		groups, err = h.adminService.GetAllGroups(c.Request.Context())
+		groups, err = h.adminService.GetAllGroups(c.Request.Context(), actor)
 	}
 
 	if err != nil {
@@ -444,13 +482,18 @@ func (h *GroupHandler) GetAll(c *gin.Context) {
 // GetByID handles getting a group by ID
 // GET /api/v1/admin/groups/:id
 func (h *GroupHandler) GetByID(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
 		return
 	}
 
-	group, err := h.adminService.GetGroup(c.Request.Context(), groupID)
+	group, err := h.adminService.GetGroup(c.Request.Context(), actor, groupID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -462,14 +505,19 @@ func (h *GroupHandler) GetByID(c *gin.Context) {
 // GetModelsListCandidates handles getting candidate model IDs for custom /v1/models list.
 // GET /api/v1/admin/groups/:id/models-list-candidates
 func (h *GroupHandler) GetModelsListCandidates(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || groupID < 0 {
 		response.BadRequest(c, "Invalid group ID")
 		return
 	}
-
 	models, err := h.adminService.GetGroupModelsListCandidates(
 		c.Request.Context(),
+		actor,
 		groupID,
 		c.Query("platform"),
 	)
@@ -484,6 +532,11 @@ func (h *GroupHandler) GetModelsListCandidates(c *gin.Context) {
 // Create handles creating a new group
 // POST /api/v1/admin/groups
 func (h *GroupHandler) Create(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req CreateGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -501,8 +554,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
-
-	group, err := h.adminService.CreateGroup(c.Request.Context(), &service.CreateGroupInput{
+	group, err := h.adminService.CreateGroup(c.Request.Context(), actor, &service.CreateGroupInput{
 		Name:                            req.Name,
 		Description:                     req.Description,
 		Platform:                        req.Platform,
@@ -571,12 +623,17 @@ func (h *GroupHandler) Create(c *gin.Context) {
 // Duplicate handles creating an inactive group copy with the source account bindings.
 // POST /api/v1/admin/groups/:id/duplicate
 func (h *GroupHandler) Duplicate(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || groupID <= 0 {
 		response.BadRequest(c, "Invalid group ID")
 		return
 	}
-	actorScope := adminActorScope(c)
+	actorScope, _ := actor.SubjectKey()
 
 	result, err := executeAdminIdempotent(
 		c,
@@ -586,7 +643,7 @@ func (h *GroupHandler) Duplicate(c *gin.Context) {
 		}{GroupID: groupID},
 		service.DefaultWriteIdempotencyTTL(),
 		func(ctx context.Context) (any, error) {
-			group, execErr := h.adminService.DuplicateGroup(ctx, groupID, actorScope, c.GetHeader("Idempotency-Key"))
+			group, execErr := h.adminService.DuplicateGroup(ctx, actor, groupID, c.GetHeader("Idempotency-Key"))
 			if execErr != nil {
 				return nil, execErr
 			}
@@ -596,7 +653,7 @@ func (h *GroupHandler) Duplicate(c *gin.Context) {
 	if err != nil {
 		reason := infraerrors.Reason(err)
 		if reason == infraerrors.Reason(service.ErrIdempotencyInProgress) || reason == infraerrors.Reason(service.ErrIdempotencyStoreUnavail) {
-			recovered, recoverErr := h.adminService.RecoverDuplicateGroup(c.Request.Context(), groupID, actorScope, c.GetHeader("Idempotency-Key"))
+			recovered, recoverErr := h.adminService.RecoverDuplicateGroup(c.Request.Context(), actor, groupID, c.GetHeader("Idempotency-Key"))
 			if recoverErr != nil {
 				slog.Warn("group_duplicate_recovery_failed", "group_id", groupID, "actor_scope", actorScope, "reason", reason, "error", recoverErr)
 			} else if recovered != nil {
@@ -618,6 +675,11 @@ func (h *GroupHandler) Duplicate(c *gin.Context) {
 // Update handles updating a group
 // PUT /api/v1/admin/groups/:id
 func (h *GroupHandler) Update(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -629,8 +691,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
-	group, err := h.adminService.UpdateGroup(c.Request.Context(), groupID, &service.UpdateGroupInput{
+	group, err := h.adminService.UpdateGroup(c.Request.Context(), actor, groupID, &service.UpdateGroupInput{
 		Name:                            req.Name,
 		Description:                     req.Description,
 		Platform:                        req.Platform,
@@ -700,13 +761,17 @@ func (h *GroupHandler) Update(c *gin.Context) {
 // Delete handles deleting a group
 // DELETE /api/v1/admin/groups/:id
 func (h *GroupHandler) Delete(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
 		return
 	}
-
-	err = h.adminService.DeleteGroup(c.Request.Context(), groupID)
+	err = h.adminService.DeleteGroup(c.Request.Context(), actor, groupID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -718,12 +783,15 @@ func (h *GroupHandler) Delete(c *gin.Context) {
 // GetStats handles getting group statistics
 // GET /api/v1/admin/groups/:id/stats
 func (h *GroupHandler) GetStats(c *gin.Context) {
+	if _, ok := adminResourceActor(c); !ok {
+		return
+	}
+
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
 		return
 	}
-
 	// Return mock data for now
 	response.Success(c, gin.H{
 		"total_api_keys":  0,
@@ -737,9 +805,13 @@ func (h *GroupHandler) GetStats(c *gin.Context) {
 // GetUsageSummary returns today's, yesterday's, and cumulative cost for all groups.
 // GET /api/v1/admin/groups/usage-summary
 func (h *GroupHandler) GetUsageSummary(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
 	todayStart := service.GroupUsageTodayStart(time.Now())
 
-	results, err := h.dashboardService.GetGroupUsageSummary(c.Request.Context(), todayStart)
+	results, err := h.dashboardService.GetGroupUsageSummary(c.Request.Context(), actor, todayStart)
 	if err != nil {
 		response.Error(c, 500, "Failed to get group usage summary")
 		return
@@ -751,7 +823,11 @@ func (h *GroupHandler) GetUsageSummary(c *gin.Context) {
 // GetCapacitySummary returns aggregated capacity (concurrency/sessions/RPM) for all active groups.
 // GET /api/v1/admin/groups/capacity-summary
 func (h *GroupHandler) GetCapacitySummary(c *gin.Context) {
-	results, err := h.groupCapacityService.GetAllGroupCapacity(c.Request.Context())
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+	results, err := h.groupCapacityService.GetAllGroupCapacity(c.Request.Context(), actor)
 	if err != nil {
 		response.Error(c, 500, "Failed to get group capacity summary")
 		return
@@ -762,6 +838,11 @@ func (h *GroupHandler) GetCapacitySummary(c *gin.Context) {
 // GetGroupAPIKeys handles getting API keys in a group
 // GET /api/v1/admin/groups/:id/api-keys
 func (h *GroupHandler) GetGroupAPIKeys(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -770,7 +851,7 @@ func (h *GroupHandler) GetGroupAPIKeys(c *gin.Context) {
 
 	page, pageSize := response.ParsePagination(c)
 
-	keys, total, err := h.adminService.GetGroupAPIKeys(c.Request.Context(), groupID, page, pageSize)
+	keys, total, err := h.adminService.GetGroupAPIKeys(c.Request.Context(), actor, groupID, page, pageSize)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -786,13 +867,17 @@ func (h *GroupHandler) GetGroupAPIKeys(c *gin.Context) {
 // GetGroupRateMultipliers handles getting rate multipliers for users in a group
 // GET /api/v1/admin/groups/:id/rate-multipliers
 func (h *GroupHandler) GetGroupRateMultipliers(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
 		return
 	}
-
-	entries, err := h.adminService.GetGroupRateMultipliers(c.Request.Context(), groupID)
+	entries, err := h.adminService.GetGroupRateMultipliers(c.Request.Context(), actor, groupID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -807,13 +892,17 @@ func (h *GroupHandler) GetGroupRateMultipliers(c *gin.Context) {
 // ClearGroupRateMultipliers handles clearing all rate multipliers for a group
 // DELETE /api/v1/admin/groups/:id/rate-multipliers
 func (h *GroupHandler) ClearGroupRateMultipliers(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
 		return
 	}
-
-	if err := h.adminService.ClearGroupRateMultipliers(c.Request.Context(), groupID); err != nil {
+	if err := h.adminService.ClearGroupRateMultipliers(c.Request.Context(), actor, groupID); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -829,6 +918,11 @@ type BatchSetGroupRateMultipliersRequest struct {
 // BatchSetGroupRateMultipliers handles batch setting rate multipliers for a group
 // PUT /api/v1/admin/groups/:id/rate-multipliers
 func (h *GroupHandler) BatchSetGroupRateMultipliers(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -840,8 +934,7 @@ func (h *GroupHandler) BatchSetGroupRateMultipliers(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
-	if err := h.adminService.BatchSetGroupRateMultipliers(c.Request.Context(), groupID, req.Entries); err != nil {
+	if err := h.adminService.BatchSetGroupRateMultipliers(c.Request.Context(), actor, groupID, req.Entries); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -857,6 +950,11 @@ type BatchSetGroupRPMOverridesRequest struct {
 // BatchSetGroupRPMOverrides handles batch setting rpm_override for users in a group
 // PUT /api/v1/admin/groups/:id/rpm-overrides
 func (h *GroupHandler) BatchSetGroupRPMOverrides(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -868,8 +966,7 @@ func (h *GroupHandler) BatchSetGroupRPMOverrides(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
-	if err := h.adminService.BatchSetGroupRPMOverrides(c.Request.Context(), groupID, req.Entries); err != nil {
+	if err := h.adminService.BatchSetGroupRPMOverrides(c.Request.Context(), actor, groupID, req.Entries); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -880,13 +977,17 @@ func (h *GroupHandler) BatchSetGroupRPMOverrides(c *gin.Context) {
 // ClearGroupRPMOverrides handles clearing all rpm_override for a group
 // DELETE /api/v1/admin/groups/:id/rpm-overrides
 func (h *GroupHandler) ClearGroupRPMOverrides(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
 		return
 	}
-
-	if err := h.adminService.ClearGroupRPMOverrides(c.Request.Context(), groupID); err != nil {
+	if err := h.adminService.ClearGroupRPMOverrides(c.Request.Context(), actor, groupID); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -905,12 +1006,16 @@ type UpdateSortOrderRequest struct {
 // UpdateSortOrder handles updating group sort orders
 // PUT /api/v1/admin/groups/sort-order
 func (h *GroupHandler) UpdateSortOrder(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req UpdateSortOrderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
 	updates := make([]service.GroupSortOrderUpdate, 0, len(req.Updates))
 	for _, u := range req.Updates {
 		updates = append(updates, service.GroupSortOrderUpdate{
@@ -919,7 +1024,7 @@ func (h *GroupHandler) UpdateSortOrder(c *gin.Context) {
 		})
 	}
 
-	if err := h.adminService.UpdateGroupSortOrders(c.Request.Context(), updates); err != nil {
+	if err := h.adminService.UpdateGroupSortOrders(c.Request.Context(), actor, updates); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}

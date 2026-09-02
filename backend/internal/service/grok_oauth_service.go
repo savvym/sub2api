@@ -10,6 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/oauthflow"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
@@ -65,7 +66,10 @@ type GrokAuthURLResult struct {
 	State     string `json:"state"`
 }
 
-func (s *GrokOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, redirectURI string) (*GrokAuthURLResult, error) {
+func (s *GrokOAuthService) generateAuthURL(ctx context.Context, binding oauthflow.Binding, proxyID *int64, redirectURI string) (*GrokAuthURLResult, error) {
+	if !binding.Valid() {
+		return nil, infraerrors.New(http.StatusBadRequest, "GROK_OAUTH_SESSION_BINDING_INVALID", "oauth flow binding is invalid")
+	}
 	state, err := xai.GenerateState()
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusInternalServerError, "GROK_OAUTH_STATE_FAILED", "failed to generate state: %v", err)
@@ -101,8 +105,10 @@ func (s *GrokOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, 
 		CodeChallenge: codeChallenge,
 		ClientID:      xai.EffectiveClientID(),
 		Scope:         xai.EffectiveScope(),
+		ProxyID:       cloneOAuthFlowInt64Pointer(proxyID),
 		ProxyURL:      proxyURL,
 		RedirectURI:   redirectURI,
+		Binding:       binding,
 		CreatedAt:     time.Now(),
 	})
 
@@ -144,13 +150,16 @@ type GrokPasswordLoginResult struct {
 	SSOToken string `json:"sso_token"`
 }
 
-func (s *GrokOAuthService) ExchangeCode(ctx context.Context, input *GrokExchangeCodeInput) (*GrokTokenInfo, error) {
+func (s *GrokOAuthService) exchangeCode(ctx context.Context, binding oauthflow.Binding, input *GrokExchangeCodeInput) (*GrokTokenInfo, error) {
 	if input == nil {
 		return nil, infraerrors.New(http.StatusBadRequest, "GROK_OAUTH_INVALID_INPUT", "input is required")
 	}
 	session, ok := s.sessionStore.Get(input.SessionID)
 	if !ok {
 		return nil, infraerrors.New(http.StatusBadRequest, "GROK_OAUTH_SESSION_NOT_FOUND", "session not found or expired")
+	}
+	if err := validateOAuthFlowBinding(session.Binding, binding, "GROK_OAUTH"); err != nil {
+		return nil, err
 	}
 
 	parsed := xai.ParseAuthorizationInput(input.Code)
@@ -172,15 +181,11 @@ func (s *GrokOAuthService) ExchangeCode(ctx context.Context, input *GrokExchange
 		redirectURI != strings.TrimSpace(session.RedirectURI) {
 		return nil, infraerrors.New(http.StatusBadRequest, "GROK_OAUTH_REDIRECT_URI_MISMATCH", "redirect_uri does not match the OAuth session")
 	}
+	if err := validateOAuthProxyBinding(input.ProxyID, session.ProxyID, "GROK_OAUTH"); err != nil {
+		return nil, err
+	}
 
 	proxyURL := session.ProxyURL
-	if input.ProxyID != nil {
-		var err error
-		proxyURL, err = s.proxyURL(ctx, input.ProxyID)
-		if err != nil {
-			return nil, err
-		}
-	}
 	if err := s.requireOAuthClient(); err != nil {
 		return nil, err
 	}

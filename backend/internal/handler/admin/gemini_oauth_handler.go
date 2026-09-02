@@ -38,13 +38,17 @@ type GeminiGenerateAuthURLRequest struct {
 // GenerateAuthURL generates Google OAuth authorization URL for Gemini.
 // POST /api/v1/admin/gemini/oauth/auth-url
 func (h *GeminiOAuthHandler) GenerateAuthURL(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req GeminiGenerateAuthURLRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
-	// 默认使用 code_assist 以保持向后兼容
 	oauthType := strings.TrimSpace(req.OAuthType)
 	if oauthType == "" {
 		oauthType = "code_assist"
@@ -57,7 +61,7 @@ func (h *GeminiOAuthHandler) GenerateAuthURL(c *gin.Context) {
 	// Always pass the "hosted" callback URI; the OAuth service may override it depending on
 	// oauth_type and whether the built-in Gemini CLI OAuth client is used.
 	redirectURI := deriveGeminiRedirectURI(c)
-	result, err := h.geminiOAuthService.GenerateAuthURL(c.Request.Context(), req.ProxyID, redirectURI, req.ProjectID, oauthType, req.TierID)
+	result, err := h.geminiOAuthService.AdminGenerateAuthURL(c.Request.Context(), actor, req.ProxyID, redirectURI, req.ProjectID, oauthType, req.TierID)
 	if err != nil {
 		msg := err.Error()
 		// Treat missing/invalid OAuth client configuration as a user/config error.
@@ -91,23 +95,24 @@ type GeminiExchangeCodeRequest struct {
 // ExchangeCode exchanges authorization code for tokens.
 // POST /api/v1/admin/gemini/oauth/exchange-code
 func (h *GeminiOAuthHandler) ExchangeCode(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req GeminiExchangeCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
-	// 默认使用 code_assist 以保持向后兼容
 	oauthType := strings.TrimSpace(req.OAuthType)
-	if oauthType == "" {
-		oauthType = "code_assist"
-	}
-	if oauthType != "code_assist" && oauthType != "google_one" && oauthType != "ai_studio" {
+	if oauthType != "" && oauthType != "code_assist" && oauthType != "google_one" && oauthType != "ai_studio" {
 		response.BadRequest(c, "Invalid oauth_type: must be 'code_assist', 'google_one', or 'ai_studio'")
 		return
 	}
 
-	tokenInfo, err := h.geminiOAuthService.ExchangeCode(c.Request.Context(), &service.GeminiExchangeCodeInput{
+	tokenInfo, err := h.geminiOAuthService.AdminExchangeCode(c.Request.Context(), actor, &service.GeminiExchangeCodeInput{
 		SessionID: req.SessionID,
 		State:     req.State,
 		Code:      req.Code,

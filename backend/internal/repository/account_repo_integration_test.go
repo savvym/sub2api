@@ -142,6 +142,22 @@ func (s *AccountRepoSuite) SetupTest() {
 	s.repo = newAccountRepositoryWithSQL(s.client, tx, nil)
 }
 
+func newCommittedAccountRepoFixture(t *testing.T, account *service.Account) (*accountRepository, *service.Account) {
+	t.Helper()
+
+	client := testEntClient(t)
+	account = mustCreateAccount(t, client, account)
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, err := integrationDB.ExecContext(ctx, "DELETE FROM scheduler_outbox WHERE account_id = $1", account.ID)
+		require.NoError(t, err, "clean scheduler outbox for committed account fixture")
+		_, err = integrationDB.ExecContext(ctx, "DELETE FROM accounts WHERE id = $1", account.ID)
+		require.NoError(t, err, "clean account for committed account fixture")
+	})
+
+	return newAccountRepositoryWithSQL(client, integrationDB, nil), account
+}
+
 func TestAccountRepoSuite(t *testing.T) {
 	suite.Run(t, new(AccountRepoSuite))
 }
@@ -188,21 +204,24 @@ func (s *AccountRepoSuite) TestUpdate() {
 }
 
 func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnDisabled() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "sync-update", Status: service.StatusActive, Schedulable: true})
+	repo, account := newCommittedAccountRepoFixture(s.T(), &service.Account{Name: "sync-update", Status: service.StatusActive, Schedulable: true})
 	cacheRecorder := &schedulerCacheRecorder{}
-	s.repo.schedulerCache = cacheRecorder
+	repo.schedulerCache = cacheRecorder
 
 	account.Status = service.StatusDisabled
-	err := s.repo.Update(s.ctx, account)
+	err := repo.Update(s.ctx, account)
 	s.Require().NoError(err, "Update")
 
+	got, err := repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err, "GetByID after update")
+	s.Require().Equal(service.StatusDisabled, got.Status)
 	s.Require().Len(cacheRecorder.setAccounts, 1)
 	s.Require().Equal(account.ID, cacheRecorder.setAccounts[0].ID)
 	s.Require().Equal(service.StatusDisabled, cacheRecorder.setAccounts[0].Status)
 }
 
 func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnCredentialsChange() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{
+	repo, account := newCommittedAccountRepoFixture(s.T(), &service.Account{
 		Name:        "sync-credentials-update",
 		Status:      service.StatusActive,
 		Schedulable: true,
@@ -213,16 +232,21 @@ func (s *AccountRepoSuite) TestUpdate_SyncSchedulerSnapshotOnCredentialsChange()
 		},
 	})
 	cacheRecorder := &schedulerCacheRecorder{}
-	s.repo.schedulerCache = cacheRecorder
+	repo.schedulerCache = cacheRecorder
 
 	account.Credentials = map[string]any{
 		"model_mapping": map[string]any{
 			"gpt-5": "gpt-5.2",
 		},
 	}
-	err := s.repo.Update(s.ctx, account)
+	err := repo.Update(s.ctx, account)
 	s.Require().NoError(err, "Update")
 
+	got, err := repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err, "GetByID after update")
+	gotMapping, ok := got.Credentials["model_mapping"].(map[string]any)
+	s.Require().True(ok)
+	s.Require().Equal("gpt-5.2", gotMapping["gpt-5"])
 	s.Require().Len(cacheRecorder.setAccounts, 1)
 	s.Require().Equal(account.ID, cacheRecorder.setAccounts[0].ID)
 	mapping, ok := cacheRecorder.setAccounts[0].Credentials["model_mapping"].(map[string]any)
@@ -269,7 +293,7 @@ func (s *AccountRepoSuite) TestDelete() {
 }
 
 func (s *AccountRepoSuite) TestDelete_RemovesSchedulerAccountSnapshot() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "to-delete-cache"})
+	repo, account := newCommittedAccountRepoFixture(s.T(), &service.Account{Name: "to-delete-cache"})
 	cacheRecorder := &schedulerCacheRecorder{
 		accounts: map[int64]*service.Account{
 			account.ID: {
@@ -280,11 +304,13 @@ func (s *AccountRepoSuite) TestDelete_RemovesSchedulerAccountSnapshot() {
 			},
 		},
 	}
-	s.repo.schedulerCache = cacheRecorder
+	repo.schedulerCache = cacheRecorder
 
-	err := s.repo.Delete(s.ctx, account.ID)
+	err := repo.Delete(s.ctx, account.ID)
 	s.Require().NoError(err, "Delete")
 
+	_, err = repo.GetByID(s.ctx, account.ID)
+	s.Require().Error(err, "expected error after delete")
 	s.Require().Equal([]int64{account.ID}, cacheRecorder.deleteIDs)
 	s.Require().NotContains(cacheRecorder.accounts, account.ID)
 }
@@ -804,13 +830,13 @@ func (s *AccountRepoSuite) TestListSchedulableByGroupIDAndPlatform() {
 }
 
 func (s *AccountRepoSuite) TestSetSchedulable() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-sched", Schedulable: true})
+	repo, account := newCommittedAccountRepoFixture(s.T(), &service.Account{Name: "acc-sched", Schedulable: true})
 	cacheRecorder := &schedulerCacheRecorder{}
-	s.repo.schedulerCache = cacheRecorder
+	repo.schedulerCache = cacheRecorder
 
-	s.Require().NoError(s.repo.SetSchedulable(s.ctx, account.ID, false))
+	s.Require().NoError(repo.SetSchedulable(s.ctx, account.ID, false))
 
-	got, err := s.repo.GetByID(s.ctx, account.ID)
+	got, err := repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err)
 	s.Require().False(got.Schedulable)
 	s.Require().Len(cacheRecorder.setAccounts, 1)
@@ -957,20 +983,20 @@ func (s *AccountRepoSuite) TestClearRateLimit() {
 }
 
 func (s *AccountRepoSuite) TestTempUnschedulableFieldsLoadedByGetByIDAndGetByIDs() {
-	acc1 := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-temp-1"})
-	acc2 := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-temp-2"})
+	repo, acc1 := newCommittedAccountRepoFixture(s.T(), &service.Account{Name: "acc-temp-1"})
+	_, acc2 := newCommittedAccountRepoFixture(s.T(), &service.Account{Name: "acc-temp-2"})
 
 	until := time.Now().Add(15 * time.Minute).UTC().Truncate(time.Second)
 	reason := `{"rule":"429","matched_keyword":"too many requests"}`
-	s.Require().NoError(s.repo.SetTempUnschedulable(s.ctx, acc1.ID, until, reason))
+	s.Require().NoError(repo.SetTempUnschedulable(s.ctx, acc1.ID, until, reason))
 
-	gotByID, err := s.repo.GetByID(s.ctx, acc1.ID)
+	gotByID, err := repo.GetByID(s.ctx, acc1.ID)
 	s.Require().NoError(err)
 	s.Require().NotNil(gotByID.TempUnschedulableUntil)
 	s.Require().WithinDuration(until, *gotByID.TempUnschedulableUntil, time.Second)
 	s.Require().Equal(reason, gotByID.TempUnschedulableReason)
 
-	gotByIDs, err := s.repo.GetByIDs(s.ctx, []int64{acc2.ID, acc1.ID})
+	gotByIDs, err := repo.GetByIDs(s.ctx, []int64{acc2.ID, acc1.ID})
 	s.Require().NoError(err)
 	s.Require().Len(gotByIDs, 2)
 	s.Require().Equal(acc2.ID, gotByIDs[0].ID)
@@ -982,10 +1008,10 @@ func (s *AccountRepoSuite) TestTempUnschedulableFieldsLoadedByGetByIDAndGetByIDs
 	s.Require().Equal(reason, gotByIDs[1].TempUnschedulableReason)
 
 	cacheRecorder := &schedulerCacheRecorder{}
-	s.repo.schedulerCache = cacheRecorder
+	repo.schedulerCache = cacheRecorder
 
-	s.Require().NoError(s.repo.ClearTempUnschedulable(s.ctx, acc1.ID))
-	cleared, err := s.repo.GetByID(s.ctx, acc1.ID)
+	s.Require().NoError(repo.ClearTempUnschedulable(s.ctx, acc1.ID))
+	cleared, err := repo.GetByID(s.ctx, acc1.ID)
 	s.Require().NoError(err)
 	s.Require().Nil(cleared.TempUnschedulableUntil)
 	s.Require().Equal("", cleared.TempUnschedulableReason)
@@ -1027,7 +1053,7 @@ func (s *AccountRepoSuite) TestSetTempUnschedulableSkipsOutboxWhenWindowDoesNotE
 }
 
 func (s *AccountRepoSuite) TestClearModelRateLimits_SyncsSchedulerSnapshot() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{
+	repo, account := newCommittedAccountRepoFixture(s.T(), &service.Account{
 		Name: "acc-clear-model-rate",
 		Extra: map[string]any{
 			"model_rate_limits": map[string]any{
@@ -1038,11 +1064,11 @@ func (s *AccountRepoSuite) TestClearModelRateLimits_SyncsSchedulerSnapshot() {
 		},
 	})
 	cacheRecorder := &schedulerCacheRecorder{}
-	s.repo.schedulerCache = cacheRecorder
+	repo.schedulerCache = cacheRecorder
 
-	s.Require().NoError(s.repo.ClearModelRateLimits(s.ctx, account.ID))
+	s.Require().NoError(repo.ClearModelRateLimits(s.ctx, account.ID))
 
-	got, err := s.repo.GetByID(s.ctx, account.ID)
+	got, err := repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err)
 	s.Require().NotContains(got.Extra, "model_rate_limits")
 	s.Require().Len(cacheRecorder.setAccounts, 1)
@@ -1066,15 +1092,13 @@ func (s *AccountRepoSuite) TestUpdateLastUsed() {
 // --- SetError ---
 
 func (s *AccountRepoSuite) TestSetError() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-err", Status: service.StatusActive, Schedulable: true})
+	repo, account := newCommittedAccountRepoFixture(s.T(), &service.Account{Name: "acc-err", Status: service.StatusActive, Schedulable: true})
 	cacheRecorder := &schedulerCacheRecorder{}
-	s.repo.schedulerCache = cacheRecorder
-	_, err := s.repo.sql.ExecContext(s.ctx, "TRUNCATE scheduler_outbox")
-	s.Require().NoError(err)
+	repo.schedulerCache = cacheRecorder
 
-	s.Require().NoError(s.repo.SetError(s.ctx, account.ID, "something went wrong"))
+	s.Require().NoError(repo.SetError(s.ctx, account.ID, "something went wrong"))
 
-	got, err := s.repo.GetByID(s.ctx, account.ID)
+	got, err := repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err)
 	s.Require().Equal(service.StatusError, got.Status)
 	s.Require().Equal("something went wrong", got.ErrorMessage)
@@ -1087,7 +1111,7 @@ func (s *AccountRepoSuite) TestSetError() {
 	var outboxCount int
 	err = scanSingleRow(
 		s.ctx,
-		s.repo.sql,
+		repo.sql,
 		"SELECT COUNT(*) FROM scheduler_outbox WHERE event_type = $1 AND account_id = $2",
 		[]any{service.SchedulerOutboxEventAccountChanged, account.ID},
 		&outboxCount,
@@ -1387,17 +1411,17 @@ func (s *AccountRepoSuite) TestUpdateErrorStatusUnschedulesAccount() {
 }
 
 func (s *AccountRepoSuite) TestClearError_SyncSchedulerSnapshotOnRecovery() {
-	account := mustCreateAccount(s.T(), s.client, &service.Account{
+	repo, account := newCommittedAccountRepoFixture(s.T(), &service.Account{
 		Name:         "acc-clear-err",
 		Status:       service.StatusError,
 		ErrorMessage: "temporary error",
 	})
 	cacheRecorder := &schedulerCacheRecorder{}
-	s.repo.schedulerCache = cacheRecorder
+	repo.schedulerCache = cacheRecorder
 
-	s.Require().NoError(s.repo.ClearError(s.ctx, account.ID))
+	s.Require().NoError(repo.ClearError(s.ctx, account.ID))
 
-	got, err := s.repo.GetByID(s.ctx, account.ID)
+	got, err := repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err)
 	s.Require().Equal(service.StatusActive, got.Status)
 	s.Require().Empty(got.ErrorMessage)

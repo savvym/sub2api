@@ -143,6 +143,7 @@ func TestSettingHandler_GetSettings_InjectsAuthSourceDefaults(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/settings", nil)
 
+	attachSettingAdminTestActor(t, c)
 	handler.GetSettings(c)
 
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -189,6 +190,7 @@ func TestSettingHandler_UpdateSettings_PreservesOmittedAuthSourceDefaults(t *tes
 	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
 	c.Request.Header.Set("Content-Type", "application/json")
 
+	attachSettingAdminTestActor(t, c)
 	handler.UpdateSettings(c)
 
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -234,6 +236,7 @@ func TestSettingHandler_UpdateSettings_PersistsPaymentVisibleMethodsAndAdvancedS
 	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
 	c.Request.Header.Set("Content-Type", "application/json")
 
+	attachSettingAdminTestActor(t, c)
 	handler.UpdateSettings(c)
 
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -283,6 +286,7 @@ func TestSettingHandler_UpdateSettings_PreservesLegacyBlankPaymentVisibleMethodS
 	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
 	c.Request.Header.Set("Content-Type", "application/json")
 
+	attachSettingAdminTestActor(t, c)
 	handler.UpdateSettings(c)
 
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -332,6 +336,7 @@ func TestSettingHandler_UpdateSettings_PersistsExplicitFalseOIDCCompatibilityFla
 	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
 	c.Request.Header.Set("Content-Type", "application/json")
 
+	attachSettingAdminTestActor(t, c)
 	handler.UpdateSettings(c)
 
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -408,6 +413,7 @@ func TestSettingHandler_UpdateSettings_DoesNotSolidifyImplicitOIDCSecurityDefaul
 	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
 	c.Request.Header.Set("Content-Type", "application/json")
 
+	attachSettingAdminTestActor(t, c)
 	handler.UpdateSettings(c)
 
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -437,6 +443,7 @@ func TestSettingHandler_UpdateSettings_RejectsInvalidPaymentVisibleMethodSource(
 	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
 	c.Request.Header.Set("Content-Type", "application/json")
 
+	attachSettingAdminTestActor(t, c)
 	handler.UpdateSettings(c)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
@@ -471,6 +478,7 @@ func TestSettingHandler_UpdateSettings_DoesNotPersistPartialSystemSettingsWhenAu
 	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/settings", bytes.NewReader(rawBody))
 	c.Request.Header.Set("Content-Type", "application/json")
 
+	attachSettingAdminTestActor(t, c)
 	handler.UpdateSettings(c)
 
 	require.Equal(t, http.StatusInternalServerError, rec.Code)

@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
@@ -138,6 +139,16 @@ type Group struct {
 	MaxReasoningEffort string `json:"max_reasoning_effort,omitempty"`
 	// OpenAI reasoning effort 自定义精确映射；先映射再应用上限
 	ReasoningEffortMappings []domain.ReasoningEffortMapping `json:"reasoning_effort_mappings,omitempty"`
+	// OwnerUserID holds the value of the "owner_user_id" field.
+	OwnerUserID *int64 `json:"owner_user_id,omitempty"`
+	// CreatedByUserID holds the value of the "created_by_user_id" field.
+	CreatedByUserID *int64 `json:"created_by_user_id,omitempty"`
+	// PublicAccessLevel holds the value of the "public_access_level" field.
+	PublicAccessLevel *string `json:"public_access_level,omitempty"`
+	// AccessVersion holds the value of the "access_version" field.
+	AccessVersion int64 `json:"access_version,omitempty"`
+	// AuthorizationMode holds the value of the "authorization_mode" field.
+	AuthorizationMode string `json:"authorization_mode,omitempty"`
 	// 是否启用利润控制：调度时仅允许账号计费倍率满足毛利率要求的账号进入候选池
 	ProfitControlEnabled bool `json:"profit_control_enabled,omitempty"`
 	// 最低毛利率，小数（0.30=30%）；账号准入条件为 U <= D*(1-margin-buffer)
@@ -164,13 +175,17 @@ type GroupEdges struct {
 	Accounts []*Account `json:"accounts,omitempty"`
 	// AllowedUsers holds the value of the allowed_users edge.
 	AllowedUsers []*User `json:"allowed_users,omitempty"`
+	// Owner holds the value of the owner edge.
+	Owner *User `json:"owner,omitempty"`
+	// CreatedBy holds the value of the created_by edge.
+	CreatedBy *User `json:"created_by,omitempty"`
 	// AccountGroups holds the value of the account_groups edge.
 	AccountGroups []*AccountGroup `json:"account_groups,omitempty"`
 	// UserAllowedGroups holds the value of the user_allowed_groups edge.
 	UserAllowedGroups []*UserAllowedGroup `json:"user_allowed_groups,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [8]bool
+	loadedTypes [10]bool
 }
 
 // APIKeysOrErr returns the APIKeys value or an error if the edge
@@ -227,10 +242,32 @@ func (e GroupEdges) AllowedUsersOrErr() ([]*User, error) {
 	return nil, &NotLoadedError{edge: "allowed_users"}
 }
 
+// OwnerOrErr returns the Owner value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e GroupEdges) OwnerOrErr() (*User, error) {
+	if e.Owner != nil {
+		return e.Owner, nil
+	} else if e.loadedTypes[6] {
+		return nil, &NotFoundError{label: user.Label}
+	}
+	return nil, &NotLoadedError{edge: "owner"}
+}
+
+// CreatedByOrErr returns the CreatedBy value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e GroupEdges) CreatedByOrErr() (*User, error) {
+	if e.CreatedBy != nil {
+		return e.CreatedBy, nil
+	} else if e.loadedTypes[7] {
+		return nil, &NotFoundError{label: user.Label}
+	}
+	return nil, &NotLoadedError{edge: "created_by"}
+}
+
 // AccountGroupsOrErr returns the AccountGroups value or an error if the edge
 // was not loaded in eager-loading.
 func (e GroupEdges) AccountGroupsOrErr() ([]*AccountGroup, error) {
-	if e.loadedTypes[6] {
+	if e.loadedTypes[8] {
 		return e.AccountGroups, nil
 	}
 	return nil, &NotLoadedError{edge: "account_groups"}
@@ -239,7 +276,7 @@ func (e GroupEdges) AccountGroupsOrErr() ([]*AccountGroup, error) {
 // UserAllowedGroupsOrErr returns the UserAllowedGroups value or an error if the edge
 // was not loaded in eager-loading.
 func (e GroupEdges) UserAllowedGroupsOrErr() ([]*UserAllowedGroup, error) {
-	if e.loadedTypes[7] {
+	if e.loadedTypes[9] {
 		return e.UserAllowedGroups, nil
 	}
 	return nil, &NotLoadedError{edge: "user_allowed_groups"}
@@ -256,9 +293,9 @@ func (*Group) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case group.FieldRateMultiplier, group.FieldPeakRateMultiplier, group.FieldDailyLimitUsd, group.FieldWeeklyLimitUsd, group.FieldMonthlyLimitUsd, group.FieldImageRateMultiplier, group.FieldImagePrice1k, group.FieldImagePrice2k, group.FieldImagePrice4k, group.FieldBatchImageDiscountMultiplier, group.FieldBatchImageHoldMultiplier, group.FieldVideoRateMultiplier, group.FieldVideoPrice480p, group.FieldVideoPrice720p, group.FieldVideoPrice1080p, group.FieldWebSearchPricePerCall, group.FieldSearchPricePer1k, group.FieldAudioRealtimePricePerMin, group.FieldAudioTtsPricePerMillionChars, group.FieldAudioSttPricePerHour, group.FieldProfitMinMargin, group.FieldProfitSafetyBuffer:
 			values[i] = new(sql.NullFloat64)
-		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldRpmLimit:
+		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldRpmLimit, group.FieldOwnerUserID, group.FieldCreatedByUserID, group.FieldAccessVersion:
 			values[i] = new(sql.NullInt64)
-		case group.FieldName, group.FieldDescription, group.FieldPeakStart, group.FieldPeakEnd, group.FieldStatus, group.FieldDuplicateOperationID, group.FieldPlatform, group.FieldSubscriptionType, group.FieldDefaultMappedModel, group.FieldMaxReasoningEffort:
+		case group.FieldName, group.FieldDescription, group.FieldPeakStart, group.FieldPeakEnd, group.FieldStatus, group.FieldDuplicateOperationID, group.FieldPlatform, group.FieldSubscriptionType, group.FieldDefaultMappedModel, group.FieldMaxReasoningEffort, group.FieldPublicAccessLevel, group.FieldAuthorizationMode:
 			values[i] = new(sql.NullString)
 		case group.FieldCreatedAt, group.FieldUpdatedAt, group.FieldDeletedAt:
 			values[i] = new(sql.NullTime)
@@ -670,6 +707,39 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field reasoning_effort_mappings: %w", err)
 				}
 			}
+		case group.FieldOwnerUserID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field owner_user_id", values[i])
+			} else if value.Valid {
+				_m.OwnerUserID = new(int64)
+				*_m.OwnerUserID = value.Int64
+			}
+		case group.FieldCreatedByUserID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field created_by_user_id", values[i])
+			} else if value.Valid {
+				_m.CreatedByUserID = new(int64)
+				*_m.CreatedByUserID = value.Int64
+			}
+		case group.FieldPublicAccessLevel:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field public_access_level", values[i])
+			} else if value.Valid {
+				_m.PublicAccessLevel = new(string)
+				*_m.PublicAccessLevel = value.String
+			}
+		case group.FieldAccessVersion:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field access_version", values[i])
+			} else if value.Valid {
+				_m.AccessVersion = value.Int64
+			}
+		case group.FieldAuthorizationMode:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field authorization_mode", values[i])
+			} else if value.Valid {
+				_m.AuthorizationMode = value.String
+			}
 		case group.FieldProfitControlEnabled:
 			if value, ok := values[i].(*sql.NullBool); !ok {
 				return fmt.Errorf("unexpected type %T for field profit_control_enabled", values[i])
@@ -729,6 +799,16 @@ func (_m *Group) QueryAccounts() *AccountQuery {
 // QueryAllowedUsers queries the "allowed_users" edge of the Group entity.
 func (_m *Group) QueryAllowedUsers() *UserQuery {
 	return NewGroupClient(_m.config).QueryAllowedUsers(_m)
+}
+
+// QueryOwner queries the "owner" edge of the Group entity.
+func (_m *Group) QueryOwner() *UserQuery {
+	return NewGroupClient(_m.config).QueryOwner(_m)
+}
+
+// QueryCreatedBy queries the "created_by" edge of the Group entity.
+func (_m *Group) QueryCreatedBy() *UserQuery {
+	return NewGroupClient(_m.config).QueryCreatedBy(_m)
 }
 
 // QueryAccountGroups queries the "account_groups" edge of the Group entity.
@@ -978,6 +1058,27 @@ func (_m *Group) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("reasoning_effort_mappings=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ReasoningEffortMappings))
+	builder.WriteString(", ")
+	if v := _m.OwnerUserID; v != nil {
+		builder.WriteString("owner_user_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.CreatedByUserID; v != nil {
+		builder.WriteString("created_by_user_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.PublicAccessLevel; v != nil {
+		builder.WriteString("public_access_level=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	builder.WriteString("access_version=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AccessVersion))
+	builder.WriteString(", ")
+	builder.WriteString("authorization_mode=")
+	builder.WriteString(_m.AuthorizationMode)
 	builder.WriteString(", ")
 	builder.WriteString("profit_control_enabled=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ProfitControlEnabled))

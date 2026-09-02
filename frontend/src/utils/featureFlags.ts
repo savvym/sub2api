@@ -129,6 +129,16 @@ export const FeatureFlags = {
     mode: 'opt-in',
     label: 'Affiliate',
   }),
+  selfServiceAccounts: defineFlag({
+    key: 'self_service_hosting_enabled',
+    mode: 'opt-in',
+    label: 'Self-service accounts',
+  }),
+  selfServiceGroups: defineFlag({
+    key: 'self_service_hosting_enabled',
+    mode: 'opt-in',
+    label: 'Self-service groups',
+  }),
 } as const
 
 export type RegisteredFeatureFlag = keyof typeof FeatureFlags

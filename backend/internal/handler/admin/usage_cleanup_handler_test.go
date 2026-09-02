@@ -108,6 +108,7 @@ func setupCleanupRouter(cleanupService *service.UsageCleanupService, userID int6
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	if userID > 0 {
+		router.Use(withAdminTestUserActorID(userID))
 		router.Use(func(c *gin.Context) {
 			c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: userID})
 			c.Next()

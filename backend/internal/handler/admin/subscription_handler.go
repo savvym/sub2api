@@ -62,6 +62,11 @@ type AdjustSubscriptionRequest struct {
 // List handles listing all subscriptions with pagination and filters
 // GET /api/v1/admin/subscriptions
 func (h *SubscriptionHandler) List(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	page, pageSize := response.ParsePagination(c)
 
 	// Parse optional filters
@@ -83,7 +88,7 @@ func (h *SubscriptionHandler) List(c *gin.Context) {
 	sortBy := c.DefaultQuery("sort_by", "created_at")
 	sortOrder := c.DefaultQuery("sort_order", "desc")
 
-	subscriptions, pagination, err := h.subscriptionService.List(c.Request.Context(), page, pageSize, userID, groupID, status, platform, sortBy, sortOrder)
+	subscriptions, pagination, err := h.subscriptionService.AdminList(c.Request.Context(), actor, page, pageSize, userID, groupID, status, platform, sortBy, sortOrder)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -99,13 +104,18 @@ func (h *SubscriptionHandler) List(c *gin.Context) {
 // GetByID handles getting a subscription by ID
 // GET /api/v1/admin/subscriptions/:id
 func (h *SubscriptionHandler) GetByID(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	subscriptionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid subscription ID")
 		return
 	}
 
-	subscription, err := h.subscriptionService.GetByID(c.Request.Context(), subscriptionID)
+	subscription, err := h.subscriptionService.AdminGetByID(c.Request.Context(), actor, subscriptionID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -117,13 +127,18 @@ func (h *SubscriptionHandler) GetByID(c *gin.Context) {
 // GetProgress handles getting subscription usage progress
 // GET /api/v1/admin/subscriptions/:id/progress
 func (h *SubscriptionHandler) GetProgress(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	subscriptionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid subscription ID")
 		return
 	}
 
-	progress, err := h.subscriptionService.GetSubscriptionProgress(c.Request.Context(), subscriptionID)
+	progress, err := h.subscriptionService.AdminGetSubscriptionProgress(c.Request.Context(), actor, subscriptionID)
 	if err != nil {
 		response.NotFound(c, "Subscription not found")
 		return
@@ -135,6 +150,11 @@ func (h *SubscriptionHandler) GetProgress(c *gin.Context) {
 // Assign handles assigning a subscription to a user
 // POST /api/v1/admin/subscriptions/assign
 func (h *SubscriptionHandler) Assign(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req AssignSubscriptionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -144,7 +164,7 @@ func (h *SubscriptionHandler) Assign(c *gin.Context) {
 	// Get admin user ID from context
 	adminID := getAdminIDFromContext(c)
 
-	subscription, err := h.subscriptionService.AssignSubscription(c.Request.Context(), &service.AssignSubscriptionInput{
+	subscription, err := h.subscriptionService.AdminAssignSubscription(c.Request.Context(), actor, &service.AssignSubscriptionInput{
 		UserID:       req.UserID,
 		GroupID:      req.GroupID,
 		ValidityDays: req.ValidityDays,
@@ -162,6 +182,11 @@ func (h *SubscriptionHandler) Assign(c *gin.Context) {
 // BulkAssign handles bulk assigning subscriptions to multiple users
 // POST /api/v1/admin/subscriptions/bulk-assign
 func (h *SubscriptionHandler) BulkAssign(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req BulkAssignSubscriptionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -171,7 +196,7 @@ func (h *SubscriptionHandler) BulkAssign(c *gin.Context) {
 	// Get admin user ID from context
 	adminID := getAdminIDFromContext(c)
 
-	result, err := h.subscriptionService.BulkAssignSubscription(c.Request.Context(), &service.BulkAssignSubscriptionInput{
+	result, err := h.subscriptionService.AdminBulkAssignSubscription(c.Request.Context(), actor, &service.BulkAssignSubscriptionInput{
 		UserIDs:      req.UserIDs,
 		GroupID:      req.GroupID,
 		ValidityDays: req.ValidityDays,
@@ -189,6 +214,11 @@ func (h *SubscriptionHandler) BulkAssign(c *gin.Context) {
 // Extend handles adjusting a subscription (extend or shorten)
 // POST /api/v1/admin/subscriptions/:id/extend
 func (h *SubscriptionHandler) Extend(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	subscriptionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid subscription ID")
@@ -209,7 +239,7 @@ func (h *SubscriptionHandler) Extend(c *gin.Context) {
 		Body:           req,
 	}
 	executeAdminIdempotentJSON(c, "admin.subscriptions.extend", idempotencyPayload, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
-		subscription, execErr := h.subscriptionService.ExtendSubscription(ctx, subscriptionID, req.Days)
+		subscription, execErr := h.subscriptionService.AdminExtendSubscription(ctx, actor, subscriptionID, req.Days)
 		if execErr != nil {
 			return nil, execErr
 		}
@@ -227,6 +257,11 @@ type ResetSubscriptionQuotaRequest struct {
 // ResetQuota resets daily, weekly, and/or monthly usage for a subscription.
 // POST /api/v1/admin/subscriptions/:id/reset-quota
 func (h *SubscriptionHandler) ResetQuota(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	subscriptionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid subscription ID")
@@ -241,7 +276,7 @@ func (h *SubscriptionHandler) ResetQuota(c *gin.Context) {
 		response.BadRequest(c, "At least one of 'daily', 'weekly', or 'monthly' must be true")
 		return
 	}
-	sub, err := h.subscriptionService.AdminResetQuota(c.Request.Context(), subscriptionID, req.Daily, req.Weekly, req.Monthly)
+	sub, err := h.subscriptionService.AdminResetQuota(c.Request.Context(), actor, subscriptionID, req.Daily, req.Weekly, req.Monthly)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -253,13 +288,18 @@ func (h *SubscriptionHandler) ResetQuota(c *gin.Context) {
 // POST /api/v1/admin/subscriptions/:id/revoke
 // DELETE /api/v1/admin/subscriptions/:id is kept for backward compatibility.
 func (h *SubscriptionHandler) Revoke(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	subscriptionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid subscription ID")
 		return
 	}
 
-	err = h.subscriptionService.RevokeSubscription(c.Request.Context(), subscriptionID)
+	err = h.subscriptionService.AdminRevokeSubscription(c.Request.Context(), actor, subscriptionID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -271,13 +311,18 @@ func (h *SubscriptionHandler) Revoke(c *gin.Context) {
 // Restore handles restoring a revoked subscription.
 // POST /api/v1/admin/subscriptions/:id/restore
 func (h *SubscriptionHandler) Restore(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	subscriptionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid subscription ID")
 		return
 	}
 
-	subscription, err := h.subscriptionService.RestoreSubscription(c.Request.Context(), subscriptionID)
+	subscription, err := h.subscriptionService.AdminRestoreSubscription(c.Request.Context(), actor, subscriptionID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -289,6 +334,11 @@ func (h *SubscriptionHandler) Restore(c *gin.Context) {
 // ListByGroup handles listing subscriptions for a specific group
 // GET /api/v1/admin/groups/:id/subscriptions
 func (h *SubscriptionHandler) ListByGroup(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid group ID")
@@ -297,7 +347,7 @@ func (h *SubscriptionHandler) ListByGroup(c *gin.Context) {
 
 	page, pageSize := response.ParsePagination(c)
 
-	subscriptions, pagination, err := h.subscriptionService.ListGroupSubscriptions(c.Request.Context(), groupID, page, pageSize)
+	subscriptions, pagination, err := h.subscriptionService.AdminListGroupSubscriptions(c.Request.Context(), actor, groupID, page, pageSize)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -313,13 +363,18 @@ func (h *SubscriptionHandler) ListByGroup(c *gin.Context) {
 // ListByUser handles listing subscriptions for a specific user
 // GET /api/v1/admin/users/:id/subscriptions
 func (h *SubscriptionHandler) ListByUser(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid user ID")
 		return
 	}
 
-	subscriptions, err := h.subscriptionService.ListUserSubscriptions(c.Request.Context(), userID)
+	subscriptions, err := h.subscriptionService.AdminListUserSubscriptions(c.Request.Context(), actor, userID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

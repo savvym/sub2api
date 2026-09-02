@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -55,18 +56,18 @@ func (r *failOnceMarkSucceededRepo) MarkSucceeded(ctx context.Context, id int64,
 	return r.memoryIdempotencyRepoStub.MarkSucceeded(ctx, id, responseStatus, responseBody, expiresAt)
 }
 
-func (s *duplicateAccountAdminServiceStub) DuplicateAccount(_ context.Context, accountID int64, actorScope, operationKey string) (*service.Account, error) {
+func (s *duplicateAccountAdminServiceStub) DuplicateAccount(_ context.Context, actor authz.Actor, accountID int64, operationKey string) (*service.Account, error) {
 	s.calls++
 	s.accountID = accountID
-	s.actorScope = actorScope
+	s.actorScope, _ = actor.SubjectKey()
 	s.operationKey = operationKey
 	s.created = true
 	return s.account, nil
 }
 
-func (s *duplicateAccountAdminServiceStub) RecoverDuplicateAccount(_ context.Context, _ int64, actorScope, operationKey string) (*service.Account, error) {
+func (s *duplicateAccountAdminServiceStub) RecoverDuplicateAccount(_ context.Context, actor authz.Actor, _ int64, operationKey string) (*service.Account, error) {
 	s.recoverCalls++
-	s.recoverScope = actorScope
+	s.recoverScope, _ = actor.SubjectKey()
 	s.recoverKey = operationKey
 	if s.recoverErr != nil {
 		return nil, s.recoverErr
@@ -77,14 +78,14 @@ func (s *duplicateAccountAdminServiceStub) RecoverDuplicateAccount(_ context.Con
 	return s.account, nil
 }
 
-func (s *blockingDuplicateAdminServiceStub) DuplicateAccount(_ context.Context, _ int64, _, _ string) (*service.Account, error) {
+func (s *blockingDuplicateAdminServiceStub) DuplicateAccount(_ context.Context, _ authz.Actor, _ int64, _ string) (*service.Account, error) {
 	s.calls.Add(1)
 	close(s.started)
 	<-s.release
 	return s.account, nil
 }
 
-func (s *blockingDuplicateAdminServiceStub) RecoverDuplicateAccount(_ context.Context, _ int64, _, _ string) (*service.Account, error) {
+func (s *blockingDuplicateAdminServiceStub) RecoverDuplicateAccount(_ context.Context, _ authz.Actor, _ int64, _ string) (*service.Account, error) {
 	s.recoverCalls.Add(1)
 	return nil, s.recoverErr
 }
@@ -97,6 +98,7 @@ func setupDuplicateAccountRouter(t *testing.T, svc service.AdminService) *gin.En
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 77)))
 	router.Use(func(c *gin.Context) {
 		c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 77})
 		c.Next()
@@ -181,7 +183,7 @@ func TestDuplicateAccountHandlerReplaysSameIdempotencyKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, second.Code)
 	require.Equal(t, 1, svc.calls)
 	require.Equal(t, int64(42), svc.accountID)
-	require.Equal(t, "admin:77", svc.actorScope)
+	require.Equal(t, "user:77", svc.actorScope)
 	require.Equal(t, "duplicate-account-42", svc.operationKey)
 	require.Equal(t, "true", second.Header().Get("X-Idempotency-Replayed"))
 }
@@ -218,7 +220,7 @@ func TestDuplicateAccountHandlerRecoversAfterMarkSucceededFailure(t *testing.T) 
 	require.Equal(t, "true", second.Header().Get("X-Idempotency-Recovered"))
 	require.Equal(t, 1, svc.calls, "ambiguous retries must not repeat the create side effect")
 	require.Equal(t, 2, svc.recoverCalls)
-	require.Equal(t, "admin:77", svc.recoverScope)
+	require.Equal(t, "user:77", svc.recoverScope)
 	require.Equal(t, "duplicate-account-42-recovery", svc.recoverKey)
 	require.Contains(t, second.Body.String(), `"id":43`)
 }
@@ -248,7 +250,7 @@ func TestDuplicateAccountHandlerPreservesIdempotencyErrorWhenRecoveryLookupFails
 	require.Contains(t, recorder.Body.String(), "IDEMPOTENCY_STORE_UNAVAILABLE")
 	require.Equal(t, 1, svc.calls)
 	require.Equal(t, 1, svc.recoverCalls)
-	require.Equal(t, "admin:77", svc.recoverScope)
+	require.Equal(t, "user:77", svc.recoverScope)
 }
 
 func TestDuplicateAccountHandlerDoesNotReexecuteWhileOriginalIsProcessing(t *testing.T) {

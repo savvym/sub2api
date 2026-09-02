@@ -459,6 +459,16 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	// Backend Mode
 	updates[SettingKeyBackendModeEnabled] = strconv.FormatBool(settings.BackendModeEnabled)
 
+	// Resource access control dark launch. Stored switches stay independent so
+	// operators can stage configuration; the runtime getter applies dependencies.
+	updates[SettingKeyResourceAccessControlEnabled] = strconv.FormatBool(settings.ResourceAccessControlEnabled)
+	updates[SettingKeySelfServiceHostingEnabled] = strconv.FormatBool(settings.SelfServiceHostingEnabled)
+	updates[SettingKeyGroupSharingEnabled] = strconv.FormatBool(settings.GroupSharingEnabled)
+	updates[SettingKeyAccountSharingEnabled] = strconv.FormatBool(settings.AccountSharingEnabled)
+	updates[SettingKeyRoleBasedResourceGrantsEnabled] = strconv.FormatBool(settings.RoleBasedResourceGrantsEnabled)
+	// role_authorization_mode is a guarded state machine. Generic settings
+	// updates must never write it; RoleService owns the only transition path.
+
 	// Gateway forwarding behavior
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)

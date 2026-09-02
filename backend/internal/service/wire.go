@@ -7,6 +7,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -24,6 +25,14 @@ func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthCli
 		svc = svc.WithSessionStore(xai.NewRedisSessionStore(redisClient))
 	}
 	return svc
+}
+
+func ProvideResourcePolicy(store authz.PolicyStore, shadowObserver authz.RoleShadowObserver) authz.ResourcePolicy {
+	return authz.NewPolicyServiceWithShadowObserver(store, shadowObserver)
+}
+
+func ProvideWorkerPolicy(store authz.WorkerPolicyStore) authz.WorkerPolicy {
+	return authz.NewWorkerPolicy(store)
 }
 
 // BuildInfo contains build information
@@ -195,21 +204,31 @@ func ProvideOpenAIQuotaAutoResetService(
 	quotaService *OpenAIQuotaService,
 	rateLimitService *RateLimitService,
 	idempotency *IdempotencyCoordinator,
+	finalizer OpenAIQuotaAutoResetFinalizer,
+	accountLock OpenAIQuotaAutoResetAccountLocker,
 	audit *AuditLogService,
 	settingService *SettingService,
 	leaderLock LeaderLockCache,
-) *OpenAIQuotaAutoResetService {
+	resolver authz.Resolver,
+	workerPolicy authz.WorkerPolicy,
+) (*OpenAIQuotaAutoResetService, error) {
 	service := NewOpenAIQuotaAutoResetService(
 		accountRepo,
 		quotaService,
 		rateLimitService,
 		idempotency,
+		finalizer,
+		accountLock,
 		audit,
 		settingService,
 		leaderLock,
+		resolver,
+		workerPolicy,
 	)
-	service.Start()
-	return service
+	if err := service.Start(); err != nil {
+		return nil, err
+	}
+	return service, nil
 }
 
 func ProvideAccountUsageService(
@@ -720,6 +739,7 @@ func ProvideOpsService(
 	settingService *SettingService,
 	authCacheInvalidationWorker *AuthCacheInvalidationWorker,
 	apiKeyService *APIKeyService,
+	authorizationPropagation *AuthorizationPropagationGuard,
 ) *OpsService {
 	svc := NewOpsService(
 		opsRepo,
@@ -742,6 +762,7 @@ func ProvideOpsService(
 	}
 	svc.authCacheInvalidationWorker = authCacheInvalidationWorker
 	svc.apiKeyService = apiKeyService
+	svc.authorizationPropagation = authorizationPropagation
 	svc.StartRuntimeSettingsRefresh(context.Background())
 	return svc
 }
@@ -760,10 +781,17 @@ func ProvideOpsIngressRejectAggregator(opsRepo OpsRepository, opsService *OpsSer
 }
 
 // ProvideSettingService wires SettingService with group reader and proxy repo.
-func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupRepository, proxyRepo ProxyRepository, cfg *config.Config) *SettingService {
+func ProvideSettingService(
+	settingRepo SettingRepository,
+	groupRepo GroupRepository,
+	proxyRepo ProxyRepository,
+	cfg *config.Config,
+	authorizationPropagation *AuthorizationPropagationGuard,
+) *SettingService {
 	svc := NewSettingService(settingRepo, cfg)
 	svc.SetDefaultSubscriptionGroupReader(groupRepo)
 	svc.SetProxyRepository(proxyRepo)
+	svc.SetAuthorizationPropagationGuard(authorizationPropagation)
 	if err := svc.LoadForwardedClientIPSettings(context.Background()); err != nil {
 		logger.LegacyPrintf("service.setting", "Warning: load forwarded client IP settings failed: %v", err)
 	}
@@ -819,8 +847,22 @@ func ProvideAPIKeyService(
 
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
+	ProvideWorkerPolicy,
 	// Core services
 	ProvideAuthService,
+	NewAuthorizationRoleShadowObserver,
+	ProvideResourcePolicy,
+	ProvideResourceMutationCoordinator,
+	ProvideAuthorizationExpiryWorker,
+	ProvideAuthorizationPropagationGuard,
+	NewRoleService,
+	NewHostingEntitlementService,
+	wire.Bind(new(HostingCapacityGuard), new(*HostingEntitlementService)),
+	NewSelfServiceAccountCatalog,
+	NewSelfServiceGroupCatalog,
+	NewResourceReadService,
+	NewSelfServiceAccountService,
+	NewSelfServiceGroupService,
 	NewPasskeyService,
 	NewUserService,
 	ProvideAPIKeyService,

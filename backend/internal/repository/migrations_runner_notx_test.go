@@ -49,6 +49,15 @@ DROP INDEX CONCURRENTLY IF EXISTS idx_b;
 		require.True(t, nonTx)
 		require.NoError(t, err)
 	})
+
+	t.Run("DROP索引名包含created不会误判为CREATE", func(t *testing.T) {
+		nonTx, err := validateMigrationExecutionMode(
+			"235_audit_log_actor_indexes_notx.sql",
+			"DROP INDEX CONCURRENTLY IF EXISTS idx_audit_logs_actor_created;",
+		)
+		require.True(t, nonTx)
+		require.NoError(t, err)
+	})
 }
 
 func TestApplyMigrationsFS_NonTransactionalMigration(t *testing.T) {
@@ -232,6 +241,53 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usage_logs_effective_upstream_model_
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestApplyMigrationsFS_ResourceAccessControlFoundationIndexesDropInvalidIndexesBeforeRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(resourceAccessControlFoundationIndexesMigration).
+		WillReturnError(sql.ErrNoRows)
+	for _, indexName := range resourceAccessControlFoundationIndexes {
+		mock.ExpectQuery("SELECT EXISTS \\(").
+			WithArgs(indexName).
+			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+		mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS " + indexName).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	for _, indexName := range resourceAccessControlFoundationIndexes {
+		mock.ExpectExec("CREATE INDEX CONCURRENTLY IF NOT EXISTS " + indexName).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(resourceAccessControlFoundationIndexesMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		resourceAccessControlFoundationIndexesMigration: &fstest.MapFile{Data: []byte(`
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_accounts_owner_user_id
+    ON accounts (owner_user_id) WHERE owner_user_id IS NOT NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_accounts_created_by_user_id
+    ON accounts (created_by_user_id) WHERE created_by_user_id IS NOT NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_groups_owner_user_id
+    ON groups (owner_user_id) WHERE owner_user_id IS NOT NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_groups_created_by_user_id
+    ON groups (created_by_user_id) WHERE created_by_user_id IS NOT NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_groups_authorization_mode
+    ON groups (authorization_mode, id);
+`)},
+	}
+
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestApplyMigrationsFS_PaymentOrdersOutTradeNoUniqueMigration_FailsFastOnDuplicatePrecheck(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -341,6 +397,165 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_scheduler_outbox_pending_dedu
     WHERE dedup_key IS NOT NULL;
 `),
 		},
+	}
+
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_AuthCacheInvalidationPriorityIndexDropsInvalidIndexBeforeRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(authCacheInvalidationPriorityIndexMigration).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT EXISTS \\(").
+		WithArgs(authCacheInvalidationPriorityIndex).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS " + authCacheInvalidationPriorityIndex).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("CREATE INDEX CONCURRENTLY IF NOT EXISTS " + authCacheInvalidationPriorityIndex).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(authCacheInvalidationPriorityIndexMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		authCacheInvalidationPriorityIndexMigration: &fstest.MapFile{Data: []byte(`
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_auth_cache_invalidation_outbox_stage_available
+    ON auth_cache_invalidation_outbox (delivery_stage, available_at, id);
+`)},
+	}
+
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_SchedulerOutboxClaimIndexDropsInvalidIndexBeforeRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(schedulerOutboxClaimIndexMigration).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT EXISTS \\(").
+		WithArgs(schedulerOutboxClaimIndex).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS " + schedulerOutboxClaimIndex).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("CREATE INDEX CONCURRENTLY IF NOT EXISTS " + schedulerOutboxClaimIndex).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(schedulerOutboxClaimIndexMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		schedulerOutboxClaimIndexMigration: &fstest.MapFile{Data: []byte(`
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_scheduler_outbox_claimable
+    ON scheduler_outbox (next_attempt_at, lease_expires_at, id);
+`)},
+	}
+
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_ResourcePublicAccessScopeIndexesDropInvalidIndexesBeforeRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(resourcePublicAccessScopeIndexesMigration).
+		WillReturnError(sql.ErrNoRows)
+	for _, indexName := range resourcePublicAccessScopeIndexes {
+		mock.ExpectQuery("SELECT EXISTS \\(").
+			WithArgs(indexName).
+			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+		mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS " + indexName).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	for _, indexName := range resourcePublicAccessScopeIndexes {
+		mock.ExpectExec("CREATE INDEX CONCURRENTLY IF NOT EXISTS " + indexName).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(resourcePublicAccessScopeIndexesMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		resourcePublicAccessScopeIndexesMigration: &fstest.MapFile{Data: []byte(`
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_accounts_public_access_level
+    ON accounts (public_access_level, id)
+    WHERE public_access_level IS NOT NULL AND deleted_at IS NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_groups_public_access_level
+    ON groups (public_access_level, id)
+    WHERE public_access_level IS NOT NULL AND deleted_at IS NULL;
+`)},
+	}
+
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_GroupOwnerScopedNameIndexesDropInvalidIndexesBeforeRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(groupOwnerScopedNameUniqueMigration).
+		WillReturnError(sql.ErrNoRows)
+	for _, indexName := range groupOwnerScopedNameUniqueIndexes {
+		mock.ExpectQuery("SELECT EXISTS \\(").
+			WithArgs(indexName).
+			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+		mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS " + indexName).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	for _, indexName := range groupOwnerScopedNameUniqueIndexes {
+		mock.ExpectExec("CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS " + indexName).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS groups_name_unique_active").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(groupOwnerScopedNameUniqueMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		groupOwnerScopedNameUniqueMigration: &fstest.MapFile{Data: []byte(`
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_groups_platform_name_unique_active
+    ON groups (lower(name))
+    WHERE owner_user_id IS NULL AND deleted_at IS NULL;
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_groups_owner_name_unique_active
+    ON groups (owner_user_id, lower(name))
+    WHERE owner_user_id IS NOT NULL AND deleted_at IS NULL;
+DROP INDEX CONCURRENTLY IF EXISTS groups_name_unique_active;
+`)},
 	}
 
 	err = applyMigrationsFS(context.Background(), db, fsys)

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -23,6 +24,7 @@ type grokImportAdminService struct {
 	*stubAdminService
 	mu     sync.Mutex
 	nextID int64
+	actors []authz.Actor
 }
 
 func newGrokImportAdminService() *grokImportAdminService {
@@ -32,10 +34,11 @@ func newGrokImportAdminService() *grokImportAdminService {
 	}
 }
 
-func (s *grokImportAdminService) CreateAccount(_ context.Context, input *service.CreateAccountInput) (*service.Account, error) {
+func (s *grokImportAdminService) CreateAccount(_ context.Context, actor authz.Actor, input *service.CreateAccountInput) (*service.Account, error) {
 	s.mu.Lock()
 	s.nextID++
 	id := s.nextID
+	s.actors = append(s.actors, actor)
 	s.mu.Unlock()
 	return &service.Account{
 		ID:          id,
@@ -82,6 +85,7 @@ func TestGrokSSOBatchImportKeepsCreatedAccountsWhenOneAutomaticProbeFails(t *tes
 	handler.importProber = prober
 
 	router := gin.New()
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 	router.POST("/api/v1/admin/grok/sso-to-oauth", handler.CreateAccountsFromSSO)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(
@@ -100,6 +104,15 @@ func TestGrokSSOBatchImportKeepsCreatedAccountsWhenOneAutomaticProbeFails(t *tes
 	}
 	calls, _, _ := prober.snapshot()
 	require.Equal(t, map[int64]int{501: 1, 502: 1, 503: 1}, calls)
+	adminService.mu.Lock()
+	actors := append([]authz.Actor(nil), adminService.actors...)
+	adminService.mu.Unlock()
+	require.Len(t, actors, 3)
+	for _, actor := range actors {
+		userID, ok := actor.UserID()
+		require.True(t, ok)
+		require.Equal(t, int64(1), userID)
+	}
 }
 
 func TestAccountCreateWithoutAutomaticGrokProbeServiceStillSucceeds(t *testing.T) {
@@ -110,6 +123,7 @@ func TestAccountCreateWithoutAutomaticGrokProbeServiceStillSucceeds(t *testing.T
 	)
 
 	router := gin.New()
+	router.Use(withAdminTestActor(t, adminHandlerTestActor(t, authz.SubjectKindUser, 1)))
 	router.POST("/api/v1/admin/accounts", handler.Create)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(
@@ -121,4 +135,18 @@ func TestAccountCreateWithoutAutomaticGrokProbeServiceStillSucceeds(t *testing.T
 	router.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
+}
+
+func TestNewGrokOAuthHandlerNilQuotaLeavesImportProberNil(t *testing.T) {
+	handler := NewGrokOAuthHandler(nil, nil, nil, nil)
+	require.Nil(t, handler.importProber)
+}
+
+func TestProvideAccountHandlerNilQuotaLeavesImportProberNil(t *testing.T) {
+	handler := ProvideAccountHandler(
+		nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil,
+	)
+	require.Nil(t, handler.grokImportProber)
 }

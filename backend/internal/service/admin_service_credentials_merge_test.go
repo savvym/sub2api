@@ -44,7 +44,7 @@ func TestUpdateAccount_PreservesSensitiveCredsWhenIncomingOmits(t *testing.T) {
 	svc := &adminServiceImpl{accountRepo: repo}
 
 	// 模拟前端编辑：仅修改 base_url，没有传 token（脱敏后前端 spread 拿不到敏感键）
-	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	updated, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Credentials: map[string]any{
 			"base_url": "https://new.example.com",
 		},
@@ -78,12 +78,12 @@ func TestUpdateAccount_ExplicitNewTokenOverwrites(t *testing.T) {
 	}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	updated, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+	updated, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
 		Credentials: map[string]any{
 			"refresh_token": "rt-new",
-			// api_key 没传 → 应保留旧值
 		},
 	})
+
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 
@@ -106,10 +106,11 @@ func TestUpdateAccount_EmptyCredentialsSkipsUpdate(t *testing.T) {
 	}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	_, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
-		Credentials: map[string]any{}, // len == 0 → 闸门跳过
+	_, err := svc.UpdateAccount(context.Background(), adminResourceUserTestActor(t), accountID, &UpdateAccountInput{
+		Credentials: map[string]any{},
 		Name:        "renamed",
 	})
+
 	require.NoError(t, err)
 
 	require.Equal(t, "rt-existing", repo.account.Credentials["refresh_token"], "空 credentials 不应触碰已有 token")

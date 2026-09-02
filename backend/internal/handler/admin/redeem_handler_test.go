@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -38,6 +40,9 @@ func postCreateAndRedeemValidation(t *testing.T, handler *RedeemHandler, body an
 	require.NoError(t, err)
 	c.Request, _ = http.NewRequest(http.MethodPost, "/api/v1/admin/redeem-codes/create-and-redeem", bytes.NewReader(jsonBytes))
 	c.Request.Header.Set("Content-Type", "application/json")
+	actor := adminHandlerTestActor(t, authz.SubjectKindUser, 1)
+	c.Request = c.Request.WithContext(authz.ContextWithActor(c.Request.Context(), actor))
+	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1})
 
 	defer func() {
 		if r := recover(); r != nil {

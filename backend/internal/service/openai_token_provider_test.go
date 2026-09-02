@@ -966,3 +966,41 @@ func TestOpenAITokenProvider_NoRefreshTokenExpired_DisablesAccount(t *testing.T)
 	require.Equal(t, account.ID, blocker.accounts[0].ID)
 	require.Equal(t, "missing_refresh_token", blocker.reasons[0])
 }
+
+type openAITokenProviderContextRepo struct {
+	rateLimitAccountRepoStub
+	setErrorCtx context.Context
+}
+
+func (r *openAITokenProviderContextRepo) SetError(ctx context.Context, id int64, errorMsg string) error {
+	r.setErrorCtx = ctx
+	return r.rateLimitAccountRepoStub.SetError(ctx, id, errorMsg)
+}
+
+func TestOpenAITokenProvider_NoRefreshTokenExpired_PreservesAuthorizationContext(t *testing.T) {
+	cache := newOpenAITokenCacheStub()
+	cache.getErr = errors.New("simulated cache miss")
+	repo := &openAITokenProviderContextRepo{}
+	account := &Account{
+		ID:       2882,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token": "expired-access-token",
+			"expires_at":   time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
+		},
+	}
+
+	ctx := context.WithValue(context.Background(), openAITokenProviderContextTestKey{}, "worker-actor")
+	ctx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	provider := NewOpenAITokenProvider(repo, cache, nil)
+	_, err := provider.GetAccessToken(ctx, account)
+	require.Error(t, err)
+	require.NotNil(t, repo.setErrorCtx)
+	require.NoError(t, repo.setErrorCtx.Err(), "cleanup write must outlive request cancellation")
+	require.Equal(t, "worker-actor", repo.setErrorCtx.Value(openAITokenProviderContextTestKey{}))
+}
+
+type openAITokenProviderContextTestKey struct{}

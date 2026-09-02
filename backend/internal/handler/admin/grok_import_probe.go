@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -17,11 +18,12 @@ const (
 )
 
 type grokImportProber interface {
-	QueryQuota(ctx context.Context, accountID int64) (*service.GrokQuotaProbeResult, error)
+	AdminQueryQuota(ctx context.Context, actor authz.Actor, accountID int64) (*service.GrokQuotaProbeResult, error)
 }
 
 type grokImportProbeTask struct {
 	prober    grokImportProber
+	actor     authz.Actor
 	accountID int64
 }
 
@@ -56,8 +58,11 @@ func newGrokImportProbeScheduler(concurrency int, timeout time.Duration) *grokIm
 	}
 }
 
-func (s *grokImportProbeScheduler) schedule(prober grokImportProber, account *service.Account) {
+func (s *grokImportProbeScheduler) schedule(prober grokImportProber, actor authz.Actor, account *service.Account) {
 	if s == nil || prober == nil || account == nil || account.ID <= 0 {
+		return
+	}
+	if service.ValidateAdminResourceActor(actor) != nil {
 		return
 	}
 	if account.Platform != service.PlatformGrok || account.Type != service.AccountTypeOAuth {
@@ -78,7 +83,7 @@ func (s *grokImportProbeScheduler) schedule(prober grokImportProber, account *se
 		slog.Debug("grok_import_active_probe_dropped", "account_id", account.ID, "reason", "queue_full")
 		return
 	}
-	s.queue = append(s.queue, grokImportProbeTask{prober: prober, accountID: account.ID})
+	s.queue = append(s.queue, grokImportProbeTask{prober: prober, actor: actor, accountID: account.ID})
 	s.pending[account.ID] = struct{}{}
 	if s.workers < s.concurrency {
 		s.workers++
@@ -96,7 +101,7 @@ func (s *grokImportProbeScheduler) worker() {
 		if !ok {
 			return
 		}
-		s.run(task.prober, task.accountID)
+		s.run(task.prober, task.actor, task.accountID)
 		s.finish(task.accountID)
 	}
 }
@@ -125,7 +130,7 @@ func (s *grokImportProbeScheduler) finish(accountID int64) {
 	s.mu.Unlock()
 }
 
-func (s *grokImportProbeScheduler) run(prober grokImportProber, accountID int64) {
+func (s *grokImportProbeScheduler) run(prober grokImportProber, actor authz.Actor, accountID int64) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			slog.Error(
@@ -138,7 +143,7 @@ func (s *grokImportProbeScheduler) run(prober grokImportProber, accountID int64)
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
-	result, err := prober.QueryQuota(ctx, accountID)
+	result, err := prober.AdminQueryQuota(ctx, actor, accountID)
 	if err != nil {
 		slog.Warn(
 			"grok_import_active_probe_failed",
@@ -177,18 +182,18 @@ func panicType(value any) string {
 	}
 }
 
-func (h *AccountHandler) scheduleGrokImportProbe(account *service.Account) {
+func (h *AccountHandler) scheduleGrokImportProbe(actor authz.Actor, account *service.Account) {
 	if h == nil {
 		return
 	}
-	defaultGrokImportProbeScheduler.schedule(h.grokImportProber, account)
+	defaultGrokImportProbeScheduler.schedule(h.grokImportProber, actor, account)
 }
 
-func (h *GrokOAuthHandler) scheduleGrokImportProbe(account *service.Account) {
+func (h *GrokOAuthHandler) scheduleGrokImportProbe(actor authz.Actor, account *service.Account) {
 	if h == nil {
 		return
 	}
-	defaultGrokImportProbeScheduler.schedule(h.importProber, account)
+	defaultGrokImportProbeScheduler.schedule(h.importProber, actor, account)
 }
 
 // ProvideAccountHandler injects the Grok active prober for production while
@@ -226,6 +231,8 @@ func ProvideAccountHandler(
 		rpmCache,
 		tokenCacheInvalidator,
 	)
-	handler.grokImportProber = grokQuotaService
+	if grokQuotaService != nil {
+		handler.grokImportProber = grokQuotaService
+	}
 	return handler
 }

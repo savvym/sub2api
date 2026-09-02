@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 )
 
 const (
@@ -22,7 +24,7 @@ func duplicateGroupOperationID(sourceID int64, actorScope, operationKey string) 
 	}
 	actorScope = strings.TrimSpace(actorScope)
 	if actorScope == "" {
-		actorScope = "admin:0"
+		return ""
 	}
 	payload := "admin.groups.duplicate\x00" + actorScope + "\x00" + strconv.FormatInt(sourceID, 10) + "\x00" + operationKey
 	digest := sha256.Sum256([]byte(payload))
@@ -160,33 +162,52 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 
 // RecoverDuplicateGroup performs a read-only lookup for a copy that was already
 // committed for the same actor, source group, and idempotency key.
-func (s *adminServiceImpl) RecoverDuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*Group, error) {
+func (s *adminServiceImpl) RecoverDuplicateGroup(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Group, error) {
+	actorScope, err := adminResourceActorSubjectKey(actor)
+	if err != nil {
+		return nil, err
+	}
+	return s.recoverDuplicateGroup(ctx, id, actorScope, operationKey)
+}
+
+func (s *adminServiceImpl) recoverDuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*Group, error) {
 	operationID := duplicateGroupOperationID(id, actorScope, operationKey)
+	if strings.TrimSpace(operationKey) != "" && operationID == "" {
+		return nil, ErrIdempotencyActorUnavailable
+	}
 	if operationID == "" {
 		return nil, nil
 	}
 	if s.groupDuplicateRepo == nil {
 		return nil, errors.New("group duplicate repository is not configured")
 	}
-	group, err := s.groupDuplicateRepo.FindByDuplicateOperationID(ctx, operationID)
-	if err != nil {
-		return nil, fmt.Errorf("find duplicate group operation: %w", err)
+	for _, candidateScope := range idempotencyActorScopeCandidates(ctx, actorScope) {
+		candidateOperationID := duplicateGroupOperationID(id, candidateScope, operationKey)
+		group, err := s.groupDuplicateRepo.FindByDuplicateOperationID(ctx, candidateOperationID)
+		if err != nil {
+			return nil, fmt.Errorf("find duplicate group operation: %w", err)
+		}
+		if group == nil {
+			continue
+		}
+		hydrated, hydrateErr := s.groupRepo.GetByID(ctx, group.ID)
+		if hydrateErr != nil {
+			return nil, fmt.Errorf("load recovered duplicate group: %w", hydrateErr)
+		}
+		return hydrated, nil
 	}
-	if group == nil {
-		return nil, nil
-	}
-	hydrated, err := s.groupRepo.GetByID(ctx, group.ID)
-	if err != nil {
-		return nil, fmt.Errorf("load recovered duplicate group: %w", err)
-	}
-	return hydrated, nil
+	return nil, nil
 }
 
 // DuplicateGroup creates an inactive copy of a group's configuration and exact
 // account priorities. The repository commits the group, bindings, and outbox
 // event atomically so a failed binding never leaves an orphan group.
-func (s *adminServiceImpl) DuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*Group, error) {
-	existing, err := s.RecoverDuplicateGroup(ctx, id, actorScope, operationKey)
+func (s *adminServiceImpl) duplicateGroupInResourceTx(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Group, error) {
+	actorScope, err := adminResourceActorSubjectKey(actor)
+	if err != nil {
+		return nil, err
+	}
+	existing, err := s.recoverDuplicateGroup(ctx, id, actorScope, operationKey)
 	if err != nil {
 		return nil, err
 	}
@@ -202,10 +223,21 @@ func (s *adminServiceImpl) DuplicateGroup(ctx context.Context, id int64, actorSc
 		return nil, errors.New("group duplicate repository is not configured")
 	}
 
-	duplicate := cloneGroupForDuplicate(source, duplicateGroupOperationID(id, actorScope, operationKey))
+	operationID := duplicateGroupOperationID(id, actorScope, operationKey)
+	duplicate := cloneGroupForDuplicate(source, operationID)
+	duplicate.AccessVersion = 1
+	duplicate.AuthorizationMode = "legacy"
+	setPlatformResourceCreator(&duplicate.CreatedByUserID, actor)
 	sanitizeGroupReasoningEffortPolicy(duplicate)
 	for copyNumber := 1; ; copyNumber++ {
 		duplicate.Name = duplicateGroupName(source.Name, copyNumber)
+		nameExists, existsErr := s.groupRepo.ExistsByName(ctx, duplicate.Name)
+		if existsErr != nil {
+			return nil, fmt.Errorf("check duplicate group name: %w", existsErr)
+		}
+		if nameExists {
+			continue
+		}
 		duplicate.ID = 0
 		duplicate.CreatedAt = time.Time{}
 		duplicate.UpdatedAt = time.Time{}
@@ -220,13 +252,17 @@ func (s *adminServiceImpl) DuplicateGroup(ctx context.Context, id int64, actorSc
 		}
 
 		// A unique conflict can be either the generated name or the operation ID.
-		// Recover first; if no operation row exists, advance to the next name.
-		recovered, recoverErr := s.RecoverDuplicateGroup(ctx, id, actorScope, operationKey)
+		// Recover first. A SERIALIZABLE snapshot may not see the winning operation,
+		// so retry the entire command instead of looping on the same operation ID.
+		recovered, recoverErr := s.recoverDuplicateGroup(ctx, id, actorScope, operationKey)
 		if recoverErr != nil {
 			return nil, recoverErr
 		}
 		if recovered != nil {
 			return recovered, nil
+		}
+		if operationID != "" {
+			return nil, ErrResourceMutationConflict
 		}
 	}
 }

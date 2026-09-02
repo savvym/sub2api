@@ -27,6 +27,8 @@ const (
 	FieldPasswordHash = "password_hash"
 	// FieldRole holds the string denoting the role field in the database.
 	FieldRole = "role"
+	// FieldAuthzVersion holds the string denoting the authz_version field in the database.
+	FieldAuthzVersion = "authz_version"
 	// FieldBalance holds the string denoting the balance field in the database.
 	FieldBalance = "balance"
 	// FieldFrozenBalance holds the string denoting the frozen_balance field in the database.
@@ -75,6 +77,8 @@ const (
 	EdgeAnnouncementReads = "announcement_reads"
 	// EdgeAllowedGroups holds the string denoting the allowed_groups edge name in mutations.
 	EdgeAllowedGroups = "allowed_groups"
+	// EdgeAuthorizationRoles holds the string denoting the authorization_roles edge name in mutations.
+	EdgeAuthorizationRoles = "authorization_roles"
 	// EdgeUsageLogs holds the string denoting the usage_logs edge name in mutations.
 	EdgeUsageLogs = "usage_logs"
 	// EdgeAttributeValues holds the string denoting the attribute_values edge name in mutations.
@@ -89,8 +93,16 @@ const (
 	EdgePendingAuthSessions = "pending_auth_sessions"
 	// EdgePlatformQuotas holds the string denoting the platform_quotas edge name in mutations.
 	EdgePlatformQuotas = "platform_quotas"
+	// EdgeHostingEntitlement holds the string denoting the hosting_entitlement edge name in mutations.
+	EdgeHostingEntitlement = "hosting_entitlement"
+	// EdgeCreatedHostingEntitlements holds the string denoting the created_hosting_entitlements edge name in mutations.
+	EdgeCreatedHostingEntitlements = "created_hosting_entitlements"
+	// EdgeUpdatedHostingEntitlements holds the string denoting the updated_hosting_entitlements edge name in mutations.
+	EdgeUpdatedHostingEntitlements = "updated_hosting_entitlements"
 	// EdgeUserAllowedGroups holds the string denoting the user_allowed_groups edge name in mutations.
 	EdgeUserAllowedGroups = "user_allowed_groups"
+	// EdgeUserRoles holds the string denoting the user_roles edge name in mutations.
+	EdgeUserRoles = "user_roles"
 	// Table holds the table name of the user in the database.
 	Table = "users"
 	// APIKeysTable is the table that holds the api_keys relation/edge.
@@ -133,6 +145,11 @@ const (
 	// AllowedGroupsInverseTable is the table name for the Group entity.
 	// It exists in this package in order to avoid circular dependency with the "group" package.
 	AllowedGroupsInverseTable = "groups"
+	// AuthorizationRolesTable is the table that holds the authorization_roles relation/edge. The primary key declared below.
+	AuthorizationRolesTable = "user_roles"
+	// AuthorizationRolesInverseTable is the table name for the Role entity.
+	// It exists in this package in order to avoid circular dependency with the "role" package.
+	AuthorizationRolesInverseTable = "roles"
 	// UsageLogsTable is the table that holds the usage_logs relation/edge.
 	UsageLogsTable = "usage_logs"
 	// UsageLogsInverseTable is the table name for the UsageLog entity.
@@ -182,6 +199,27 @@ const (
 	PlatformQuotasInverseTable = "user_platform_quotas"
 	// PlatformQuotasColumn is the table column denoting the platform_quotas relation/edge.
 	PlatformQuotasColumn = "user_id"
+	// HostingEntitlementTable is the table that holds the hosting_entitlement relation/edge.
+	HostingEntitlementTable = "user_hosting_entitlements"
+	// HostingEntitlementInverseTable is the table name for the UserHostingEntitlement entity.
+	// It exists in this package in order to avoid circular dependency with the "userhostingentitlement" package.
+	HostingEntitlementInverseTable = "user_hosting_entitlements"
+	// HostingEntitlementColumn is the table column denoting the hosting_entitlement relation/edge.
+	HostingEntitlementColumn = "user_id"
+	// CreatedHostingEntitlementsTable is the table that holds the created_hosting_entitlements relation/edge.
+	CreatedHostingEntitlementsTable = "user_hosting_entitlements"
+	// CreatedHostingEntitlementsInverseTable is the table name for the UserHostingEntitlement entity.
+	// It exists in this package in order to avoid circular dependency with the "userhostingentitlement" package.
+	CreatedHostingEntitlementsInverseTable = "user_hosting_entitlements"
+	// CreatedHostingEntitlementsColumn is the table column denoting the created_hosting_entitlements relation/edge.
+	CreatedHostingEntitlementsColumn = "created_by_user_id"
+	// UpdatedHostingEntitlementsTable is the table that holds the updated_hosting_entitlements relation/edge.
+	UpdatedHostingEntitlementsTable = "user_hosting_entitlements"
+	// UpdatedHostingEntitlementsInverseTable is the table name for the UserHostingEntitlement entity.
+	// It exists in this package in order to avoid circular dependency with the "userhostingentitlement" package.
+	UpdatedHostingEntitlementsInverseTable = "user_hosting_entitlements"
+	// UpdatedHostingEntitlementsColumn is the table column denoting the updated_hosting_entitlements relation/edge.
+	UpdatedHostingEntitlementsColumn = "updated_by_user_id"
 	// UserAllowedGroupsTable is the table that holds the user_allowed_groups relation/edge.
 	UserAllowedGroupsTable = "user_allowed_groups"
 	// UserAllowedGroupsInverseTable is the table name for the UserAllowedGroup entity.
@@ -189,6 +227,13 @@ const (
 	UserAllowedGroupsInverseTable = "user_allowed_groups"
 	// UserAllowedGroupsColumn is the table column denoting the user_allowed_groups relation/edge.
 	UserAllowedGroupsColumn = "user_id"
+	// UserRolesTable is the table that holds the user_roles relation/edge.
+	UserRolesTable = "user_roles"
+	// UserRolesInverseTable is the table name for the UserRole entity.
+	// It exists in this package in order to avoid circular dependency with the "userrole" package.
+	UserRolesInverseTable = "user_roles"
+	// UserRolesColumn is the table column denoting the user_roles relation/edge.
+	UserRolesColumn = "user_id"
 )
 
 // Columns holds all SQL columns for user fields.
@@ -200,6 +245,7 @@ var Columns = []string{
 	FieldEmail,
 	FieldPasswordHash,
 	FieldRole,
+	FieldAuthzVersion,
 	FieldBalance,
 	FieldFrozenBalance,
 	FieldConcurrency,
@@ -224,6 +270,9 @@ var (
 	// AllowedGroupsPrimaryKey and AllowedGroupsColumn2 are the table columns denoting the
 	// primary key for the allowed_groups relation (M2M).
 	AllowedGroupsPrimaryKey = []string{"user_id", "group_id"}
+	// AuthorizationRolesPrimaryKey and AuthorizationRolesColumn2 are the table columns denoting the
+	// primary key for the authorization_roles relation (M2M).
+	AuthorizationRolesPrimaryKey = []string{"user_id", "role_id"}
 )
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -258,6 +307,8 @@ var (
 	DefaultRole string
 	// RoleValidator is a validator for the "role" field. It is called by the builders before save.
 	RoleValidator func(string) error
+	// DefaultAuthzVersion holds the default value on creation for the "authz_version" field.
+	DefaultAuthzVersion int64
 	// DefaultBalance holds the default value on creation for the "balance" field.
 	DefaultBalance float64
 	// DefaultFrozenBalance holds the default value on creation for the "frozen_balance" field.
@@ -328,6 +379,11 @@ func ByPasswordHash(opts ...sql.OrderTermOption) OrderOption {
 // ByRole orders the results by the role field.
 func ByRole(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRole, opts...).ToFunc()
+}
+
+// ByAuthzVersion orders the results by the authz_version field.
+func ByAuthzVersion(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAuthzVersion, opts...).ToFunc()
 }
 
 // ByBalance orders the results by the balance field.
@@ -504,6 +560,20 @@ func ByAllowedGroups(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByAuthorizationRolesCount orders the results by authorization_roles count.
+func ByAuthorizationRolesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newAuthorizationRolesStep(), opts...)
+	}
+}
+
+// ByAuthorizationRoles orders the results by authorization_roles terms.
+func ByAuthorizationRoles(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newAuthorizationRolesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByUsageLogsCount orders the results by usage_logs count.
 func ByUsageLogsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -602,6 +672,41 @@ func ByPlatformQuotas(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByHostingEntitlementField orders the results by hosting_entitlement field.
+func ByHostingEntitlementField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newHostingEntitlementStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// ByCreatedHostingEntitlementsCount orders the results by created_hosting_entitlements count.
+func ByCreatedHostingEntitlementsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newCreatedHostingEntitlementsStep(), opts...)
+	}
+}
+
+// ByCreatedHostingEntitlements orders the results by created_hosting_entitlements terms.
+func ByCreatedHostingEntitlements(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newCreatedHostingEntitlementsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByUpdatedHostingEntitlementsCount orders the results by updated_hosting_entitlements count.
+func ByUpdatedHostingEntitlementsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newUpdatedHostingEntitlementsStep(), opts...)
+	}
+}
+
+// ByUpdatedHostingEntitlements orders the results by updated_hosting_entitlements terms.
+func ByUpdatedHostingEntitlements(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newUpdatedHostingEntitlementsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByUserAllowedGroupsCount orders the results by user_allowed_groups count.
 func ByUserAllowedGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -613,6 +718,20 @@ func ByUserAllowedGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 func ByUserAllowedGroups(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newUserAllowedGroupsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByUserRolesCount orders the results by user_roles count.
+func ByUserRolesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newUserRolesStep(), opts...)
+	}
+}
+
+// ByUserRoles orders the results by user_roles terms.
+func ByUserRoles(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newUserRolesStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
 func newAPIKeysStep() *sqlgraph.Step {
@@ -655,6 +774,13 @@ func newAllowedGroupsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AllowedGroupsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2M, false, AllowedGroupsTable, AllowedGroupsPrimaryKey...),
+	)
+}
+func newAuthorizationRolesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(AuthorizationRolesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2M, false, AuthorizationRolesTable, AuthorizationRolesPrimaryKey...),
 	)
 }
 func newUsageLogsStep() *sqlgraph.Step {
@@ -706,10 +832,38 @@ func newPlatformQuotasStep() *sqlgraph.Step {
 		sqlgraph.Edge(sqlgraph.O2M, false, PlatformQuotasTable, PlatformQuotasColumn),
 	)
 }
+func newHostingEntitlementStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(HostingEntitlementInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2O, false, HostingEntitlementTable, HostingEntitlementColumn),
+	)
+}
+func newCreatedHostingEntitlementsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(CreatedHostingEntitlementsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, CreatedHostingEntitlementsTable, CreatedHostingEntitlementsColumn),
+	)
+}
+func newUpdatedHostingEntitlementsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(UpdatedHostingEntitlementsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, UpdatedHostingEntitlementsTable, UpdatedHostingEntitlementsColumn),
+	)
+}
 func newUserAllowedGroupsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(UserAllowedGroupsInverseTable, UserAllowedGroupsColumn),
 		sqlgraph.Edge(sqlgraph.O2M, true, UserAllowedGroupsTable, UserAllowedGroupsColumn),
+	)
+}
+func newUserRolesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(UserRolesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, true, UserRolesTable, UserRolesColumn),
 	)
 }

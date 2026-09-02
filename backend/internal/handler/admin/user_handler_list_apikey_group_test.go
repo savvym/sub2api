@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -17,7 +18,7 @@ type listUsersFilterStub struct {
 	captured service.UserListFilters
 }
 
-func (s *listUsersFilterStub) ListUsers(_ context.Context, _, _ int, filters service.UserListFilters, _, _ string) ([]service.User, int64, error) {
+func (s *listUsersFilterStub) ListUsers(_ context.Context, _ authz.Actor, _, _ int, filters service.UserListFilters, _, _ string) ([]service.User, int64, error) {
 	s.captured = filters
 	return []service.User{}, 0, nil
 }
@@ -39,6 +40,7 @@ func TestAdminUserList_ParsesAPIKeyGroupID(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			stub := &listUsersFilterStub{AdminService: newStubAdminService()}
 			r := gin.New()
+			r.Use(withAdminTestUserActorID(1))
 			h := NewUserHandler(stub, nil, nil, nil, nil, nil, nil)
 			r.GET("/admin/users", h.List)
 

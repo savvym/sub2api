@@ -40,6 +40,9 @@ func RegisterAdminRoutes(
 		// 用户管理
 		registerUserManagementRoutes(admin, h)
 
+		// 授权模式管理
+		registerAuthorizationRoutes(admin, h)
+
 		// 分组管理
 		registerGroupRoutes(admin, h)
 
@@ -130,6 +133,16 @@ func RegisterAdminRoutes(
 
 		// 操作审计日志
 		registerAuditLogRoutes(admin, h, stepUpAuth)
+	}
+}
+
+func registerAuthorizationRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	authorization := admin.Group("/authorization")
+	{
+		authorization.GET("/role-mode", h.Admin.Authorization.GetRoleAuthorizationMode)
+		authorization.POST("/role-mode/transitions", h.Admin.Authorization.TransitionRoleAuthorizationMode)
+		authorization.GET("/hosting-entitlements/:user_id", h.Admin.HostingEntitlement.Get)
+		authorization.PUT("/hosting-entitlements/:user_id", h.Admin.HostingEntitlement.Update)
 	}
 }
 
@@ -253,6 +266,7 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		ops.GET("/ingress-rejections", h.Admin.Ops.ListIngressRejects)
 		ops.GET("/ingress-rejections/health", h.Admin.Ops.GetIngressRejectHealth)
 		ops.GET("/auth-cache-invalidation/health", h.Admin.Ops.GetAuthCacheInvalidationHealth)
+		ops.GET("/authorization/propagation/health", h.Admin.Ops.GetAuthorizationPropagationHealth)
 
 		// Upstream errors (independent upstream failures)
 		ops.GET("/upstream-errors", h.Admin.Ops.ListUpstreamErrors)

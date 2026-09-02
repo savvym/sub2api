@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	adminhandler "github.com/Wei-Shaw/sub2api/internal/handler/admin"
@@ -904,6 +905,12 @@ func TestAPIContracts(t *testing.T) {
 					"codex_cli_only_engine_fingerprint_signals": "[{\"type\":\"header_prefix\",\"match\":[\"x-codex-\"],\"required\":true},{\"type\":\"header_exact\",\"match\":[\"session-id\",\"session_id\"],\"required\":false},{\"type\":\"header_exact\",\"match\":[\"thread-id\",\"thread_id\"],\"required\":false},{\"type\":\"body_path\",\"match\":[\"client_metadata.x-codex-window-id\",\"client_metadata.x-codex-installation-id\"],\"required\":false}]",
 					"allow_ungrouped_key_scheduling": false,
 					"backend_mode_enabled": false,
+					"resource_access_control_enabled": false,
+					"self_service_hosting_enabled": false,
+					"group_sharing_enabled": false,
+					"account_sharing_enabled": false,
+					"role_based_resource_grants_enabled": false,
+					"role_authorization_mode": "legacy",
 					"enable_cch_signing": false,
 					"enable_claude_oauth_system_prompt_injection": true,
 					"claude_oauth_system_prompt": "",
@@ -1211,6 +1218,12 @@ func TestAPIContracts(t *testing.T) {
 					"max_claude_code_version": "",
 					"allow_ungrouped_key_scheduling": false,
 					"backend_mode_enabled": false,
+					"resource_access_control_enabled": false,
+					"self_service_hosting_enabled": false,
+					"group_sharing_enabled": false,
+					"account_sharing_enabled": false,
+					"role_based_resource_grants_enabled": false,
+					"role_authorization_mode": "legacy",
 					"enable_fingerprint_unification": true,
 					"enable_metadata_passthrough": false,
 					"enable_cch_signing": false,
@@ -1419,6 +1432,89 @@ type contractDeps struct {
 	redeemRepo  *stubRedeemCodeRepo
 }
 
+type contractActorResolverStore struct {
+	snapshot authz.SubjectSnapshot
+}
+
+func (s contractActorResolverStore) LoadSubjectSnapshot(context.Context, authz.SubjectRef) (authz.SubjectSnapshot, error) {
+	return s.snapshot, nil
+}
+
+func (s contractActorResolverStore) LoadServicePrincipalSubjectSnapshotByCode(context.Context, string) (authz.SubjectSnapshot, error) {
+	return authz.SubjectSnapshot{}, errors.New("unexpected service principal lookup")
+}
+
+func (s contractActorResolverStore) LoadResourceAccessSnapshot(
+	_ context.Context,
+	_ authz.SubjectRef,
+	resource authz.ResourceRef,
+) (authz.ResourceAccessSnapshot, error) {
+	var groupMode authz.GroupAuthorizationMode
+	if resource.Type() == authz.ResourceTypeGroup {
+		groupMode = authz.GroupAuthorizationModeLegacy
+	}
+	return authz.NewResourceAccessSnapshot(authz.ResourceAccessSnapshotInput{
+		Subject:                s.snapshot,
+		Resource:               resource,
+		GroupAuthorizationMode: groupMode,
+		Exists:                 true,
+		AccessVersion:          1,
+	})
+}
+
+type contractResourceMutationRepository struct {
+	states map[service.ResourceMutationKey]service.ResourceMutationState
+}
+
+func (r *contractResourceMutationRepository) WithSerializableTx(
+	ctx context.Context,
+	fn func(context.Context) error,
+) error {
+	return fn(ctx)
+}
+
+func (r *contractResourceMutationRepository) LockActorAuthorization(
+	context.Context,
+	authz.SubjectKind,
+	int64,
+) error {
+	return nil
+}
+
+func (r *contractResourceMutationRepository) LockResources(
+	_ context.Context,
+	keys []service.ResourceMutationKey,
+) (map[service.ResourceMutationKey]service.ResourceMutationState, error) {
+	states := make(map[service.ResourceMutationKey]service.ResourceMutationState, len(keys))
+	for _, key := range keys {
+		if state, ok := r.states[key]; ok {
+			states[key] = state
+		}
+	}
+	return states, nil
+}
+
+func (r *contractResourceMutationRepository) IncrementAccessVersions(
+	_ context.Context,
+	keys []service.ResourceMutationKey,
+) (map[service.ResourceMutationKey]service.ResourceMutationState, error) {
+	states := make(map[service.ResourceMutationKey]service.ResourceMutationState, len(keys))
+	for _, key := range keys {
+		state := r.states[key]
+		state.AccessVersion++
+		r.states[key] = state
+		states[key] = state
+	}
+	return states, nil
+}
+
+func (*contractResourceMutationRepository) AppendAuthorizationEvents(
+	context.Context,
+	[]service.ResourceAuthorizationEventRecord,
+) error {
+	return nil
+}
+
 func newContractDeps(t *testing.T) *contractDeps {
 	t.Helper()
 
@@ -1472,11 +1568,77 @@ func newContractDeps(t *testing.T) *contractDeps {
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)
 	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil, nil, nil)
+
+	subject, err := authz.NewSubjectRef(authz.SubjectKindUser, 1)
+	require.NoError(t, err)
+	policyConfiguration, err := authz.NewPolicyConfiguration(authz.PolicyConfigurationInput{
+		RoleAuthorizationMode: authz.RoleAuthorizationModeLegacy,
+	})
+	require.NoError(t, err)
+	snapshot, err := authz.NewSubjectSnapshot(authz.SubjectSnapshotInput{
+		Subject:            subject,
+		Exists:             true,
+		Active:             true,
+		AuthzVersion:       1,
+		CurrentLegacyAdmin: true,
+		Configuration:      policyConfiguration,
+	})
+	require.NoError(t, err)
+	actorStore := contractActorResolverStore{snapshot: snapshot}
+	actorResolver := authz.NewActorResolver(actorStore)
+	userActor, err := actorResolver.ResolveUser(
+		context.Background(),
+		1,
+		authz.AuthMethodJWT,
+	)
+	require.NoError(t, err)
+	mutationRepository := &contractResourceMutationRepository{
+		states: map[service.ResourceMutationKey]service.ResourceMutationState{
+			{ResourceType: authz.ResourceTypeAccount, ResourceID: 101}: {
+				Key:           service.ResourceMutationKey{ResourceType: authz.ResourceTypeAccount, ResourceID: 101},
+				AccessVersion: 1,
+			},
+			{ResourceType: authz.ResourceTypeAccount, ResourceID: 102}: {
+				Key:           service.ResourceMutationKey{ResourceType: authz.ResourceTypeAccount, ResourceID: 102},
+				AccessVersion: 1,
+			},
+		},
+	}
+	resourceMutations := service.NewResourceMutationCoordinator(
+		mutationRepository,
+		actorResolver,
+		authz.NewPolicyService(actorStore),
+	)
+	adminService := service.NewAdminService(
+		userRepo,
+		nil,
+		groupRepo,
+		&accountRepo,
+		proxyRepo,
+		apiKeyRepo,
+		redeemRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		resourceMutations,
+	)
 	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	jwtAuth := func(c *gin.Context) {
@@ -1485,6 +1647,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 			Concurrency: 5,
 		})
 		c.Set(string(middleware.ContextKeyUserRole), service.RoleUser)
+		c.Request = c.Request.WithContext(authz.ContextWithActor(c.Request.Context(), userActor))
 		c.Next()
 	}
 	adminAuth := func(c *gin.Context) {
@@ -1493,6 +1656,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 			Concurrency: 5,
 		})
 		c.Set(string(middleware.ContextKeyUserRole), service.RoleAdmin)
+		c.Request = c.Request.WithContext(authz.ContextWithActor(c.Request.Context(), userActor))
 		c.Next()
 	}
 
@@ -1857,7 +2021,11 @@ func (s *stubAccountRepo) GetByID(ctx context.Context, id int64) (*service.Accou
 }
 
 func (s *stubAccountRepo) GetByIDs(ctx context.Context, ids []int64) ([]*service.Account, error) {
-	return nil, errors.New("not implemented")
+	accounts := make([]*service.Account, 0, len(ids))
+	for _, id := range ids {
+		accounts = append(accounts, &service.Account{ID: id, AccessVersion: 1})
+	}
+	return accounts, nil
 }
 
 func (s *stubAccountRepo) ExistsByID(ctx context.Context, id int64) (bool, error) {

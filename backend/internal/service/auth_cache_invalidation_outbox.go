@@ -17,6 +17,7 @@ const (
 	authInvalidationPollInterval = 500 * time.Millisecond
 	authInvalidationLease        = 30 * time.Second
 	authInvalidationRedisTimeout = 2 * time.Second
+	authInvalidationClaimCleanup = 2 * time.Second
 	authInvalidationSafetyDelay  = 30 * time.Second
 	authInvalidationConcurrency  = 16
 )
@@ -34,13 +35,23 @@ type AuthCacheInvalidationOutboxStats struct {
 	OldestCreatedAt *time.Time
 	MaxAttempts     int
 	LastError       string
+	Stage0          AuthCacheInvalidationPassStats
+	Stage1          AuthCacheInvalidationPassStats
+}
+
+type AuthCacheInvalidationPassStats struct {
+	Pending         int64
+	OldestCreatedAt *time.Time
+	MaxAttempts     int
+	LastError       string
 }
 
 type AuthCacheInvalidationOutboxRepository interface {
 	Claim(ctx context.Context, workerID string, limit int, lease time.Duration) ([]AuthCacheInvalidationEvent, error)
 	DeleteClaimed(ctx context.Context, id int64, workerID string) error
-	ScheduleSecondPass(ctx context.Context, id int64, workerID string, availableAt time.Time) error
-	RetryClaimed(ctx context.Context, id int64, workerID string, availableAt time.Time, lastError string) error
+	ScheduleSecondPass(ctx context.Context, id int64, workerID string, delay time.Duration) error
+	RetryClaimed(ctx context.Context, id int64, workerID string, delay time.Duration, lastError string) error
+	ReleaseClaims(ctx context.Context, workerID string, eventIDs []int64) error
 	Stats(ctx context.Context) (AuthCacheInvalidationOutboxStats, error)
 }
 
@@ -54,8 +65,19 @@ type AuthCacheInvalidationHealth struct {
 	StatsError string        `json:"stats_error,omitempty"`
 	// HealthySLA includes the delayed safety pass. RecoverySLA is the maximum
 	// convergence time after Redis becomes healthy, including capped backoff.
-	HealthySLA  time.Duration `json:"healthy_sla"`
-	RecoverySLA time.Duration `json:"recovery_sla"`
+	HealthySLA  time.Duration                   `json:"healthy_sla"`
+	RecoverySLA time.Duration                   `json:"recovery_sla"`
+	MaxAttempts int                             `json:"max_attempts"`
+	Stage0      AuthCacheInvalidationPassHealth `json:"stage0"`
+	Stage1      AuthCacheInvalidationPassHealth `json:"stage1"`
+}
+
+type AuthCacheInvalidationPassHealth struct {
+	Processed   uint64        `json:"processed"`
+	Failures    uint64        `json:"failures"`
+	Pending     int64         `json:"pending"`
+	OldestLag   time.Duration `json:"oldest_lag"`
+	LastError   string        `json:"last_error,omitempty"`
 	MaxAttempts int           `json:"max_attempts"`
 }
 
@@ -82,20 +104,33 @@ func (s *OpsService) GetAuthCacheInvalidationHealth(ctx context.Context) OpsAuth
 	return health
 }
 
+func (s *OpsService) GetAuthorizationPropagationHealth(ctx context.Context) AuthorizationPropagationHealth {
+	if s == nil || s.authorizationPropagation == nil {
+		return (*AuthorizationPropagationGuard)(nil).Health(ctx)
+	}
+	return s.authorizationPropagation.Health(ctx)
+}
+
 type AuthCacheInvalidationWorker struct {
-	repo      AuthCacheInvalidationOutboxRepository
-	cache     APIKeyCache
-	local     *APIKeyService
-	workerID  string
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	start     sync.Once
-	stop      sync.Once
-	running   atomic.Bool
-	processed atomic.Uint64
-	failures  atomic.Uint64
-	lastError atomic.Value
+	repo            AuthCacheInvalidationOutboxRepository
+	cache           APIKeyCache
+	local           *APIKeyService
+	workerID        string
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	start           sync.Once
+	stop            sync.Once
+	running         atomic.Bool
+	processed       atomic.Uint64
+	failures        atomic.Uint64
+	lastError       atomic.Value
+	stage0Processed atomic.Uint64
+	stage0Failures  atomic.Uint64
+	stage0LastError atomic.Value
+	stage1Processed atomic.Uint64
+	stage1Failures  atomic.Uint64
+	stage1LastError atomic.Value
 }
 
 func NewAuthCacheInvalidationWorker(repo AuthCacheInvalidationOutboxRepository, cache APIKeyCache, local ...*APIKeyService) *AuthCacheInvalidationWorker {
@@ -107,6 +142,8 @@ func NewAuthCacheInvalidationWorker(repo AuthCacheInvalidationOutboxRepository, 
 		w.local = local[0]
 	}
 	w.lastError.Store("")
+	w.stage0LastError.Store("")
+	w.stage1LastError.Store("")
 	return w
 }
 
@@ -155,7 +192,17 @@ func (w *AuthCacheInvalidationWorker) processBatch(ctx context.Context) error {
 		return fmt.Errorf("claim auth cache invalidations: %w", err)
 	}
 	semaphore := make(chan struct{}, authInvalidationConcurrency)
+	settled := make([]bool, len(events))
 	var wg sync.WaitGroup
+	defer func() {
+		eventIDs := make([]int64, 0, len(events))
+		for i := range events {
+			if !settled[i] {
+				eventIDs = append(eventIDs, events[i].ID)
+			}
+		}
+		w.releaseAuthInvalidationClaims(eventIDs)
+	}()
 	for i := range events {
 		select {
 		case <-ctx.Done():
@@ -164,17 +211,17 @@ func (w *AuthCacheInvalidationWorker) processBatch(ctx context.Context) error {
 		case semaphore <- struct{}{}:
 		}
 		wg.Add(1)
-		go func(event AuthCacheInvalidationEvent) {
+		go func(index int, event AuthCacheInvalidationEvent) {
 			defer wg.Done()
 			defer func() { <-semaphore }()
-			w.processEvent(ctx, event)
-		}(events[i])
+			settled[index] = w.processEvent(ctx, event)
+		}(i, events[i])
 	}
 	wg.Wait()
 	return nil
 }
 
-func (w *AuthCacheInvalidationWorker) processEvent(parent context.Context, event AuthCacheInvalidationEvent) {
+func (w *AuthCacheInvalidationWorker) processEvent(parent context.Context, event AuthCacheInvalidationEvent) bool {
 	if w.local != nil {
 		w.local.invalidateLocalAuthCache(event.CacheKey)
 	}
@@ -185,38 +232,58 @@ func (w *AuthCacheInvalidationWorker) processEvent(parent context.Context, event
 	}
 	cancel()
 	if err != nil {
-		w.recordFailure(err)
-		retryAt := time.Now().UTC().Add(authInvalidationRetryDelay(event.Attempts + 1))
+		if parent.Err() != nil {
+			return false
+		}
+		w.recordEventFailure(event.Stage, err)
+		retryDelay := authInvalidationRetryDelay(event.Attempts + 1)
 		retryCtx, retryCancel := context.WithTimeout(context.Background(), 2*time.Second)
-		retryErr := w.repo.RetryClaimed(retryCtx, event.ID, w.workerID, retryAt, boundedAuthInvalidationError(err))
+		retryErr := w.repo.RetryClaimed(retryCtx, event.ID, w.workerID, retryDelay, boundedAuthInvalidationError(err))
 		retryCancel()
 		if retryErr != nil {
-			w.recordFailure(fmt.Errorf("release failed auth invalidation %d: %w", event.ID, retryErr))
+			w.recordEventFailure(event.Stage, fmt.Errorf("release failed auth invalidation %d: %w", event.ID, retryErr))
+			return false
 		}
-		return
+		return true
 	}
 	if event.Stage == 0 {
 		nextCtx, nextCancel := context.WithTimeout(context.Background(), 2*time.Second)
-		err = w.repo.ScheduleSecondPass(nextCtx, event.ID, w.workerID, time.Now().UTC().Add(authInvalidationSafetyDelay))
+		err = w.repo.ScheduleSecondPass(nextCtx, event.ID, w.workerID, authInvalidationSafetyDelay)
 		nextCancel()
 		if err != nil {
-			w.recordFailure(fmt.Errorf("schedule second auth invalidation pass %d: %w", event.ID, err))
-			return
+			w.recordEventFailure(event.Stage, fmt.Errorf("schedule second auth invalidation pass %d: %w", event.ID, err))
+			return false
 		}
 		w.processed.Add(1)
+		w.stage0Processed.Add(1)
 		w.lastError.Store("")
-		return
+		w.stage0LastError.Store("")
+		return true
 	}
 
 	ackCtx, ackCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	err = w.repo.DeleteClaimed(ackCtx, event.ID, w.workerID)
 	ackCancel()
 	if err != nil {
-		w.recordFailure(fmt.Errorf("ack auth invalidation %d: %w", event.ID, err))
-		return
+		w.recordEventFailure(event.Stage, fmt.Errorf("ack auth invalidation %d: %w", event.ID, err))
+		return false
 	}
 	w.processed.Add(1)
+	w.stage1Processed.Add(1)
 	w.lastError.Store("")
+	w.stage1LastError.Store("")
+	return true
+}
+
+func (w *AuthCacheInvalidationWorker) releaseAuthInvalidationClaims(eventIDs []int64) {
+	if w == nil || w.repo == nil || len(eventIDs) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), authInvalidationClaimCleanup)
+	defer cancel()
+	if err := w.repo.ReleaseClaims(ctx, w.workerID, eventIDs); err != nil {
+		w.recordFailure(fmt.Errorf("release auth invalidation claims: %w", err))
+	}
 }
 
 func authInvalidationRetryDelay(attempt int) time.Duration {
@@ -250,6 +317,21 @@ func (w *AuthCacheInvalidationWorker) recordFailure(err error) {
 	slog.Warn("auth cache invalidation outbox processing failed", "error", err)
 }
 
+func (w *AuthCacheInvalidationWorker) recordEventFailure(stage int, err error) {
+	if err == nil {
+		return
+	}
+	w.recordFailure(err)
+	message := boundedAuthInvalidationError(err)
+	if stage == 0 {
+		w.stage0Failures.Add(1)
+		w.stage0LastError.Store(message)
+		return
+	}
+	w.stage1Failures.Add(1)
+	w.stage1LastError.Store(message)
+}
+
 func (w *AuthCacheInvalidationWorker) Health(ctx context.Context) AuthCacheInvalidationHealth {
 	health := AuthCacheInvalidationHealth{
 		HealthySLA:  authInvalidationSafetyDelay + 5*time.Second,
@@ -261,8 +343,18 @@ func (w *AuthCacheInvalidationWorker) Health(ctx context.Context) AuthCacheInval
 	health.Running = w.running.Load()
 	health.Processed = w.processed.Load()
 	health.Failures = w.failures.Load()
+	health.Stage0.Processed = w.stage0Processed.Load()
+	health.Stage0.Failures = w.stage0Failures.Load()
+	health.Stage1.Processed = w.stage1Processed.Load()
+	health.Stage1.Failures = w.stage1Failures.Load()
 	if value := w.lastError.Load(); value != nil {
 		health.LastError, _ = value.(string)
+	}
+	if value := w.stage0LastError.Load(); value != nil {
+		health.Stage0.LastError, _ = value.(string)
+	}
+	if value := w.stage1LastError.Load(); value != nil {
+		health.Stage1.LastError, _ = value.(string)
 	}
 	if w.repo == nil {
 		return health
@@ -277,13 +369,33 @@ func (w *AuthCacheInvalidationWorker) Health(ctx context.Context) AuthCacheInval
 	if health.LastError == "" {
 		health.LastError = stats.LastError
 	}
-	if stats.OldestCreatedAt != nil {
-		health.OldestLag = time.Since(*stats.OldestCreatedAt)
-		if health.OldestLag < 0 {
-			health.OldestLag = 0
-		}
-	}
+	health.OldestLag = authCacheInvalidationLag(stats.OldestCreatedAt)
+	populateAuthCacheInvalidationPassHealth(&health.Stage0, stats.Stage0)
+	populateAuthCacheInvalidationPassHealth(&health.Stage1, stats.Stage1)
 	return health
+}
+
+func populateAuthCacheInvalidationPassHealth(health *AuthCacheInvalidationPassHealth, stats AuthCacheInvalidationPassStats) {
+	if health == nil {
+		return
+	}
+	health.Pending = stats.Pending
+	health.OldestLag = authCacheInvalidationLag(stats.OldestCreatedAt)
+	health.MaxAttempts = stats.MaxAttempts
+	if health.LastError == "" {
+		health.LastError = stats.LastError
+	}
+}
+
+func authCacheInvalidationLag(oldest *time.Time) time.Duration {
+	if oldest == nil {
+		return 0
+	}
+	lag := time.Since(*oldest)
+	if lag < 0 {
+		return 0
+	}
+	return lag
 }
 
 func ProvideAuthCacheInvalidationWorker(repo AuthCacheInvalidationOutboxRepository, cache APIKeyCache, apiKeyService *APIKeyService) *AuthCacheInvalidationWorker {

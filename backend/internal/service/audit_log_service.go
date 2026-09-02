@@ -20,7 +20,7 @@ const (
 )
 
 // AuditLogService 管理面操作审计日志服务。
-// 写入端为非阻塞异步批量落库（不拖慢管理请求）；
+// 普通写入为非阻塞异步批量落库；安全关键路径可通过 RecordDurable 同步落库。
 // 读取端提供分页查询；清空端点由 handler 层做 TOTP 强校验后调用 ClearAll。
 type AuditLogService struct {
 	repo           AuditLogRepository
@@ -85,6 +85,30 @@ func (s *AuditLogService) Record(entry *AuditLog) {
 	default:
 		atomic.AddUint64(&s.droppedCount, 1)
 	}
+}
+
+// RecordDurable 同步写入一条审计记录。
+// 用于审计落库成功是调用方继续执行前提的安全关键路径。
+func (s *AuditLogService) RecordDurable(ctx context.Context, entry *AuditLog) error {
+	if s == nil {
+		return fmt.Errorf("record durable audit log: nil service")
+	}
+	if s.repo == nil {
+		return fmt.Errorf("record durable audit log: nil repository")
+	}
+	if ctx == nil {
+		return fmt.Errorf("record durable audit log: nil context")
+	}
+	if entry == nil {
+		return fmt.Errorf("record durable audit log: nil entry")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if entry.CreatedAt.IsZero() {
+		entry.CreatedAt = time.Now().UTC()
+	}
+	return s.repo.Insert(ctx, entry)
 }
 
 // List 分页查询审计日志。

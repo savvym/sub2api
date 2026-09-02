@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -632,8 +633,9 @@ func TestImportCodexSessionsAccessTokenOnlySameWorkspaceDifferentUsersCreatesTwo
 		{Index: 1, Value: buildCodexAccessOnlyImportValue(t, "workspace-1", "user-1")},
 		{Index: 2, Value: buildCodexAccessOnlyImportValue(t, "workspace-1", "user-2")},
 	}
+	actor := adminHandlerTestActor(t, authz.SubjectKindUser, 1)
 
-	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	result, err := handler.importCodexSessions(context.Background(), actor, req, entries)
 	if err != nil {
 		t.Fatalf("importCodexSessions error = %v", err)
 	}
@@ -645,6 +647,13 @@ func TestImportCodexSessionsAccessTokenOnlySameWorkspaceDifferentUsersCreatesTwo
 	}
 	if svc.createdAccounts[0].Credentials["chatgpt_user_id"] == svc.createdAccounts[1].Credentials["chatgpt_user_id"] {
 		t.Fatalf("created accounts share user id: %v", svc.createdAccounts)
+	}
+	wantActorKey, _ := actor.SubjectKey()
+	for _, received := range svc.receivedActors {
+		gotActorKey, ok := received.SubjectKey()
+		if !ok || gotActorKey != wantActorKey {
+			t.Fatalf("service actor = %q, want %q", gotActorKey, wantActorKey)
+		}
 	}
 }
 
@@ -673,7 +682,7 @@ func TestImportCodexSessionsAccessTokenOnlySameWorkspaceAndUserDifferentTokensCr
 		}},
 	}
 
-	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	result, err := handler.importCodexSessions(context.Background(), adminHandlerTestActor(t, authz.SubjectKindUser, 1), req, entries)
 	if err != nil {
 		t.Fatalf("importCodexSessions error = %v", err)
 	}
@@ -705,7 +714,7 @@ func TestImportCodexSessionsAccessTokenOnlySameUserUpdatesExisting(t *testing.T)
 		{Index: 1, Value: map[string]any{"access_token": existingToken}},
 	}
 
-	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	result, err := handler.importCodexSessions(context.Background(), adminHandlerTestActor(t, authz.SubjectKindUser, 1), req, entries)
 	if err != nil {
 		t.Fatalf("importCodexSessions error = %v", err)
 	}
@@ -746,7 +755,7 @@ func TestImportCodexSessionsUpgradesAccessTokenOnlyAccountWithRefreshToken(t *te
 		}},
 	}
 
-	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	result, err := handler.importCodexSessions(context.Background(), adminHandlerTestActor(t, authz.SubjectKindUser, 1), req, entries)
 	if err != nil {
 		t.Fatalf("importCodexSessions error = %v", err)
 	}
@@ -782,7 +791,7 @@ func TestImportCodexSessionsAccessTokenOnlyPreservesExistingRefreshToken(t *test
 		{Index: 1, Value: map[string]any{"access_token": existingToken}},
 	}
 
-	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	result, err := handler.importCodexSessions(context.Background(), adminHandlerTestActor(t, authz.SubjectKindUser, 1), req, entries)
 	if err != nil {
 		t.Fatalf("importCodexSessions error = %v", err)
 	}
@@ -829,7 +838,7 @@ func TestImportCodexSessionsBatchOldAccessTokenDoesNotRollbackRefreshToken(t *te
 		{Index: 2, Value: map[string]any{"access_token": oldToken}},
 	}
 
-	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	result, err := handler.importCodexSessions(context.Background(), adminHandlerTestActor(t, authz.SubjectKindUser, 1), req, entries)
 	if err != nil {
 		t.Fatalf("importCodexSessions error = %v", err)
 	}
@@ -839,7 +848,7 @@ func TestImportCodexSessionsBatchOldAccessTokenDoesNotRollbackRefreshToken(t *te
 	if len(svc.updatedAccounts) != 1 || svc.updatedAccounts[0].id != 14 {
 		t.Fatalf("updated accounts = %+v, want account 14 updated once", svc.updatedAccounts)
 	}
-	stored, err := svc.GetAccount(context.Background(), 14)
+	stored, err := svc.GetAccount(context.Background(), adminHandlerTestActor(t, authz.SubjectKindUser, 1), 14)
 	if err != nil {
 		t.Fatalf("GetAccount error = %v", err)
 	}
@@ -871,7 +880,7 @@ func TestImportCodexSessionsWithRefreshTokenKeepsExistingDedup(t *testing.T) {
 		{Index: 1, Value: buildCodexRefreshImportValue(t, "workspace-1", "user-1", "refresh-new")},
 	}
 
-	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	result, err := handler.importCodexSessions(context.Background(), adminHandlerTestActor(t, authz.SubjectKindUser, 1), req, entries)
 	if err != nil {
 		t.Fatalf("importCodexSessions error = %v", err)
 	}
@@ -886,6 +895,7 @@ func TestImportCodexSessionsWithRefreshTokenKeepsExistingDedup(t *testing.T) {
 type codexImportMemoryAdminService struct {
 	*stubAdminService
 	nextID          int64
+	receivedActors  []authz.Actor
 	updatedAccounts []struct {
 		id    int64
 		input *service.UpdateAccountInput
@@ -901,7 +911,8 @@ func newCodexImportMemoryAdminService(accounts []service.Account) *codexImportMe
 	}
 }
 
-func (s *codexImportMemoryAdminService) CreateAccount(ctx context.Context, input *service.CreateAccountInput) (*service.Account, error) {
+func (s *codexImportMemoryAdminService) CreateAccount(ctx context.Context, actor authz.Actor, input *service.CreateAccountInput) (*service.Account, error) {
+	s.receivedActors = append(s.receivedActors, actor)
 	s.createdAccounts = append(s.createdAccounts, input)
 	if s.createAccountErr != nil {
 		return nil, s.createAccountErr
@@ -920,7 +931,8 @@ func (s *codexImportMemoryAdminService) CreateAccount(ctx context.Context, input
 	return &account, nil
 }
 
-func (s *codexImportMemoryAdminService) UpdateAccount(ctx context.Context, id int64, input *service.UpdateAccountInput) (*service.Account, error) {
+func (s *codexImportMemoryAdminService) UpdateAccount(ctx context.Context, actor authz.Actor, id int64, input *service.UpdateAccountInput) (*service.Account, error) {
+	s.receivedActors = append(s.receivedActors, actor)
 	s.updatedAccounts = append(s.updatedAccounts, struct {
 		id    int64
 		input *service.UpdateAccountInput
@@ -939,13 +951,14 @@ func (s *codexImportMemoryAdminService) UpdateAccount(ctx context.Context, id in
 	return &account, nil
 }
 
-func (s *codexImportMemoryAdminService) GetAccount(ctx context.Context, id int64) (*service.Account, error) {
+func (s *codexImportMemoryAdminService) GetAccount(ctx context.Context, actor authz.Actor, id int64) (*service.Account, error) {
+	s.receivedActors = append(s.receivedActors, actor)
 	for idx := range s.accounts {
 		if s.accounts[idx].ID == id {
 			return &s.accounts[idx], nil
 		}
 	}
-	return s.stubAdminService.GetAccount(ctx, id)
+	return s.stubAdminService.GetAccount(ctx, actor, id)
 }
 
 func buildCodexAccessOnlyImportValue(t *testing.T, accountID, userID string) map[string]any {

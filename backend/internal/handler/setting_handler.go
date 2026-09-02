@@ -94,6 +94,7 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		GitHubOAuthEnabled:                  settings.GitHubOAuthEnabled,
 		GoogleOAuthEnabled:                  settings.GoogleOAuthEnabled,
 		BackendModeEnabled:                  settings.BackendModeEnabled,
+		SelfServiceHostingEnabled:           settings.SelfServiceHostingEnabled,
 		PaymentEnabled:                      settings.PaymentEnabled,
 		Version:                             h.version,
 		ServerTimezone:                      timezone.Name(),

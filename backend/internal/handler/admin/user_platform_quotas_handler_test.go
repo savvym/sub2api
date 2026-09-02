@@ -26,10 +26,12 @@ func (f *fakeQuotaRepoForAdmin) ListByUser(_ context.Context, _ int64) ([]servic
 	return f.records, f.err
 }
 
-func newAdminQuotaTestContext(w *httptest.ResponseRecorder) *gin.Context {
+func newAdminQuotaTestContext(t testing.TB, w *httptest.ResponseRecorder) *gin.Context {
+	t.Helper()
 	c, _ := gin.CreateTestContext(w)
 	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	c.Request = req
+	attachAdminTestUserActorID(t, c, 1)
 	return c
 }
 
@@ -42,7 +44,7 @@ func TestAdminGetUserPlatformQuotas_IncludesWindowStart(t *testing.T) {
 	h := &UserHandler{userPlatformQuotaRepo: repo, adminService: newStubAdminService()}
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
-	c := newAdminQuotaTestContext(w)
+	c := newAdminQuotaTestContext(t, w)
 	c.Params = []gin.Param{{Key: "id", Value: "99"}}
 	h.GetUserPlatformQuotas(c)
 
@@ -58,7 +60,7 @@ func TestAdminGetUserPlatformQuotas_InvalidIDReturns400(t *testing.T) {
 	h := &UserHandler{userPlatformQuotaRepo: &fakeQuotaRepoForAdmin{}}
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
-	c := newAdminQuotaTestContext(w)
+	c := newAdminQuotaTestContext(t, w)
 	c.Params = []gin.Param{{Key: "id", Value: "abc"}}
 	h.GetUserPlatformQuotas(c)
 	if w.Code < 400 || w.Code >= 500 {
@@ -71,7 +73,7 @@ func TestAdminGetUserPlatformQuotas_EmptyReturnsEmptyArray(t *testing.T) {
 	h := &UserHandler{userPlatformQuotaRepo: repo, adminService: newStubAdminService()}
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
-	c := newAdminQuotaTestContext(w)
+	c := newAdminQuotaTestContext(t, w)
 	c.Params = []gin.Param{{Key: "id", Value: "99"}}
 	h.GetUserPlatformQuotas(c)
 	if w.Code != 200 {
@@ -98,7 +100,7 @@ func TestAdminGetUserPlatformQuotas_NilRepoReturnsEmpty(t *testing.T) {
 	h := &UserHandler{userPlatformQuotaRepo: nil}
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
-	c := newAdminQuotaTestContext(w)
+	c := newAdminQuotaTestContext(t, w)
 	c.Params = []gin.Param{{Key: "id", Value: "1"}}
 	h.GetUserPlatformQuotas(c)
 	if w.Code != 200 {
@@ -115,7 +117,7 @@ func TestAdminGetUserPlatformQuotas_UserNotFoundReturns404(t *testing.T) {
 	h := &UserHandler{userPlatformQuotaRepo: repo, adminService: adminSvc}
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
-	c := newAdminQuotaTestContext(w)
+	c := newAdminQuotaTestContext(t, w)
 	c.Params = []gin.Param{{Key: "id", Value: "999"}}
 	h.GetUserPlatformQuotas(c)
 	if w.Code != http.StatusNotFound {

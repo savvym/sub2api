@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { defineComponent, nextTick } from 'vue'
 import BaseDialog from '../BaseDialog.vue'
 
 vi.mock('vue-i18n', () => ({
@@ -32,6 +32,33 @@ describe('BaseDialog', () => {
     await nextTick()
 
     expect(document.body.querySelector<HTMLElement>('.modal-body')?.scrollTop).toBe(0)
+    wrapper.unmount()
+  })
+
+  it('uses a unique accessible title for each open dialog', async () => {
+    const DialogHost = defineComponent({
+      components: { BaseDialog },
+      template: `
+        <BaseDialog show title="Account details">details</BaseDialog>
+        <BaseDialog show title="Delete account">confirmation</BaseDialog>
+      `
+    })
+    const wrapper = mount(DialogHost, {
+      attachTo: document.body,
+      global: { stubs: { Icon: true } }
+    })
+
+    await nextTick()
+    const dialogs = Array.from(document.body.querySelectorAll<HTMLElement>('[role="dialog"]'))
+    expect(dialogs).toHaveLength(2)
+
+    const titleIDs = dialogs.map((dialog) => dialog.getAttribute('aria-labelledby'))
+    expect(new Set(titleIDs).size).toBe(2)
+    expect(titleIDs.map((id) => document.getElementById(id!)?.textContent?.trim())).toEqual([
+      'Account details',
+      'Delete account'
+    ])
+
     wrapper.unmount()
   })
 })

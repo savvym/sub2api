@@ -89,7 +89,7 @@ type UserListFilters struct {
 // 未声明的列保持数据库当前值，不会被调用方手里的快照覆盖。用户行上有多条
 // 不经过 Update 的原子写入路径（DeductBalance/UpdateBalance 扣加余额、
 // UpdateConcurrency、BatchUpdateLimits、UpdateUserLastActiveAt 等），
-// status/role 也可能被其他流程并发改写。若 Update 无条件整行回写，
+// status 也可能被其他流程并发改写。若 Update 无条件整行回写，
 // 一次"读-改-写"就会静默回滚这些并发结果（lost update），
 // 因此每个调用方必须显式声明它真正要改的列。
 //
@@ -100,7 +100,6 @@ type UserUpdateFields struct {
 	Username     bool
 	Notes        bool
 	PasswordHash bool
-	Role         bool
 	Status       bool
 	Concurrency  bool
 	RPMLimit     bool

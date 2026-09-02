@@ -588,7 +588,7 @@ func TestAdminService_DeleteUser_Success(t *testing.T) {
 	repo := &userRepoStub{user: &User{ID: 7, Role: RoleUser}}
 	svc := &adminServiceImpl{userRepo: repo}
 
-	err := svc.DeleteUser(context.Background(), 7)
+	err := svc.DeleteUser(context.Background(), adminResourceUserTestActor(t), 7)
 	require.NoError(t, err)
 	require.Equal(t, []int64{7}, repo.deletedIDs)
 }
@@ -609,7 +609,7 @@ func TestAdminService_DeleteUser_DeletesOwnedAPIKeys(t *testing.T) {
 		authCacheInvalidator: invalidator,
 	}
 
-	err := svc.DeleteUser(context.Background(), 7)
+	err := svc.DeleteUser(context.Background(), adminResourceUserTestActor(t), 7)
 	require.NoError(t, err)
 	require.Equal(t, []int64{7}, repo.deletedIDs)
 	require.Equal(t, []int64{7}, apiKeyRepo.listByUserIDCalls)
@@ -622,7 +622,7 @@ func TestAdminService_DeleteUser_NotFound(t *testing.T) {
 	repo := &userRepoStub{getErr: ErrUserNotFound}
 	svc := &adminServiceImpl{userRepo: repo}
 
-	err := svc.DeleteUser(context.Background(), 404)
+	err := svc.DeleteUser(context.Background(), adminResourceUserTestActor(t), 404)
 	require.ErrorIs(t, err, ErrUserNotFound)
 	require.Empty(t, repo.deletedIDs)
 }
@@ -631,7 +631,7 @@ func TestAdminService_DeleteUser_AdminGuard(t *testing.T) {
 	repo := &userRepoStub{user: &User{ID: 1, Role: RoleAdmin}}
 	svc := &adminServiceImpl{userRepo: repo}
 
-	err := svc.DeleteUser(context.Background(), 1)
+	err := svc.DeleteUser(context.Background(), adminResourceUserTestActor(t), 1)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "cannot delete admin user")
 	require.Empty(t, repo.deletedIDs)
@@ -645,7 +645,7 @@ func TestAdminService_DeleteUser_DeleteError(t *testing.T) {
 	}
 	svc := &adminServiceImpl{userRepo: repo}
 
-	err := svc.DeleteUser(context.Background(), 9)
+	err := svc.DeleteUser(context.Background(), adminResourceUserTestActor(t), 9)
 	require.ErrorIs(t, err, deleteErr)
 	require.Equal(t, []int64{9}, repo.deletedIDs)
 }
@@ -658,7 +658,7 @@ func TestAdminService_DeleteGroup_Success_WithCacheInvalidation(t *testing.T) {
 		billingCacheService: &BillingCacheService{cache: cache},
 	}
 
-	err := svc.DeleteGroup(context.Background(), 5)
+	err := svc.DeleteGroup(context.Background(), adminResourceUserTestActor(t), 5)
 	require.NoError(t, err)
 	require.Equal(t, []int64{5}, repo.deleteCalls)
 
@@ -679,7 +679,7 @@ func TestAdminService_DeleteGroup_InvalidatesAuthCacheForBoundKeys(t *testing.T)
 		authCacheInvalidator: invalidator,
 	}
 
-	err := svc.DeleteGroup(context.Background(), 5)
+	err := svc.DeleteGroup(context.Background(), adminResourceUserTestActor(t), 5)
 	require.NoError(t, err)
 	require.Equal(t, []int64{5}, repo.deleteCalls)
 	require.Equal(t, []int64{5}, apiKeyRepo.listGroupIDs)
@@ -690,7 +690,7 @@ func TestAdminService_DeleteGroup_NotFound(t *testing.T) {
 	repo := &groupRepoStub{deleteErr: ErrGroupNotFound}
 	svc := &adminServiceImpl{groupRepo: repo}
 
-	err := svc.DeleteGroup(context.Background(), 99)
+	err := svc.DeleteGroup(context.Background(), adminResourceUserTestActor(t), 99)
 	require.ErrorIs(t, err, ErrGroupNotFound)
 }
 
@@ -699,7 +699,7 @@ func TestAdminService_DeleteGroup_Error(t *testing.T) {
 	repo := &groupRepoStub{deleteErr: deleteErr}
 	svc := &adminServiceImpl{groupRepo: repo}
 
-	err := svc.DeleteGroup(context.Background(), 42)
+	err := svc.DeleteGroup(context.Background(), adminResourceUserTestActor(t), 42)
 	require.ErrorIs(t, err, deleteErr)
 }
 

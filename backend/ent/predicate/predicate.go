@@ -12,6 +12,9 @@ type APIKey func(*sql.Selector)
 // Account is the predicate function for account builders.
 type Account func(*sql.Selector)
 
+// AccountAccessGrant is the predicate function for accountaccessgrant builders.
+type AccountAccessGrant func(*sql.Selector)
+
 // AccountGroup is the predicate function for accountgroup builders.
 type AccountGroup func(*sql.Selector)
 
@@ -57,6 +60,9 @@ type ErrorPassthroughRule func(*sql.Selector)
 // Group is the predicate function for group builders.
 type Group func(*sql.Selector)
 
+// GroupAccessGrant is the predicate function for groupaccessgrant builders.
+type GroupAccessGrant func(*sql.Selector)
+
 // IdempotencyRecord is the predicate function for idempotencyrecord builders.
 type IdempotencyRecord func(*sql.Selector)
 
@@ -75,6 +81,9 @@ type PaymentProviderInstance func(*sql.Selector)
 // PendingAuthSession is the predicate function for pendingauthsession builders.
 type PendingAuthSession func(*sql.Selector)
 
+// Permission is the predicate function for permission builders.
+type Permission func(*sql.Selector)
+
 // PromoCode is the predicate function for promocode builders.
 type PromoCode func(*sql.Selector)
 
@@ -87,8 +96,26 @@ type Proxy func(*sql.Selector)
 // RedeemCode is the predicate function for redeemcode builders.
 type RedeemCode func(*sql.Selector)
 
+// ResourceAuthorizationEvent is the predicate function for resourceauthorizationevent builders.
+type ResourceAuthorizationEvent func(*sql.Selector)
+
+// Role is the predicate function for role builders.
+type Role func(*sql.Selector)
+
+// RolePermission is the predicate function for rolepermission builders.
+type RolePermission func(*sql.Selector)
+
 // SecuritySecret is the predicate function for securitysecret builders.
 type SecuritySecret func(*sql.Selector)
+
+// ServicePrincipal is the predicate function for serviceprincipal builders.
+type ServicePrincipal func(*sql.Selector)
+
+// ServicePrincipalRole is the predicate function for serviceprincipalrole builders.
+type ServicePrincipalRole func(*sql.Selector)
+
+// ServicePrincipalWorkerPermission is the predicate function for serviceprincipalworkerpermission builders.
+type ServicePrincipalWorkerPermission func(*sql.Selector)
 
 // Setting is the predicate function for setting builders.
 type Setting func(*sql.Selector)
@@ -117,8 +144,14 @@ type UserAttributeDefinition func(*sql.Selector)
 // UserAttributeValue is the predicate function for userattributevalue builders.
 type UserAttributeValue func(*sql.Selector)
 
+// UserHostingEntitlement is the predicate function for userhostingentitlement builders.
+type UserHostingEntitlement func(*sql.Selector)
+
 // UserPlatformQuota is the predicate function for userplatformquota builders.
 type UserPlatformQuota func(*sql.Selector)
+
+// UserRole is the predicate function for userrole builders.
+type UserRole func(*sql.Selector)
 
 // UserSubscription is the predicate function for usersubscription builders.
 type UserSubscription func(*sql.Selector)

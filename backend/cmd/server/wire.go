@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
@@ -43,6 +44,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		payment.ProviderSet,
 		middleware.ProviderSet,
 		handler.ProviderSet,
+		authz.NewActorResolver,
 
 		// Server layer ProviderSet
 		server.ProviderSet,
@@ -94,6 +96,7 @@ func provideCleanup(
 	opsIngressReject *service.OpsIngressRejectAggregator,
 	apiKeyService *service.APIKeyService,
 	authCacheInvalidationWorker *service.AuthCacheInvalidationWorker,
+	authorizationExpiryWorker *service.AuthorizationExpiryWorker,
 	schedulerSnapshot *service.SchedulerSnapshotService,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
@@ -161,6 +164,12 @@ func provideCleanup(
 			{"AuthCacheInvalidationWorker", func() error {
 				if authCacheInvalidationWorker != nil {
 					authCacheInvalidationWorker.Stop()
+				}
+				return nil
+			}},
+			{"AuthorizationExpiryWorker", func() error {
+				if authorizationExpiryWorker != nil {
+					authorizationExpiryWorker.Stop()
 				}
 				return nil
 			}},

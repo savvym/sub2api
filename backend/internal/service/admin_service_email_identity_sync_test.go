@@ -181,7 +181,7 @@ func TestAdminService_CreateUser_DoesNotReturnPartialSuccessFromEmailIdentityRes
 	}
 	svc := &adminServiceImpl{userRepo: repo}
 
-	user, err := svc.CreateUser(context.Background(), &CreateUserInput{
+	user, err := svc.CreateUser(context.Background(), adminResourceUserTestActor(t), &CreateUserInput{
 		Email:    "admin-created@example.com",
 		Password: "strong-pass",
 	})
@@ -205,7 +205,7 @@ func TestAdminService_UpdateUser_DoesNotReturnPartialSuccessFromEmailIdentityRes
 	}
 	svc := &adminServiceImpl{userRepo: repo}
 
-	updated, err := svc.UpdateUser(context.Background(), 91, &UpdateUserInput{
+	updated, err := svc.UpdateUser(context.Background(), adminResourceUserTestActor(t), 91, &UpdateUserInput{
 		Email: "after@example.com",
 	})
 	require.NoError(t, err)

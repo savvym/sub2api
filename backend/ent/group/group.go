@@ -134,6 +134,16 @@ const (
 	FieldMaxReasoningEffort = "max_reasoning_effort"
 	// FieldReasoningEffortMappings holds the string denoting the reasoning_effort_mappings field in the database.
 	FieldReasoningEffortMappings = "reasoning_effort_mappings"
+	// FieldOwnerUserID holds the string denoting the owner_user_id field in the database.
+	FieldOwnerUserID = "owner_user_id"
+	// FieldCreatedByUserID holds the string denoting the created_by_user_id field in the database.
+	FieldCreatedByUserID = "created_by_user_id"
+	// FieldPublicAccessLevel holds the string denoting the public_access_level field in the database.
+	FieldPublicAccessLevel = "public_access_level"
+	// FieldAccessVersion holds the string denoting the access_version field in the database.
+	FieldAccessVersion = "access_version"
+	// FieldAuthorizationMode holds the string denoting the authorization_mode field in the database.
+	FieldAuthorizationMode = "authorization_mode"
 	// FieldProfitControlEnabled holds the string denoting the profit_control_enabled field in the database.
 	FieldProfitControlEnabled = "profit_control_enabled"
 	// FieldProfitMinMargin holds the string denoting the profit_min_margin field in the database.
@@ -152,6 +162,10 @@ const (
 	EdgeAccounts = "accounts"
 	// EdgeAllowedUsers holds the string denoting the allowed_users edge name in mutations.
 	EdgeAllowedUsers = "allowed_users"
+	// EdgeOwner holds the string denoting the owner edge name in mutations.
+	EdgeOwner = "owner"
+	// EdgeCreatedBy holds the string denoting the created_by edge name in mutations.
+	EdgeCreatedBy = "created_by"
 	// EdgeAccountGroups holds the string denoting the account_groups edge name in mutations.
 	EdgeAccountGroups = "account_groups"
 	// EdgeUserAllowedGroups holds the string denoting the user_allowed_groups edge name in mutations.
@@ -196,6 +210,20 @@ const (
 	// AllowedUsersInverseTable is the table name for the User entity.
 	// It exists in this package in order to avoid circular dependency with the "user" package.
 	AllowedUsersInverseTable = "users"
+	// OwnerTable is the table that holds the owner relation/edge.
+	OwnerTable = "groups"
+	// OwnerInverseTable is the table name for the User entity.
+	// It exists in this package in order to avoid circular dependency with the "user" package.
+	OwnerInverseTable = "users"
+	// OwnerColumn is the table column denoting the owner relation/edge.
+	OwnerColumn = "owner_user_id"
+	// CreatedByTable is the table that holds the created_by relation/edge.
+	CreatedByTable = "groups"
+	// CreatedByInverseTable is the table name for the User entity.
+	// It exists in this package in order to avoid circular dependency with the "user" package.
+	CreatedByInverseTable = "users"
+	// CreatedByColumn is the table column denoting the created_by relation/edge.
+	CreatedByColumn = "created_by_user_id"
 	// AccountGroupsTable is the table that holds the account_groups relation/edge.
 	AccountGroupsTable = "account_groups"
 	// AccountGroupsInverseTable is the table name for the AccountGroup entity.
@@ -274,6 +302,11 @@ var Columns = []string{
 	FieldRpmLimit,
 	FieldMaxReasoningEffort,
 	FieldReasoningEffortMappings,
+	FieldOwnerUserID,
+	FieldCreatedByUserID,
+	FieldPublicAccessLevel,
+	FieldAccessVersion,
+	FieldAuthorizationMode,
 	FieldProfitControlEnabled,
 	FieldProfitMinMargin,
 	FieldProfitSafetyBuffer,
@@ -406,6 +439,14 @@ var (
 	MaxReasoningEffortValidator func(string) error
 	// DefaultReasoningEffortMappings holds the default value on creation for the "reasoning_effort_mappings" field.
 	DefaultReasoningEffortMappings []domain.ReasoningEffortMapping
+	// PublicAccessLevelValidator is a validator for the "public_access_level" field. It is called by the builders before save.
+	PublicAccessLevelValidator func(string) error
+	// DefaultAccessVersion holds the default value on creation for the "access_version" field.
+	DefaultAccessVersion int64
+	// DefaultAuthorizationMode holds the default value on creation for the "authorization_mode" field.
+	DefaultAuthorizationMode string
+	// AuthorizationModeValidator is a validator for the "authorization_mode" field. It is called by the builders before save.
+	AuthorizationModeValidator func(string) error
 	// DefaultProfitControlEnabled holds the default value on creation for the "profit_control_enabled" field.
 	DefaultProfitControlEnabled bool
 	// DefaultProfitMinMargin holds the default value on creation for the "profit_min_margin" field.
@@ -682,6 +723,31 @@ func ByMaxReasoningEffort(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMaxReasoningEffort, opts...).ToFunc()
 }
 
+// ByOwnerUserID orders the results by the owner_user_id field.
+func ByOwnerUserID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOwnerUserID, opts...).ToFunc()
+}
+
+// ByCreatedByUserID orders the results by the created_by_user_id field.
+func ByCreatedByUserID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCreatedByUserID, opts...).ToFunc()
+}
+
+// ByPublicAccessLevel orders the results by the public_access_level field.
+func ByPublicAccessLevel(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPublicAccessLevel, opts...).ToFunc()
+}
+
+// ByAccessVersion orders the results by the access_version field.
+func ByAccessVersion(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccessVersion, opts...).ToFunc()
+}
+
+// ByAuthorizationMode orders the results by the authorization_mode field.
+func ByAuthorizationMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAuthorizationMode, opts...).ToFunc()
+}
+
 // ByProfitControlEnabled orders the results by the profit_control_enabled field.
 func ByProfitControlEnabled(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProfitControlEnabled, opts...).ToFunc()
@@ -781,6 +847,20 @@ func ByAllowedUsers(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByOwnerField orders the results by owner field.
+func ByOwnerField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newOwnerStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// ByCreatedByField orders the results by created_by field.
+func ByCreatedByField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newCreatedByStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByAccountGroupsCount orders the results by account_groups count.
 func ByAccountGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -848,6 +928,20 @@ func newAllowedUsersStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AllowedUsersInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2M, true, AllowedUsersTable, AllowedUsersPrimaryKey...),
+	)
+}
+func newOwnerStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(OwnerInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, OwnerTable, OwnerColumn),
+	)
+}
+func newCreatedByStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(CreatedByInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, CreatedByTable, CreatedByColumn),
 	)
 }
 func newAccountGroupsStep() *sqlgraph.Step {

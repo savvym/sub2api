@@ -34,6 +34,12 @@ type Group struct {
 	// an already committed one-click copy. It must never be mapped to API DTOs.
 	DuplicateOperationID string
 
+	OwnerUserID       *int64
+	CreatedByUserID   *int64
+	PublicAccessLevel *string
+	AccessVersion     int64
+	AuthorizationMode string
+
 	SubscriptionType    string
 	DailyLimitUSD       *float64
 	WeeklyLimitUSD      *float64

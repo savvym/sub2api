@@ -157,7 +157,7 @@ func TestAdminService_BulkUpdateAccounts_AllSuccessIDs(t *testing.T) {
 		Schedulable: &schedulable,
 	}
 
-	result, err := svc.BulkUpdateAccounts(context.Background(), input)
+	result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), input)
 	require.NoError(t, err)
 	require.Equal(t, 3, result.Success)
 	require.Equal(t, 0, result.Failed)
@@ -182,7 +182,7 @@ func TestAdminService_BulkUpdateAccounts_RejectsRateChangeForSyncedAccounts(t *t
 	svc := &adminServiceImpl{accountRepo: repo}
 	rateMultiplier := 0.5
 
-	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+	result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 		AccountIDs:     []int64{1, 2},
 		RateMultiplier: &rateMultiplier,
 	})
@@ -198,8 +198,9 @@ func TestAdminService_BulkUpdateAccounts_RejectsRateChangeForSyncedAccounts(t *t
 	require.Empty(t, repo.bulkUpdateIDs, "rate conflict must be rejected before any write")
 }
 
-// TestAdminService_BulkUpdateAccounts_PartialFailureIDs 验证部分失败时 success_ids/failed_ids 正确。
-func TestAdminService_BulkUpdateAccounts_PartialFailureIDs(t *testing.T) {
+// TestAdminService_BulkUpdateAccounts_BindingFailureAbortsCommand verifies that
+// one authorization decision cannot return a misleading partial-success result.
+func TestAdminService_BulkUpdateAccounts_BindingFailureAbortsCommand(t *testing.T) {
 	repo := &accountRepoStubForBulkUpdate{
 		bindGroupErrByID: map[int64]error{
 			2: errors.New("bind failed"),
@@ -219,13 +220,9 @@ func TestAdminService_BulkUpdateAccounts_PartialFailureIDs(t *testing.T) {
 		SkipMixedChannelCheck: true,
 	}
 
-	result, err := svc.BulkUpdateAccounts(context.Background(), input)
-	require.NoError(t, err)
-	require.Equal(t, 2, result.Success)
-	require.Equal(t, 1, result.Failed)
-	require.ElementsMatch(t, []int64{1, 3}, result.SuccessIDs)
-	require.ElementsMatch(t, []int64{2}, result.FailedIDs)
-	require.Len(t, result.Results, 3)
+	result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), input)
+	require.Nil(t, result)
+	require.EqualError(t, err, "bind failed")
 }
 
 func TestAdminService_BulkUpdateAccounts_NilGroupRepoReturnsError(t *testing.T) {
@@ -238,7 +235,7 @@ func TestAdminService_BulkUpdateAccounts_NilGroupRepoReturnsError(t *testing.T) 
 		GroupIDs:   &groupIDs,
 	}
 
-	result, err := svc.BulkUpdateAccounts(context.Background(), input)
+	result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), input)
 	require.Nil(t, result)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "group repository not configured")
@@ -268,7 +265,7 @@ func TestAdminService_BulkUpdateAccounts_MixedChannelPreCheckBlocksOnExistingCon
 		GroupIDs:   &groupIDs,
 	}
 
-	result, err := svc.BulkUpdateAccounts(context.Background(), input)
+	result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), input)
 	require.Nil(t, result)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "mixed channel")
@@ -304,7 +301,7 @@ func TestAdminServiceBulkUpdateAccounts_ResolvesIDsFromFilters(t *testing.T) {
 	filtersValue.Elem().FieldByName("Search").SetString("bulk-target")
 	filtersField.Set(filtersValue)
 
-	result, err := svc.BulkUpdateAccounts(context.Background(), input)
+	result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), input)
 	require.NoError(t, err)
 	require.True(t, repo.listCalled, "expected filter-target bulk update to resolve matching IDs via account list filters")
 	require.Equal(t, PlatformOpenAI, repo.lastListFilters.platform)
@@ -326,7 +323,7 @@ func TestAdminServiceBulkUpdateAccounts_NormalizesOpenAISettings(t *testing.T) {
 	}}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+	result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 		AccountIDs: []int64{1, 2},
 		Credentials: map[string]any{
 			openAIEndpointCapabilitiesCredentialKey: []any{"chat_completions", "embeddings"},
@@ -356,7 +353,7 @@ func TestAdminServiceBulkUpdateAccounts_AcceptsLongContextAccountTypes(t *testin
 			}}}
 			svc := &adminServiceImpl{accountRepo: repo}
 
-			result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+			result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 				AccountIDs: []int64{1},
 				Extra:      map[string]any{openAILongContextBillingEnabledKey: false},
 			})
@@ -374,7 +371,7 @@ func TestAdminServiceBulkUpdateAccounts_EmbeddingsOnlyResetsResponsesMode(t *tes
 	}}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	_, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+	_, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 		AccountIDs: []int64{1},
 		Credentials: map[string]any{
 			openAIEndpointCapabilitiesCredentialKey: []string{"embeddings"},
@@ -412,11 +409,12 @@ func TestAdminServiceBulkUpdateAccounts_RejectsInvalidOpenAISettingValuesBeforeW
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &accountRepoStubForBulkUpdate{}
 			svc := &adminServiceImpl{accountRepo: repo}
-			result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+			result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 				AccountIDs:  []int64{1},
 				Credentials: tt.credentials,
 				Extra:       tt.extra,
 			})
+
 			require.Nil(t, result)
 			requireApplicationErrorReason(t, err, tt.reason)
 			require.Zero(t, repo.bulkUpdateCalls)
@@ -468,7 +466,7 @@ func TestAdminServiceBulkUpdateAccounts_RejectsInvalidOpenAITargetsBeforeWrite(t
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &accountRepoStubForBulkUpdate{getByIDsAccounts: tt.accounts}
 			svc := &adminServiceImpl{accountRepo: repo}
-			result, err := svc.BulkUpdateAccounts(context.Background(), tt.input)
+			result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), tt.input)
 			require.Nil(t, result)
 			requireApplicationErrorReason(t, err, "OPENAI_BULK_TARGET_INVALID")
 			require.Zero(t, repo.bulkUpdateCalls)
@@ -487,7 +485,7 @@ func TestAdminServiceBulkUpdateAccounts_ForcedResponsesRequiresChatCapability(t 
 	}}}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+	result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 		AccountIDs: []int64{1},
 		Extra:      map[string]any{"openai_responses_mode": "force_chat_completions"},
 	})
@@ -508,7 +506,7 @@ func TestAdminServiceBulkUpdateAccounts_ForcedResponsesAcceptsChatCapabilityUpda
 	}}}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	_, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+	_, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 		AccountIDs: []int64{1},
 		Credentials: map[string]any{
 			openAIEndpointCapabilitiesCredentialKey: []any{"chat_completions"},
@@ -528,7 +526,7 @@ func TestAdminServiceBulkUpdateAccounts_ReportsLongContextShadowInheritance(t *t
 	}}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+	result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 		AccountIDs: []int64{parentID, 2},
 		Extra:      map[string]any{openAILongContextBillingEnabledKey: true},
 	})
@@ -546,7 +544,7 @@ func TestAdminServiceBulkUpdateAccounts_RequiresParentForShadowOnlyLongContextUp
 	}}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+	result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 		AccountIDs: []int64{1, 2},
 		Extra:      map[string]any{openAILongContextBillingEnabledKey: true},
 	})
@@ -564,7 +562,7 @@ func TestAdminServiceBulkUpdateAccounts_ShadowLongContextAllowsOtherUpdates(t *t
 	svc := &adminServiceImpl{accountRepo: repo}
 	status := StatusDisabled
 
-	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+	result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 		AccountIDs: []int64{1},
 		Status:     status,
 		Extra:      map[string]any{openAILongContextBillingEnabledKey: false},
@@ -585,7 +583,7 @@ func TestAdminServiceBulkUpdateAccounts_ValidatesFilterResolvedOpenAITargets(t *
 	}
 	svc := &adminServiceImpl{accountRepo: repo}
 
-	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+	result, err := svc.BulkUpdateAccounts(context.Background(), adminResourceUserTestActor(t), &BulkUpdateAccountsInput{
 		Filters: &BulkUpdateAccountFilters{Platform: PlatformOpenAI},
 		Extra:   map[string]any{openAILongContextBillingEnabledKey: true},
 	})

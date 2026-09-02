@@ -195,6 +195,26 @@ func ParentAccountID(v int64) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldParentAccountID, v))
 }
 
+// OwnerUserID applies equality check predicate on the "owner_user_id" field. It's identical to OwnerUserIDEQ.
+func OwnerUserID(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldOwnerUserID, v))
+}
+
+// CreatedByUserID applies equality check predicate on the "created_by_user_id" field. It's identical to CreatedByUserIDEQ.
+func CreatedByUserID(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldCreatedByUserID, v))
+}
+
+// PublicAccessLevel applies equality check predicate on the "public_access_level" field. It's identical to PublicAccessLevelEQ.
+func PublicAccessLevel(v string) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldPublicAccessLevel, v))
+}
+
+// AccessVersion applies equality check predicate on the "access_version" field. It's identical to AccessVersionEQ.
+func AccessVersion(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldAccessVersion, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldCreatedAt, v))
@@ -1605,6 +1625,181 @@ func QuotaDimensionNotIn(vs ...QuotaDimension) predicate.Account {
 	return predicate.Account(sql.FieldNotIn(FieldQuotaDimension, vs...))
 }
 
+// OwnerUserIDEQ applies the EQ predicate on the "owner_user_id" field.
+func OwnerUserIDEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldOwnerUserID, v))
+}
+
+// OwnerUserIDNEQ applies the NEQ predicate on the "owner_user_id" field.
+func OwnerUserIDNEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldOwnerUserID, v))
+}
+
+// OwnerUserIDIn applies the In predicate on the "owner_user_id" field.
+func OwnerUserIDIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldOwnerUserID, vs...))
+}
+
+// OwnerUserIDNotIn applies the NotIn predicate on the "owner_user_id" field.
+func OwnerUserIDNotIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldOwnerUserID, vs...))
+}
+
+// OwnerUserIDIsNil applies the IsNil predicate on the "owner_user_id" field.
+func OwnerUserIDIsNil() predicate.Account {
+	return predicate.Account(sql.FieldIsNull(FieldOwnerUserID))
+}
+
+// OwnerUserIDNotNil applies the NotNil predicate on the "owner_user_id" field.
+func OwnerUserIDNotNil() predicate.Account {
+	return predicate.Account(sql.FieldNotNull(FieldOwnerUserID))
+}
+
+// CreatedByUserIDEQ applies the EQ predicate on the "created_by_user_id" field.
+func CreatedByUserIDEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldCreatedByUserID, v))
+}
+
+// CreatedByUserIDNEQ applies the NEQ predicate on the "created_by_user_id" field.
+func CreatedByUserIDNEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldCreatedByUserID, v))
+}
+
+// CreatedByUserIDIn applies the In predicate on the "created_by_user_id" field.
+func CreatedByUserIDIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldCreatedByUserID, vs...))
+}
+
+// CreatedByUserIDNotIn applies the NotIn predicate on the "created_by_user_id" field.
+func CreatedByUserIDNotIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldCreatedByUserID, vs...))
+}
+
+// CreatedByUserIDIsNil applies the IsNil predicate on the "created_by_user_id" field.
+func CreatedByUserIDIsNil() predicate.Account {
+	return predicate.Account(sql.FieldIsNull(FieldCreatedByUserID))
+}
+
+// CreatedByUserIDNotNil applies the NotNil predicate on the "created_by_user_id" field.
+func CreatedByUserIDNotNil() predicate.Account {
+	return predicate.Account(sql.FieldNotNull(FieldCreatedByUserID))
+}
+
+// PublicAccessLevelEQ applies the EQ predicate on the "public_access_level" field.
+func PublicAccessLevelEQ(v string) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelNEQ applies the NEQ predicate on the "public_access_level" field.
+func PublicAccessLevelNEQ(v string) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelIn applies the In predicate on the "public_access_level" field.
+func PublicAccessLevelIn(vs ...string) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldPublicAccessLevel, vs...))
+}
+
+// PublicAccessLevelNotIn applies the NotIn predicate on the "public_access_level" field.
+func PublicAccessLevelNotIn(vs ...string) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldPublicAccessLevel, vs...))
+}
+
+// PublicAccessLevelGT applies the GT predicate on the "public_access_level" field.
+func PublicAccessLevelGT(v string) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelGTE applies the GTE predicate on the "public_access_level" field.
+func PublicAccessLevelGTE(v string) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelLT applies the LT predicate on the "public_access_level" field.
+func PublicAccessLevelLT(v string) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelLTE applies the LTE predicate on the "public_access_level" field.
+func PublicAccessLevelLTE(v string) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelContains applies the Contains predicate on the "public_access_level" field.
+func PublicAccessLevelContains(v string) predicate.Account {
+	return predicate.Account(sql.FieldContains(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelHasPrefix applies the HasPrefix predicate on the "public_access_level" field.
+func PublicAccessLevelHasPrefix(v string) predicate.Account {
+	return predicate.Account(sql.FieldHasPrefix(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelHasSuffix applies the HasSuffix predicate on the "public_access_level" field.
+func PublicAccessLevelHasSuffix(v string) predicate.Account {
+	return predicate.Account(sql.FieldHasSuffix(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelIsNil applies the IsNil predicate on the "public_access_level" field.
+func PublicAccessLevelIsNil() predicate.Account {
+	return predicate.Account(sql.FieldIsNull(FieldPublicAccessLevel))
+}
+
+// PublicAccessLevelNotNil applies the NotNil predicate on the "public_access_level" field.
+func PublicAccessLevelNotNil() predicate.Account {
+	return predicate.Account(sql.FieldNotNull(FieldPublicAccessLevel))
+}
+
+// PublicAccessLevelEqualFold applies the EqualFold predicate on the "public_access_level" field.
+func PublicAccessLevelEqualFold(v string) predicate.Account {
+	return predicate.Account(sql.FieldEqualFold(FieldPublicAccessLevel, v))
+}
+
+// PublicAccessLevelContainsFold applies the ContainsFold predicate on the "public_access_level" field.
+func PublicAccessLevelContainsFold(v string) predicate.Account {
+	return predicate.Account(sql.FieldContainsFold(FieldPublicAccessLevel, v))
+}
+
+// AccessVersionEQ applies the EQ predicate on the "access_version" field.
+func AccessVersionEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldAccessVersion, v))
+}
+
+// AccessVersionNEQ applies the NEQ predicate on the "access_version" field.
+func AccessVersionNEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldAccessVersion, v))
+}
+
+// AccessVersionIn applies the In predicate on the "access_version" field.
+func AccessVersionIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldAccessVersion, vs...))
+}
+
+// AccessVersionNotIn applies the NotIn predicate on the "access_version" field.
+func AccessVersionNotIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldAccessVersion, vs...))
+}
+
+// AccessVersionGT applies the GT predicate on the "access_version" field.
+func AccessVersionGT(v int64) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldAccessVersion, v))
+}
+
+// AccessVersionGTE applies the GTE predicate on the "access_version" field.
+func AccessVersionGTE(v int64) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldAccessVersion, v))
+}
+
+// AccessVersionLT applies the LT predicate on the "access_version" field.
+func AccessVersionLT(v int64) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldAccessVersion, v))
+}
+
+// AccessVersionLTE applies the LTE predicate on the "access_version" field.
+func AccessVersionLTE(v int64) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldAccessVersion, v))
+}
+
 // HasGroups applies the HasEdge predicate on the "groups" edge.
 func HasGroups() predicate.Account {
 	return predicate.Account(func(s *sql.Selector) {
@@ -1689,6 +1884,52 @@ func HasChildren() predicate.Account {
 func HasChildrenWith(preds ...predicate.Account) predicate.Account {
 	return predicate.Account(func(s *sql.Selector) {
 		step := newChildrenStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasOwner applies the HasEdge predicate on the "owner" edge.
+func HasOwner() predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, OwnerTable, OwnerColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasOwnerWith applies the HasEdge predicate on the "owner" edge with a given conditions (other predicates).
+func HasOwnerWith(preds ...predicate.User) predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := newOwnerStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasCreatedBy applies the HasEdge predicate on the "created_by" edge.
+func HasCreatedBy() predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, CreatedByTable, CreatedByColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasCreatedByWith applies the HasEdge predicate on the "created_by" edge with a given conditions (other predicates).
+func HasCreatedByWith(preds ...predicate.User) predicate.Account {
+	return predicate.Account(func(s *sql.Selector) {
+		step := newCreatedByStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

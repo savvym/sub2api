@@ -10,7 +10,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/sysutil"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -18,8 +17,9 @@ import (
 
 // SystemHandler handles system-related operations
 type SystemHandler struct {
-	updateSvc systemUpdateService
-	lockSvc   *service.SystemOperationLockService
+	updateSvc       systemUpdateService
+	lockSvc         *service.SystemOperationLockService
+	scheduleRestart func()
 }
 
 // systemUpdateTimeout bounds a full in-place update or rollback: the release
@@ -54,9 +54,17 @@ type systemUpdateService interface {
 // NewSystemHandler creates a new SystemHandler
 func NewSystemHandler(updateSvc systemUpdateService, lockSvc *service.SystemOperationLockService) *SystemHandler {
 	return &SystemHandler{
-		updateSvc: updateSvc,
-		lockSvc:   lockSvc,
+		updateSvc:       updateSvc,
+		lockSvc:         lockSvc,
+		scheduleRestart: scheduleSystemRestart,
 	}
+}
+
+func scheduleSystemRestart() {
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		sysutil.RestartServiceAsync()
+	}()
 }
 
 // GetVersion returns the current version
@@ -83,9 +91,11 @@ func (h *SystemHandler) CheckUpdates(c *gin.Context) {
 // PerformUpdate downloads and applies the update
 // POST /api/v1/admin/system/update
 func (h *SystemHandler) PerformUpdate(c *gin.Context) {
-	operationID := buildSystemOperationID(c, "update")
-	payload := gin.H{"operation_id": operationID}
-	executeAdminIdempotentJSON(c, "admin.system.update", payload, service.DefaultSystemOperationIdempotencyTTL(), func(ctx context.Context) (any, error) {
+	payload := buildSystemOperationIdempotencyPayload(c, "update", adminActorScope(c), nil)
+	operationID, _ := payload["operation_id"].(string)
+	executeAdminIdempotentJSONWithLegacyPayloads(c, "admin.system.update", payload, service.DefaultSystemOperationIdempotencyTTL(), func(actorScope string) any {
+		return buildSystemOperationIdempotencyPayload(c, "update", actorScope, nil)
+	}, func(ctx context.Context) (any, error) {
 		lock, release, err := h.acquireSystemLock(ctx, operationID)
 		if err != nil {
 			return nil, err
@@ -162,9 +172,11 @@ func (h *SystemHandler) Rollback(c *gin.Context) {
 	if targetVersion != "" {
 		operation = "rollback:" + targetVersion
 	}
-	operationID := buildSystemOperationID(c, operation)
-	payload := gin.H{"operation_id": operationID, "version": targetVersion}
-	executeAdminIdempotentJSON(c, "admin.system.rollback", payload, service.DefaultSystemOperationIdempotencyTTL(), func(ctx context.Context) (any, error) {
+	payload := buildSystemOperationIdempotencyPayload(c, operation, adminActorScope(c), &targetVersion)
+	operationID, _ := payload["operation_id"].(string)
+	executeAdminIdempotentJSONWithLegacyPayloads(c, "admin.system.rollback", payload, service.DefaultSystemOperationIdempotencyTTL(), func(actorScope string) any {
+		return buildSystemOperationIdempotencyPayload(c, operation, actorScope, &targetVersion)
+	}, func(ctx context.Context) (any, error) {
 		lock, release, err := h.acquireSystemLock(ctx, operationID)
 		if err != nil {
 			return nil, err
@@ -201,9 +213,11 @@ func (h *SystemHandler) Rollback(c *gin.Context) {
 // RestartService restarts the systemd service
 // POST /api/v1/admin/system/restart
 func (h *SystemHandler) RestartService(c *gin.Context) {
-	operationID := buildSystemOperationID(c, "restart")
-	payload := gin.H{"operation_id": operationID}
-	executeAdminIdempotentJSON(c, "admin.system.restart", payload, service.DefaultSystemOperationIdempotencyTTL(), func(ctx context.Context) (any, error) {
+	payload := buildSystemOperationIdempotencyPayload(c, "restart", adminActorScope(c), nil)
+	operationID, _ := payload["operation_id"].(string)
+	executeAdminIdempotentJSONWithLegacyPayloadsAfterResponse(c, "admin.system.restart", payload, service.DefaultSystemOperationIdempotencyTTL(), func(actorScope string) any {
+		return buildSystemOperationIdempotencyPayload(c, "restart", actorScope, nil)
+	}, func(ctx context.Context) (any, error) {
 		lock, release, err := h.acquireSystemLock(ctx, operationID)
 		if err != nil {
 			return nil, err
@@ -213,18 +227,16 @@ func (h *SystemHandler) RestartService(c *gin.Context) {
 			release("", succeeded)
 		}()
 
-		// Schedule service restart in background after sending response
-		// This ensures the client receives the success response before the service restarts
-		go func() {
-			// Wait a moment to ensure the response is sent
-			time.Sleep(500 * time.Millisecond)
-			sysutil.RestartServiceAsync()
-		}()
 		succeeded = true
 		return gin.H{
 			"message":      "Service restart initiated",
 			"operation_id": lock.OperationID(),
 		}, nil
+	}, func(result *service.IdempotencyExecuteResult) {
+		if result == nil || result.Replayed || h.scheduleRestart == nil {
+			return
+		}
+		h.scheduleRestart()
 	})
 }
 
@@ -247,14 +259,13 @@ func (h *SystemHandler) acquireSystemLock(
 	return lock, release, nil
 }
 
-func buildSystemOperationID(c *gin.Context, operation string) string {
+func buildSystemOperationIDForActorScope(c *gin.Context, operation, actorScope string) string {
+	if c == nil || c.Request == nil || strings.TrimSpace(actorScope) == "" {
+		return ""
+	}
 	key := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
 	if key == "" {
-		return "sysop-" + operation + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
-	}
-	actorScope := "admin:0"
-	if subject, ok := middleware2.GetAuthSubjectFromContext(c); ok {
-		actorScope = "admin:" + strconv.FormatInt(subject.UserID, 10)
+		key = "no-key|" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	}
 	seed := operation + "|" + actorScope + "|" + c.FullPath() + "|" + key
 	hash := service.HashIdempotencyKey(seed)
@@ -262,4 +273,19 @@ func buildSystemOperationID(c *gin.Context, operation string) string {
 		hash = hash[:24]
 	}
 	return "sysop-" + hash
+}
+
+func buildSystemOperationIdempotencyPayload(
+	c *gin.Context,
+	operation string,
+	actorScope string,
+	version *string,
+) gin.H {
+	payload := gin.H{
+		"operation_id": buildSystemOperationIDForActorScope(c, operation, actorScope),
+	}
+	if version != nil {
+		payload["version"] = *version
+	}
+	return payload
 }

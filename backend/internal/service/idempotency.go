@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -18,19 +19,27 @@ import (
 )
 
 const (
-	IdempotencyStatusProcessing      = "processing"
-	IdempotencyStatusSucceeded       = "succeeded"
-	IdempotencyStatusFailedRetryable = "failed_retryable"
+	IdempotencyStatusProcessing        = "processing"
+	IdempotencyStatusSucceeded         = "succeeded"
+	IdempotencyStatusFailedRetryable   = "failed_retryable"
+	MaxIdempotencyScopeCharacters      = 128
+	idempotencyUpgradeFenceFingerprint = "upgrade-fence:actor-qualified:v1"
+	idempotencyFinalizationTimeout     = 5 * time.Second
 )
 
 var (
-	ErrIdempotencyKeyRequired    = infraerrors.BadRequest("IDEMPOTENCY_KEY_REQUIRED", "idempotency key is required")
-	ErrIdempotencyKeyInvalid     = infraerrors.BadRequest("IDEMPOTENCY_KEY_INVALID", "idempotency key is invalid")
-	ErrIdempotencyKeyConflict    = infraerrors.Conflict("IDEMPOTENCY_KEY_CONFLICT", "idempotency key reused with different payload")
-	ErrIdempotencyInProgress     = infraerrors.Conflict("IDEMPOTENCY_IN_PROGRESS", "idempotent request is still processing")
-	ErrIdempotencyRetryBackoff   = infraerrors.Conflict("IDEMPOTENCY_RETRY_BACKOFF", "idempotent request is in retry backoff window")
-	ErrIdempotencyStoreUnavail   = infraerrors.ServiceUnavailable("IDEMPOTENCY_STORE_UNAVAILABLE", "idempotency store unavailable")
-	ErrIdempotencyInvalidPayload = infraerrors.BadRequest("IDEMPOTENCY_PAYLOAD_INVALID", "failed to normalize request payload")
+	ErrIdempotencyKeyRequired      = infraerrors.BadRequest("IDEMPOTENCY_KEY_REQUIRED", "idempotency key is required")
+	ErrIdempotencyKeyInvalid       = infraerrors.BadRequest("IDEMPOTENCY_KEY_INVALID", "idempotency key is invalid")
+	ErrIdempotencyKeyConflict      = infraerrors.Conflict("IDEMPOTENCY_KEY_CONFLICT", "idempotency key reused with different payload")
+	ErrIdempotencyInProgress       = infraerrors.Conflict("IDEMPOTENCY_IN_PROGRESS", "idempotent request is still processing")
+	ErrIdempotencyRetryBackoff     = infraerrors.Conflict("IDEMPOTENCY_RETRY_BACKOFF", "idempotent request is in retry backoff window")
+	ErrIdempotencyStoreUnavail     = infraerrors.ServiceUnavailable("IDEMPOTENCY_STORE_UNAVAILABLE", "idempotency store unavailable")
+	ErrIdempotencyInvalidPayload   = infraerrors.BadRequest("IDEMPOTENCY_PAYLOAD_INVALID", "failed to normalize request payload")
+	ErrIdempotencyScopeInvalid     = infraerrors.BadRequest("IDEMPOTENCY_SCOPE_INVALID", "idempotency scope is invalid")
+	ErrIdempotencyActorUnavailable = infraerrors.ServiceUnavailable(
+		"AUTHORIZATION_UNAVAILABLE",
+		"authorization data unavailable",
+	)
 )
 
 type IdempotencyRecord struct {
@@ -51,6 +60,7 @@ type IdempotencyRecord struct {
 type IdempotencyRepository interface {
 	CreateProcessing(ctx context.Context, record *IdempotencyRecord) (bool, error)
 	GetByScopeAndKeyHash(ctx context.Context, scope, keyHash string) (*IdempotencyRecord, error)
+	ExtendExpiration(ctx context.Context, id int64, requestFingerprint string, newExpiresAt time.Time) (bool, error)
 	TryReclaim(ctx context.Context, id int64, fromStatus string, now, newLockedUntil, newExpiresAt time.Time) (bool, error)
 	ExtendProcessingLock(ctx context.Context, id int64, requestFingerprint string, newLockedUntil, newExpiresAt time.Time) (bool, error)
 	MarkSucceeded(ctx context.Context, id int64, responseStatus int, responseBody string, expiresAt time.Time) error
@@ -79,14 +89,39 @@ func DefaultIdempotencyConfig() IdempotencyConfig {
 }
 
 type IdempotencyExecuteOptions struct {
-	Scope          string
-	ActorScope     string
-	Method         string
-	Route          string
-	IdempotencyKey string
-	Payload        any
-	TTL            time.Duration
-	RequireKey     bool
+	Scope                   string
+	ActorScope              string
+	LegacyActorScopes       []string
+	LegacyRequests          []IdempotencyLegacyRequest
+	QualifiedLegacyRequests []IdempotencyLegacyRequest
+	SuccessFinalizer        IdempotencySuccessFinalizer
+	Method                  string
+	Route                   string
+	IdempotencyKey          string
+	Payload                 any
+	TTL                     time.Duration
+	RequireKey              bool
+}
+
+// IdempotencySuccessFinalization contains the persisted record identity and
+// response state required to finalize an idempotent owner execution.
+type IdempotencySuccessFinalization struct {
+	RecordID           int64
+	Scope              string
+	RequestFingerprint string
+	ResponseStatus     int
+	ResponseBody       string
+	ExpiresAt          time.Time
+}
+
+type IdempotencySuccessFinalizer func(context.Context, IdempotencySuccessFinalization) error
+
+// IdempotencyLegacyRequest describes an exact pre-upgrade request identity.
+// Actor scope and payload stay paired so compatibility cannot make the current
+// actor fingerprint depend on a legacy identity shim.
+type IdempotencyLegacyRequest struct {
+	ActorScope string
+	Payload    any
 }
 
 type IdempotencyExecuteResult struct {
@@ -181,6 +216,78 @@ func BuildIdempotencyFingerprint(method, route, actorScope string, payload any) 
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// BuildActorQualifiedIdempotencyScope partitions the database uniqueness key
+// by durable actor identity. Callers must supply a canonical Actor.SubjectKey.
+// An empty actor scope preserves the unpartitioned form for non-authenticated
+// internal coordinators; authenticated HTTP helpers reject that case earlier.
+func BuildActorQualifiedIdempotencyScope(scope, actorScope string) string {
+	scope = strings.TrimSpace(scope)
+	actorScope = strings.TrimSpace(actorScope)
+	if actorScope == "" {
+		return scope
+	}
+	return scope + "|" + actorScope
+}
+
+type idempotencyLegacyActorScopesContextKey struct{}
+
+// ContextWithIdempotencyLegacyActorScopes carries compatibility-only actor
+// names to semantic recovery code. The current ActorScope remains the sole
+// identity used for new operation IDs and qualified database scopes.
+func ContextWithIdempotencyLegacyActorScopes(ctx context.Context, scopes []string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	normalized := normalizeLegacyActorScopes(scopes, "")
+	return context.WithValue(ctx, idempotencyLegacyActorScopesContextKey{}, normalized)
+}
+
+func idempotencyActorScopeCandidates(ctx context.Context, current string) []string {
+	current = strings.TrimSpace(current)
+	result := make([]string, 0, 3)
+	if current != "" {
+		result = append(result, current)
+	}
+	if ctx == nil {
+		return result
+	}
+	legacy, _ := ctx.Value(idempotencyLegacyActorScopesContextKey{}).([]string)
+	return append(result, normalizeLegacyActorScopes(legacy, current)...)
+}
+
+func normalizeLegacyActorScopes(scopes []string, current string) []string {
+	current = strings.TrimSpace(current)
+	seen := make(map[string]struct{}, len(scopes)+1)
+	if current != "" {
+		seen[current] = struct{}{}
+	}
+	result := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope == "" {
+			continue
+		}
+		if _, exists := seen[scope]; exists {
+			continue
+		}
+		seen[scope] = struct{}{}
+		result = append(result, scope)
+	}
+	return result
+}
+
+func validateIdempotencyScope(scope string) error {
+	if !utf8.ValidString(scope) || utf8.RuneCountInString(scope) > MaxIdempotencyScopeCharacters {
+		return ErrIdempotencyScopeInvalid
+	}
+	for _, r := range scope {
+		if unicode.IsControl(r) {
+			return ErrIdempotencyScopeInvalid
+		}
+	}
+	return nil
+}
+
 func RetryAfterSecondsFromError(err error) int {
 	appErr := new(infraerrors.ApplicationError)
 	if !errors.As(err, &appErr) || appErr == nil || appErr.Metadata == nil {
@@ -206,6 +313,15 @@ func (c *IdempotencyCoordinator) Execute(
 		return nil, infraerrors.InternalServer("IDEMPOTENCY_EXECUTOR_NIL", "idempotency executor is nil")
 	}
 
+	opts.Scope = strings.TrimSpace(opts.Scope)
+	persistedScope := BuildActorQualifiedIdempotencyScope(opts.Scope, opts.ActorScope)
+	if err := validateIdempotencyScope(opts.Scope); err != nil {
+		return nil, err
+	}
+	if err := validateIdempotencyScope(persistedScope); err != nil {
+		return nil, err
+	}
+
 	key, err := NormalizeIdempotencyKey(opts.IdempotencyKey)
 	if err != nil {
 		return nil, err
@@ -220,18 +336,61 @@ func (c *IdempotencyCoordinator) Execute(
 		}
 		return &IdempotencyExecuteResult{Data: data}, nil
 	}
+	if opts.Scope == "" {
+		return nil, infraerrors.BadRequest("IDEMPOTENCY_SCOPE_REQUIRED", "idempotency scope is required")
+	}
 	if c.repo == nil {
 		RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "repo_nil")
 		return nil, ErrIdempotencyStoreUnavail
 	}
 
-	if opts.Scope == "" {
-		return nil, infraerrors.BadRequest("IDEMPOTENCY_SCOPE_REQUIRED", "idempotency scope is required")
-	}
-
 	fingerprint, err := BuildIdempotencyFingerprint(opts.Method, opts.Route, opts.ActorScope, opts.Payload)
 	if err != nil {
 		return nil, err
+	}
+	rawCompatibleFingerprints := map[string]struct{}{fingerprint: {}}
+	for _, legacyActorScope := range normalizeLegacyActorScopes(opts.LegacyActorScopes, opts.ActorScope) {
+		legacyFingerprint, fingerprintErr := BuildIdempotencyFingerprint(opts.Method, opts.Route, legacyActorScope, opts.Payload)
+		if fingerprintErr != nil {
+			return nil, fingerprintErr
+		}
+		rawCompatibleFingerprints[legacyFingerprint] = struct{}{}
+	}
+	for _, legacyRequest := range opts.LegacyRequests {
+		legacyActorScope := strings.TrimSpace(legacyRequest.ActorScope)
+		if legacyActorScope == "" {
+			return nil, ErrIdempotencyScopeInvalid
+		}
+		legacyFingerprint, fingerprintErr := BuildIdempotencyFingerprint(
+			opts.Method,
+			opts.Route,
+			legacyActorScope,
+			legacyRequest.Payload,
+		)
+		if fingerprintErr != nil {
+			return nil, fingerprintErr
+		}
+		rawCompatibleFingerprints[legacyFingerprint] = struct{}{}
+	}
+	qualifiedCompatibleFingerprints := make(map[string]struct{}, len(rawCompatibleFingerprints)+len(opts.QualifiedLegacyRequests))
+	for compatibleFingerprint := range rawCompatibleFingerprints {
+		qualifiedCompatibleFingerprints[compatibleFingerprint] = struct{}{}
+	}
+	for _, legacyRequest := range opts.QualifiedLegacyRequests {
+		legacyActorScope := strings.TrimSpace(legacyRequest.ActorScope)
+		if legacyActorScope == "" {
+			return nil, ErrIdempotencyScopeInvalid
+		}
+		legacyFingerprint, fingerprintErr := BuildIdempotencyFingerprint(
+			opts.Method,
+			opts.Route,
+			legacyActorScope,
+			legacyRequest.Payload,
+		)
+		if fingerprintErr != nil {
+			return nil, fingerprintErr
+		}
+		qualifiedCompatibleFingerprints[legacyFingerprint] = struct{}{}
 	}
 
 	ttl := opts.TTL
@@ -244,7 +403,7 @@ func (c *IdempotencyCoordinator) Execute(
 	keyHash := HashIdempotencyKey(key)
 
 	record := &IdempotencyRecord{
-		Scope:              opts.Scope,
+		Scope:              persistedScope,
 		IdempotencyKeyHash: keyHash,
 		RequestFingerprint: fingerprint,
 		Status:             IdempotencyStatusProcessing,
@@ -252,13 +411,77 @@ func (c *IdempotencyCoordinator) Execute(
 		ExpiresAt:          expiresAt,
 	}
 
-	owner, err := c.repo.CreateProcessing(ctx, record)
-	if err != nil {
-		RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "create_processing_error")
-		logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "unknown->store_unavailable", false, map[string]string{
-			"operation": "create_processing",
-		})
-		return nil, ErrIdempotencyStoreUnavail.WithCause(err)
+	// The raw key is an upgrade fence shared with old binaries. Old binaries
+	// reject its sentinel fingerprint, while new binaries keep all executable
+	// state and responses in the actor-qualified record.
+	var existing *IdempotencyRecord
+	if persistedScope != opts.Scope {
+		rawRecord := *record
+		rawRecord.Scope = opts.Scope
+		rawRecord.RequestFingerprint = idempotencyUpgradeFenceFingerprint
+		fenceCreated, createFenceErr := c.repo.CreateProcessing(ctx, &rawRecord)
+		if createFenceErr != nil {
+			RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "create_upgrade_fence_error")
+			logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "unknown->store_unavailable", false, map[string]string{
+				"operation": "create_upgrade_fence",
+			})
+			return nil, ErrIdempotencyStoreUnavail.WithCause(createFenceErr)
+		}
+		if !fenceCreated {
+			rawExisting, legacyErr := c.repo.GetByScopeAndKeyHash(ctx, opts.Scope, keyHash)
+			if legacyErr != nil {
+				RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "get_upgrade_fence_error")
+				logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "legacy_unknown->store_unavailable", false, map[string]string{
+					"operation": "get_upgrade_fence",
+				})
+				return nil, ErrIdempotencyStoreUnavail.WithCause(legacyErr)
+			}
+			if rawExisting == nil {
+				RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "missing_upgrade_fence")
+				return nil, ErrIdempotencyStoreUnavail
+			}
+			if rawExisting.RequestFingerprint == idempotencyUpgradeFenceFingerprint {
+				extended, extendErr := c.repo.ExtendExpiration(
+					ctx,
+					rawExisting.ID,
+					idempotencyUpgradeFenceFingerprint,
+					expiresAt,
+				)
+				if extendErr != nil || !extended {
+					RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "extend_upgrade_fence_error")
+					logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "upgrade_fence->store_unavailable", false, map[string]string{
+						"operation": "extend_upgrade_fence",
+					})
+					if extendErr != nil {
+						return nil, ErrIdempotencyStoreUnavail.WithCause(extendErr)
+					}
+					return nil, ErrIdempotencyStoreUnavail
+				}
+			} else {
+				if _, compatible := rawCompatibleFingerprints[rawExisting.RequestFingerprint]; !compatible {
+					// A pre-upgrade raw record is ambiguous when its exact actor/payload
+					// fingerprint is unknown. Fail closed instead of risking a second
+					// side effect in the actor-qualified scope.
+					recordIdempotencyConflict(opts.Route, opts.Scope, map[string]string{"reason": "legacy_fingerprint_mismatch"})
+					logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "legacy->fingerprint_mismatch", false, nil)
+					return nil, ErrIdempotencyKeyConflict
+				}
+				existing = rawExisting
+				record.Scope = opts.Scope
+			}
+		}
+	}
+
+	owner := false
+	if existing == nil {
+		owner, err = c.repo.CreateProcessing(ctx, record)
+		if err != nil {
+			RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "create_processing_error")
+			logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "unknown->store_unavailable", false, map[string]string{
+				"operation": "create_processing",
+			})
+			return nil, ErrIdempotencyStoreUnavail.WithCause(err)
+		}
 	}
 	if owner {
 		recordIdempotencyClaim(opts.Route, opts.Scope, map[string]string{"mode": "new_claim"})
@@ -267,13 +490,16 @@ func (c *IdempotencyCoordinator) Execute(
 		})
 	}
 	if !owner {
-		existing, getErr := c.repo.GetByScopeAndKeyHash(ctx, opts.Scope, keyHash)
-		if getErr != nil {
-			RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "get_existing_error")
-			logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "unknown->store_unavailable", false, map[string]string{
-				"operation": "get_existing",
-			})
-			return nil, ErrIdempotencyStoreUnavail.WithCause(getErr)
+		if existing == nil {
+			var getErr error
+			existing, getErr = c.repo.GetByScopeAndKeyHash(ctx, record.Scope, keyHash)
+			if getErr != nil {
+				RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "get_existing_error")
+				logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "unknown->store_unavailable", false, map[string]string{
+					"operation": "get_existing",
+				})
+				return nil, ErrIdempotencyStoreUnavail.WithCause(getErr)
+			}
 		}
 		if existing == nil {
 			RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "missing_existing")
@@ -282,7 +508,11 @@ func (c *IdempotencyCoordinator) Execute(
 			})
 			return nil, ErrIdempotencyStoreUnavail
 		}
-		if existing.RequestFingerprint != fingerprint {
+		compatibleFingerprints := rawCompatibleFingerprints
+		if persistedScope != opts.Scope && record.Scope == persistedScope {
+			compatibleFingerprints = qualifiedCompatibleFingerprints
+		}
+		if _, compatible := compatibleFingerprints[existing.RequestFingerprint]; !compatible {
 			recordIdempotencyConflict(opts.Route, opts.Scope, map[string]string{"reason": "fingerprint_mismatch"})
 			logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "existing->fingerprint_mismatch", false, nil)
 			return nil, ErrIdempotencyKeyConflict
@@ -304,8 +534,10 @@ func (c *IdempotencyCoordinator) Execute(
 					"claim_mode": "expired_reclaim",
 				})
 				record.ID = existing.ID
+				record.Scope = existing.Scope
+				record.RequestFingerprint = existing.RequestFingerprint
 			} else {
-				latest, latestErr := c.repo.GetByScopeAndKeyHash(ctx, opts.Scope, keyHash)
+				latest, latestErr := c.repo.GetByScopeAndKeyHash(ctx, record.Scope, keyHash)
 				if latestErr != nil {
 					RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "get_existing_after_expired_reclaim_error")
 					logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "unknown->store_unavailable", false, map[string]string{
@@ -320,7 +552,7 @@ func (c *IdempotencyCoordinator) Execute(
 					})
 					return nil, ErrIdempotencyStoreUnavail
 				}
-				if latest.RequestFingerprint != fingerprint {
+				if _, compatible := compatibleFingerprints[latest.RequestFingerprint]; !compatible {
 					recordIdempotencyConflict(opts.Route, opts.Scope, map[string]string{"reason": "fingerprint_mismatch"})
 					logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "existing->fingerprint_mismatch", false, nil)
 					return nil, ErrIdempotencyKeyConflict
@@ -374,6 +606,8 @@ func (c *IdempotencyCoordinator) Execute(
 					"claim_mode": "reclaim",
 				})
 				record.ID = existing.ID
+				record.Scope = existing.Scope
+				record.RequestFingerprint = existing.RequestFingerprint
 			default:
 				recordIdempotencyConflict(opts.Route, opts.Scope, map[string]string{"reason": "unexpected_status"})
 				logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "existing->conflict", false, map[string]string{
@@ -404,14 +638,18 @@ func (c *IdempotencyCoordinator) Execute(
 		if reason == "" {
 			reason = "EXECUTION_FAILED"
 		}
-		recordIdempotencyRetryBackoff(opts.Route, opts.Scope, nil)
-		logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "processing->failed_retryable", false, map[string]string{
-			"reason": reason,
-		})
-		if markErr := c.repo.MarkFailedRetryable(ctx, record.ID, reason, backoffUntil, expiresAt); markErr != nil {
+		finalizeCtx, cancelFinalize := idempotencyFinalizationContext(ctx)
+		markErr := c.repo.MarkFailedRetryable(finalizeCtx, record.ID, reason, backoffUntil, expiresAt)
+		cancelFinalize()
+		if markErr != nil {
 			RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "mark_failed_retryable_error")
 			logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "processing->store_unavailable", false, map[string]string{
 				"operation": "mark_failed_retryable",
+			})
+		} else {
+			recordIdempotencyRetryBackoff(opts.Route, opts.Scope, nil)
+			logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "processing->failed_retryable", false, map[string]string{
+				"reason": reason,
 			})
 		}
 		return nil, execErr
@@ -425,7 +663,29 @@ func (c *IdempotencyCoordinator) Execute(
 		})
 		return nil, ErrIdempotencyStoreUnavail.WithCause(marshalErr)
 	}
-	if markErr := c.repo.MarkSucceeded(ctx, record.ID, 200, storedBody, expiresAt); markErr != nil {
+	finalizeCtx, cancelFinalize := idempotencyFinalizationContext(ctx)
+	finalization := IdempotencySuccessFinalization{
+		RecordID:           record.ID,
+		Scope:              record.Scope,
+		RequestFingerprint: record.RequestFingerprint,
+		ResponseStatus:     200,
+		ResponseBody:       storedBody,
+		ExpiresAt:          expiresAt,
+	}
+	var markErr error
+	if opts.SuccessFinalizer != nil {
+		markErr = opts.SuccessFinalizer(finalizeCtx, finalization)
+	} else {
+		markErr = c.repo.MarkSucceeded(
+			finalizeCtx,
+			finalization.RecordID,
+			finalization.ResponseStatus,
+			finalization.ResponseBody,
+			finalization.ExpiresAt,
+		)
+	}
+	cancelFinalize()
+	if markErr != nil {
 		RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "mark_succeeded_error")
 		logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "processing->store_unavailable", false, map[string]string{
 			"operation": "mark_succeeded",
@@ -435,6 +695,14 @@ func (c *IdempotencyCoordinator) Execute(
 	logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "processing->succeeded", false, nil)
 
 	return &IdempotencyExecuteResult{Data: data}, nil
+}
+
+func idempotencyFinalizationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	base := context.Background()
+	if ctx != nil {
+		base = context.WithoutCancel(ctx)
+	}
+	return context.WithTimeout(base, idempotencyFinalizationTimeout)
 }
 
 func (c *IdempotencyCoordinator) conflictWithRetryAfter(base *infraerrors.ApplicationError, lockedUntil *time.Time, now time.Time) error {

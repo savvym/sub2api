@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/Wei-Shaw/sub2api/ent/account"
+	"github.com/Wei-Shaw/sub2api/ent/accountaccessgrant"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
 	"github.com/Wei-Shaw/sub2api/ent/announcement"
 	"github.com/Wei-Shaw/sub2api/ent/announcementread"
@@ -29,17 +30,25 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/groupaccessgrant"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
 	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
+	"github.com/Wei-Shaw/sub2api/ent/permission"
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
+	"github.com/Wei-Shaw/sub2api/ent/resourceauthorizationevent"
+	"github.com/Wei-Shaw/sub2api/ent/role"
+	"github.com/Wei-Shaw/sub2api/ent/rolepermission"
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
+	"github.com/Wei-Shaw/sub2api/ent/serviceprincipal"
+	"github.com/Wei-Shaw/sub2api/ent/serviceprincipalrole"
+	"github.com/Wei-Shaw/sub2api/ent/serviceprincipalworkerpermission"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
@@ -49,7 +58,9 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/userallowedgroup"
 	"github.com/Wei-Shaw/sub2api/ent/userattributedefinition"
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
+	"github.com/Wei-Shaw/sub2api/ent/userhostingentitlement"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
+	"github.com/Wei-Shaw/sub2api/ent/userrole"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 )
 
@@ -111,45 +122,56 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			apikey.Table:                        apikey.ValidColumn,
-			account.Table:                       account.ValidColumn,
-			accountgroup.Table:                  accountgroup.ValidColumn,
-			announcement.Table:                  announcement.ValidColumn,
-			announcementread.Table:              announcementread.ValidColumn,
-			authidentity.Table:                  authidentity.ValidColumn,
-			authidentitychannel.Table:           authidentitychannel.ValidColumn,
-			batchimageevent.Table:               batchimageevent.ValidColumn,
-			batchimageitem.Table:                batchimageitem.ValidColumn,
-			batchimagejob.Table:                 batchimagejob.ValidColumn,
-			channelmonitor.Table:                channelmonitor.ValidColumn,
-			channelmonitordailyrollup.Table:     channelmonitordailyrollup.ValidColumn,
-			channelmonitorhistory.Table:         channelmonitorhistory.ValidColumn,
-			channelmonitorrequesttemplate.Table: channelmonitorrequesttemplate.ValidColumn,
-			compositemodelroute.Table:           compositemodelroute.ValidColumn,
-			errorpassthroughrule.Table:          errorpassthroughrule.ValidColumn,
-			group.Table:                         group.ValidColumn,
-			idempotencyrecord.Table:             idempotencyrecord.ValidColumn,
-			identityadoptiondecision.Table:      identityadoptiondecision.ValidColumn,
-			paymentauditlog.Table:               paymentauditlog.ValidColumn,
-			paymentorder.Table:                  paymentorder.ValidColumn,
-			paymentproviderinstance.Table:       paymentproviderinstance.ValidColumn,
-			pendingauthsession.Table:            pendingauthsession.ValidColumn,
-			promocode.Table:                     promocode.ValidColumn,
-			promocodeusage.Table:                promocodeusage.ValidColumn,
-			proxy.Table:                         proxy.ValidColumn,
-			redeemcode.Table:                    redeemcode.ValidColumn,
-			securitysecret.Table:                securitysecret.ValidColumn,
-			setting.Table:                       setting.ValidColumn,
-			subscriptionplan.Table:              subscriptionplan.ValidColumn,
-			tlsfingerprintprofile.Table:         tlsfingerprintprofile.ValidColumn,
-			usagecleanuptask.Table:              usagecleanuptask.ValidColumn,
-			usagelog.Table:                      usagelog.ValidColumn,
-			user.Table:                          user.ValidColumn,
-			userallowedgroup.Table:              userallowedgroup.ValidColumn,
-			userattributedefinition.Table:       userattributedefinition.ValidColumn,
-			userattributevalue.Table:            userattributevalue.ValidColumn,
-			userplatformquota.Table:             userplatformquota.ValidColumn,
-			usersubscription.Table:              usersubscription.ValidColumn,
+			apikey.Table:                           apikey.ValidColumn,
+			account.Table:                          account.ValidColumn,
+			accountaccessgrant.Table:               accountaccessgrant.ValidColumn,
+			accountgroup.Table:                     accountgroup.ValidColumn,
+			announcement.Table:                     announcement.ValidColumn,
+			announcementread.Table:                 announcementread.ValidColumn,
+			authidentity.Table:                     authidentity.ValidColumn,
+			authidentitychannel.Table:              authidentitychannel.ValidColumn,
+			batchimageevent.Table:                  batchimageevent.ValidColumn,
+			batchimageitem.Table:                   batchimageitem.ValidColumn,
+			batchimagejob.Table:                    batchimagejob.ValidColumn,
+			channelmonitor.Table:                   channelmonitor.ValidColumn,
+			channelmonitordailyrollup.Table:        channelmonitordailyrollup.ValidColumn,
+			channelmonitorhistory.Table:            channelmonitorhistory.ValidColumn,
+			channelmonitorrequesttemplate.Table:    channelmonitorrequesttemplate.ValidColumn,
+			compositemodelroute.Table:              compositemodelroute.ValidColumn,
+			errorpassthroughrule.Table:             errorpassthroughrule.ValidColumn,
+			group.Table:                            group.ValidColumn,
+			groupaccessgrant.Table:                 groupaccessgrant.ValidColumn,
+			idempotencyrecord.Table:                idempotencyrecord.ValidColumn,
+			identityadoptiondecision.Table:         identityadoptiondecision.ValidColumn,
+			paymentauditlog.Table:                  paymentauditlog.ValidColumn,
+			paymentorder.Table:                     paymentorder.ValidColumn,
+			paymentproviderinstance.Table:          paymentproviderinstance.ValidColumn,
+			pendingauthsession.Table:               pendingauthsession.ValidColumn,
+			permission.Table:                       permission.ValidColumn,
+			promocode.Table:                        promocode.ValidColumn,
+			promocodeusage.Table:                   promocodeusage.ValidColumn,
+			proxy.Table:                            proxy.ValidColumn,
+			redeemcode.Table:                       redeemcode.ValidColumn,
+			resourceauthorizationevent.Table:       resourceauthorizationevent.ValidColumn,
+			role.Table:                             role.ValidColumn,
+			rolepermission.Table:                   rolepermission.ValidColumn,
+			securitysecret.Table:                   securitysecret.ValidColumn,
+			serviceprincipal.Table:                 serviceprincipal.ValidColumn,
+			serviceprincipalrole.Table:             serviceprincipalrole.ValidColumn,
+			serviceprincipalworkerpermission.Table: serviceprincipalworkerpermission.ValidColumn,
+			setting.Table:                          setting.ValidColumn,
+			subscriptionplan.Table:                 subscriptionplan.ValidColumn,
+			tlsfingerprintprofile.Table:            tlsfingerprintprofile.ValidColumn,
+			usagecleanuptask.Table:                 usagecleanuptask.ValidColumn,
+			usagelog.Table:                         usagelog.ValidColumn,
+			user.Table:                             user.ValidColumn,
+			userallowedgroup.Table:                 userallowedgroup.ValidColumn,
+			userattributedefinition.Table:          userattributedefinition.ValidColumn,
+			userattributevalue.Table:               userattributevalue.ValidColumn,
+			userhostingentitlement.Table:           userhostingentitlement.ValidColumn,
+			userplatformquota.Table:                userplatformquota.ValidColumn,
+			userrole.Table:                         userrole.ValidColumn,
+			usersubscription.Table:                 usersubscription.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)

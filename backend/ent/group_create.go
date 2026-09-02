@@ -808,6 +808,76 @@ func (_c *GroupCreate) SetReasoningEffortMappings(v []domain.ReasoningEffortMapp
 	return _c
 }
 
+// SetOwnerUserID sets the "owner_user_id" field.
+func (_c *GroupCreate) SetOwnerUserID(v int64) *GroupCreate {
+	_c.mutation.SetOwnerUserID(v)
+	return _c
+}
+
+// SetNillableOwnerUserID sets the "owner_user_id" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableOwnerUserID(v *int64) *GroupCreate {
+	if v != nil {
+		_c.SetOwnerUserID(*v)
+	}
+	return _c
+}
+
+// SetCreatedByUserID sets the "created_by_user_id" field.
+func (_c *GroupCreate) SetCreatedByUserID(v int64) *GroupCreate {
+	_c.mutation.SetCreatedByUserID(v)
+	return _c
+}
+
+// SetNillableCreatedByUserID sets the "created_by_user_id" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableCreatedByUserID(v *int64) *GroupCreate {
+	if v != nil {
+		_c.SetCreatedByUserID(*v)
+	}
+	return _c
+}
+
+// SetPublicAccessLevel sets the "public_access_level" field.
+func (_c *GroupCreate) SetPublicAccessLevel(v string) *GroupCreate {
+	_c.mutation.SetPublicAccessLevel(v)
+	return _c
+}
+
+// SetNillablePublicAccessLevel sets the "public_access_level" field if the given value is not nil.
+func (_c *GroupCreate) SetNillablePublicAccessLevel(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetPublicAccessLevel(*v)
+	}
+	return _c
+}
+
+// SetAccessVersion sets the "access_version" field.
+func (_c *GroupCreate) SetAccessVersion(v int64) *GroupCreate {
+	_c.mutation.SetAccessVersion(v)
+	return _c
+}
+
+// SetNillableAccessVersion sets the "access_version" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableAccessVersion(v *int64) *GroupCreate {
+	if v != nil {
+		_c.SetAccessVersion(*v)
+	}
+	return _c
+}
+
+// SetAuthorizationMode sets the "authorization_mode" field.
+func (_c *GroupCreate) SetAuthorizationMode(v string) *GroupCreate {
+	_c.mutation.SetAuthorizationMode(v)
+	return _c
+}
+
+// SetNillableAuthorizationMode sets the "authorization_mode" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableAuthorizationMode(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetAuthorizationMode(*v)
+	}
+	return _c
+}
+
 // SetProfitControlEnabled sets the "profit_control_enabled" field.
 func (_c *GroupCreate) SetProfitControlEnabled(v bool) *GroupCreate {
 	_c.mutation.SetProfitControlEnabled(v)
@@ -938,6 +1008,44 @@ func (_c *GroupCreate) AddAllowedUsers(v ...*User) *GroupCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddAllowedUserIDs(ids...)
+}
+
+// SetOwnerID sets the "owner" edge to the User entity by ID.
+func (_c *GroupCreate) SetOwnerID(id int64) *GroupCreate {
+	_c.mutation.SetOwnerID(id)
+	return _c
+}
+
+// SetNillableOwnerID sets the "owner" edge to the User entity by ID if the given value is not nil.
+func (_c *GroupCreate) SetNillableOwnerID(id *int64) *GroupCreate {
+	if id != nil {
+		_c = _c.SetOwnerID(*id)
+	}
+	return _c
+}
+
+// SetOwner sets the "owner" edge to the User entity.
+func (_c *GroupCreate) SetOwner(v *User) *GroupCreate {
+	return _c.SetOwnerID(v.ID)
+}
+
+// SetCreatedByID sets the "created_by" edge to the User entity by ID.
+func (_c *GroupCreate) SetCreatedByID(id int64) *GroupCreate {
+	_c.mutation.SetCreatedByID(id)
+	return _c
+}
+
+// SetNillableCreatedByID sets the "created_by" edge to the User entity by ID if the given value is not nil.
+func (_c *GroupCreate) SetNillableCreatedByID(id *int64) *GroupCreate {
+	if id != nil {
+		_c = _c.SetCreatedByID(*id)
+	}
+	return _c
+}
+
+// SetCreatedBy sets the "created_by" edge to the User entity.
+func (_c *GroupCreate) SetCreatedBy(v *User) *GroupCreate {
+	return _c.SetCreatedByID(v.ID)
 }
 
 // Mutation returns the GroupMutation object of the builder.
@@ -1126,6 +1234,14 @@ func (_c *GroupCreate) defaults() error {
 	if _, ok := _c.mutation.ReasoningEffortMappings(); !ok {
 		v := group.DefaultReasoningEffortMappings
 		_c.mutation.SetReasoningEffortMappings(v)
+	}
+	if _, ok := _c.mutation.AccessVersion(); !ok {
+		v := group.DefaultAccessVersion
+		_c.mutation.SetAccessVersion(v)
+	}
+	if _, ok := _c.mutation.AuthorizationMode(); !ok {
+		v := group.DefaultAuthorizationMode
+		_c.mutation.SetAuthorizationMode(v)
 	}
 	if _, ok := _c.mutation.ProfitControlEnabled(); !ok {
 		v := group.DefaultProfitControlEnabled
@@ -1319,6 +1435,22 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.ReasoningEffortMappings(); !ok {
 		return &ValidationError{Name: "reasoning_effort_mappings", err: errors.New(`ent: missing required field "Group.reasoning_effort_mappings"`)}
+	}
+	if v, ok := _c.mutation.PublicAccessLevel(); ok {
+		if err := group.PublicAccessLevelValidator(v); err != nil {
+			return &ValidationError{Name: "public_access_level", err: fmt.Errorf(`ent: validator failed for field "Group.public_access_level": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.AccessVersion(); !ok {
+		return &ValidationError{Name: "access_version", err: errors.New(`ent: missing required field "Group.access_version"`)}
+	}
+	if _, ok := _c.mutation.AuthorizationMode(); !ok {
+		return &ValidationError{Name: "authorization_mode", err: errors.New(`ent: missing required field "Group.authorization_mode"`)}
+	}
+	if v, ok := _c.mutation.AuthorizationMode(); ok {
+		if err := group.AuthorizationModeValidator(v); err != nil {
+			return &ValidationError{Name: "authorization_mode", err: fmt.Errorf(`ent: validator failed for field "Group.authorization_mode": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.ProfitControlEnabled(); !ok {
 		return &ValidationError{Name: "profit_control_enabled", err: errors.New(`ent: missing required field "Group.profit_control_enabled"`)}
@@ -1592,6 +1724,18 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldReasoningEffortMappings, field.TypeJSON, value)
 		_node.ReasoningEffortMappings = value
 	}
+	if value, ok := _c.mutation.PublicAccessLevel(); ok {
+		_spec.SetField(group.FieldPublicAccessLevel, field.TypeString, value)
+		_node.PublicAccessLevel = &value
+	}
+	if value, ok := _c.mutation.AccessVersion(); ok {
+		_spec.SetField(group.FieldAccessVersion, field.TypeInt64, value)
+		_node.AccessVersion = value
+	}
+	if value, ok := _c.mutation.AuthorizationMode(); ok {
+		_spec.SetField(group.FieldAuthorizationMode, field.TypeString, value)
+		_node.AuthorizationMode = value
+	}
 	if value, ok := _c.mutation.ProfitControlEnabled(); ok {
 		_spec.SetField(group.FieldProfitControlEnabled, field.TypeBool, value)
 		_node.ProfitControlEnabled = value
@@ -1706,6 +1850,40 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.OwnerIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.OwnerTable,
+			Columns: []string{group.OwnerColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.OwnerUserID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.CreatedByIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   group.CreatedByTable,
+			Columns: []string{group.CreatedByColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.CreatedByUserID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
@@ -2717,6 +2895,90 @@ func (u *GroupUpsert) SetReasoningEffortMappings(v []domain.ReasoningEffortMappi
 // UpdateReasoningEffortMappings sets the "reasoning_effort_mappings" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateReasoningEffortMappings() *GroupUpsert {
 	u.SetExcluded(group.FieldReasoningEffortMappings)
+	return u
+}
+
+// SetOwnerUserID sets the "owner_user_id" field.
+func (u *GroupUpsert) SetOwnerUserID(v int64) *GroupUpsert {
+	u.Set(group.FieldOwnerUserID, v)
+	return u
+}
+
+// UpdateOwnerUserID sets the "owner_user_id" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateOwnerUserID() *GroupUpsert {
+	u.SetExcluded(group.FieldOwnerUserID)
+	return u
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (u *GroupUpsert) ClearOwnerUserID() *GroupUpsert {
+	u.SetNull(group.FieldOwnerUserID)
+	return u
+}
+
+// SetCreatedByUserID sets the "created_by_user_id" field.
+func (u *GroupUpsert) SetCreatedByUserID(v int64) *GroupUpsert {
+	u.Set(group.FieldCreatedByUserID, v)
+	return u
+}
+
+// UpdateCreatedByUserID sets the "created_by_user_id" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateCreatedByUserID() *GroupUpsert {
+	u.SetExcluded(group.FieldCreatedByUserID)
+	return u
+}
+
+// ClearCreatedByUserID clears the value of the "created_by_user_id" field.
+func (u *GroupUpsert) ClearCreatedByUserID() *GroupUpsert {
+	u.SetNull(group.FieldCreatedByUserID)
+	return u
+}
+
+// SetPublicAccessLevel sets the "public_access_level" field.
+func (u *GroupUpsert) SetPublicAccessLevel(v string) *GroupUpsert {
+	u.Set(group.FieldPublicAccessLevel, v)
+	return u
+}
+
+// UpdatePublicAccessLevel sets the "public_access_level" field to the value that was provided on create.
+func (u *GroupUpsert) UpdatePublicAccessLevel() *GroupUpsert {
+	u.SetExcluded(group.FieldPublicAccessLevel)
+	return u
+}
+
+// ClearPublicAccessLevel clears the value of the "public_access_level" field.
+func (u *GroupUpsert) ClearPublicAccessLevel() *GroupUpsert {
+	u.SetNull(group.FieldPublicAccessLevel)
+	return u
+}
+
+// SetAccessVersion sets the "access_version" field.
+func (u *GroupUpsert) SetAccessVersion(v int64) *GroupUpsert {
+	u.Set(group.FieldAccessVersion, v)
+	return u
+}
+
+// UpdateAccessVersion sets the "access_version" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateAccessVersion() *GroupUpsert {
+	u.SetExcluded(group.FieldAccessVersion)
+	return u
+}
+
+// AddAccessVersion adds v to the "access_version" field.
+func (u *GroupUpsert) AddAccessVersion(v int64) *GroupUpsert {
+	u.Add(group.FieldAccessVersion, v)
+	return u
+}
+
+// SetAuthorizationMode sets the "authorization_mode" field.
+func (u *GroupUpsert) SetAuthorizationMode(v string) *GroupUpsert {
+	u.Set(group.FieldAuthorizationMode, v)
+	return u
+}
+
+// UpdateAuthorizationMode sets the "authorization_mode" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateAuthorizationMode() *GroupUpsert {
+	u.SetExcluded(group.FieldAuthorizationMode)
 	return u
 }
 
@@ -3933,6 +4195,104 @@ func (u *GroupUpsertOne) SetReasoningEffortMappings(v []domain.ReasoningEffortMa
 func (u *GroupUpsertOne) UpdateReasoningEffortMappings() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateReasoningEffortMappings()
+	})
+}
+
+// SetOwnerUserID sets the "owner_user_id" field.
+func (u *GroupUpsertOne) SetOwnerUserID(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetOwnerUserID(v)
+	})
+}
+
+// UpdateOwnerUserID sets the "owner_user_id" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateOwnerUserID() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateOwnerUserID()
+	})
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (u *GroupUpsertOne) ClearOwnerUserID() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearOwnerUserID()
+	})
+}
+
+// SetCreatedByUserID sets the "created_by_user_id" field.
+func (u *GroupUpsertOne) SetCreatedByUserID(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCreatedByUserID(v)
+	})
+}
+
+// UpdateCreatedByUserID sets the "created_by_user_id" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateCreatedByUserID() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCreatedByUserID()
+	})
+}
+
+// ClearCreatedByUserID clears the value of the "created_by_user_id" field.
+func (u *GroupUpsertOne) ClearCreatedByUserID() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearCreatedByUserID()
+	})
+}
+
+// SetPublicAccessLevel sets the "public_access_level" field.
+func (u *GroupUpsertOne) SetPublicAccessLevel(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetPublicAccessLevel(v)
+	})
+}
+
+// UpdatePublicAccessLevel sets the "public_access_level" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdatePublicAccessLevel() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdatePublicAccessLevel()
+	})
+}
+
+// ClearPublicAccessLevel clears the value of the "public_access_level" field.
+func (u *GroupUpsertOne) ClearPublicAccessLevel() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearPublicAccessLevel()
+	})
+}
+
+// SetAccessVersion sets the "access_version" field.
+func (u *GroupUpsertOne) SetAccessVersion(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAccessVersion(v)
+	})
+}
+
+// AddAccessVersion adds v to the "access_version" field.
+func (u *GroupUpsertOne) AddAccessVersion(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddAccessVersion(v)
+	})
+}
+
+// UpdateAccessVersion sets the "access_version" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateAccessVersion() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAccessVersion()
+	})
+}
+
+// SetAuthorizationMode sets the "authorization_mode" field.
+func (u *GroupUpsertOne) SetAuthorizationMode(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAuthorizationMode(v)
+	})
+}
+
+// UpdateAuthorizationMode sets the "authorization_mode" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateAuthorizationMode() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAuthorizationMode()
 	})
 }
 
@@ -5323,6 +5683,104 @@ func (u *GroupUpsertBulk) SetReasoningEffortMappings(v []domain.ReasoningEffortM
 func (u *GroupUpsertBulk) UpdateReasoningEffortMappings() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateReasoningEffortMappings()
+	})
+}
+
+// SetOwnerUserID sets the "owner_user_id" field.
+func (u *GroupUpsertBulk) SetOwnerUserID(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetOwnerUserID(v)
+	})
+}
+
+// UpdateOwnerUserID sets the "owner_user_id" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateOwnerUserID() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateOwnerUserID()
+	})
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (u *GroupUpsertBulk) ClearOwnerUserID() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearOwnerUserID()
+	})
+}
+
+// SetCreatedByUserID sets the "created_by_user_id" field.
+func (u *GroupUpsertBulk) SetCreatedByUserID(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCreatedByUserID(v)
+	})
+}
+
+// UpdateCreatedByUserID sets the "created_by_user_id" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateCreatedByUserID() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCreatedByUserID()
+	})
+}
+
+// ClearCreatedByUserID clears the value of the "created_by_user_id" field.
+func (u *GroupUpsertBulk) ClearCreatedByUserID() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearCreatedByUserID()
+	})
+}
+
+// SetPublicAccessLevel sets the "public_access_level" field.
+func (u *GroupUpsertBulk) SetPublicAccessLevel(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetPublicAccessLevel(v)
+	})
+}
+
+// UpdatePublicAccessLevel sets the "public_access_level" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdatePublicAccessLevel() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdatePublicAccessLevel()
+	})
+}
+
+// ClearPublicAccessLevel clears the value of the "public_access_level" field.
+func (u *GroupUpsertBulk) ClearPublicAccessLevel() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearPublicAccessLevel()
+	})
+}
+
+// SetAccessVersion sets the "access_version" field.
+func (u *GroupUpsertBulk) SetAccessVersion(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAccessVersion(v)
+	})
+}
+
+// AddAccessVersion adds v to the "access_version" field.
+func (u *GroupUpsertBulk) AddAccessVersion(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddAccessVersion(v)
+	})
+}
+
+// UpdateAccessVersion sets the "access_version" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateAccessVersion() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAccessVersion()
+	})
+}
+
+// SetAuthorizationMode sets the "authorization_mode" field.
+func (u *GroupUpsertBulk) SetAuthorizationMode(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAuthorizationMode(v)
+	})
+}
+
+// UpdateAuthorizationMode sets the "authorization_mode" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateAuthorizationMode() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAuthorizationMode()
 	})
 }
 

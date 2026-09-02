@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -91,6 +92,34 @@ func EnforceStepUpAlways(
 	totpService *service.TotpService,
 	userService *service.UserService,
 ) bool {
+	return enforceStepUp(c, totpService, userService, nil)
+}
+
+// EnforceSessionBoundStepUpAlways unconditionally requires a JWT-authenticated
+// session with a non-empty session ID before applying the normal TOTP step-up
+// checks. Security-critical workflows use this stricter gate so legacy tokens
+// cannot fall back to a user-scoped step-up grant.
+func EnforceSessionBoundStepUpAlways(
+	c *gin.Context,
+	totpService *service.TotpService,
+	userService *service.UserService,
+) bool {
+	authMethod := c.GetString("auth_method")
+	if authMethod == service.AuditAuthMethodAdminAPIKey {
+		AbortWithError(c, 403, "STEP_UP_ADMIN_API_KEY_FORBIDDEN",
+			"Admin API key cannot access this endpoint; a two-factor verified admin session is required")
+		return false
+	}
+	if authMethod != service.AuditAuthMethodJWT {
+		AbortWithError(c, 401, "UNAUTHORIZED", "A JWT-authenticated admin session is required")
+		return false
+	}
+
+	if strings.TrimSpace(c.GetString(ContextKeySessionID)) == "" {
+		AbortWithError(c, 401, "STEP_UP_SESSION_REQUIRED", "A session-bound JWT is required")
+		return false
+	}
+
 	return enforceStepUp(c, totpService, userService, nil)
 }
 

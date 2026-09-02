@@ -705,6 +705,43 @@ func TestSchedulerGroupLifecycleFailuresDoNotMarkSeen(t *testing.T) {
 	}
 }
 
+func TestSchedulerGroupLifecycleOutboxLeaseBusyRetriesThenAcknowledges(t *testing.T) {
+	const groupID int64 = 879
+	cache := newGroupLifecycleTestCache()
+	cache.leaseBusy = true
+	groups := &groupLifecycleTestGroupRepo{group: &Group{
+		ID:       groupID,
+		Status:   StatusDisabled,
+		Hydrated: true,
+	}}
+	accounts := &groupLifecycleTestAccountRepo{}
+	outbox := &outboxCleanupRepo{events: []SchedulerOutboxEvent{{
+		ID:        31,
+		EventType: SchedulerOutboxEventGroupChanged,
+		GroupID:   ptrInt64(groupID),
+	}}}
+	svc := NewSchedulerSnapshotService(cache, outbox, accounts, groups, &config.Config{RunMode: config.RunModeStandard})
+
+	svc.pollOutbox()
+
+	require.Equal(t, []int64{31}, outbox.retried)
+	require.Empty(t, outbox.acknowledged)
+	require.Len(t, outbox.retryErrors, 1)
+	require.Contains(t, outbox.retryErrors[0], ErrSchedulerGroupLifecycleLeaseBusy.Error())
+	require.Zero(t, groups.callCount(), "a busy lifecycle lease must fail before reading group authority")
+
+	cache.stateMu.Lock()
+	cache.leaseBusy = false
+	cache.stateMu.Unlock()
+	outbox.retryAt[31] = time.Now().Add(-time.Second)
+	svc.pollOutbox()
+
+	require.Equal(t, []int64{31}, outbox.acknowledged)
+	require.Empty(t, outbox.events)
+	require.Equal(t, 1, groups.callCount())
+	require.Len(t, cache.retiredBuckets(), len(schedulerBucketsForGroup(groupID)))
+}
+
 func TestSchedulerGroupLifecycleOperationAndReleaseErrorsPreserveBothCauses(t *testing.T) {
 	const groupID int64 = 880
 	operationErr := errors.New("group query failed")

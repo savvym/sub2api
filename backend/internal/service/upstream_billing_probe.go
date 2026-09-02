@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -427,11 +428,25 @@ func (s *UpstreamBillingProbeService) GetSettings(ctx context.Context) (*Upstrea
 	return s.getSettings(ctx)
 }
 
+func (s *UpstreamBillingProbeService) AdminGetSettings(ctx context.Context, actor authz.Actor) (*UpstreamBillingProbeSettings, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.GetSettings(ctx)
+}
+
 func (s *UpstreamBillingProbeService) UpdateSettings(ctx context.Context, settings *UpstreamBillingProbeSettings) error {
 	if s == nil || s.settingService == nil {
 		return ErrUpstreamBillingProbeUnavailable
 	}
 	return s.settingService.SetUpstreamBillingProbeSettings(ctx, settings)
+}
+
+func (s *UpstreamBillingProbeService) AdminUpdateSettings(ctx context.Context, actor authz.Actor, settings *UpstreamBillingProbeSettings) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
+	return s.UpdateSettings(ctx, settings)
 }
 
 // ProbeAccount performs one manual or scheduled probe. Manual calls ignore both switches.
@@ -444,6 +459,13 @@ func (s *UpstreamBillingProbeService) ProbeAccount(ctx context.Context, accountI
 		return nil, err
 	}
 	return s.probeAccount(ctx, accountID, settings.IntervalMinutes)
+}
+
+func (s *UpstreamBillingProbeService) AdminProbeAccount(ctx context.Context, actor authz.Actor, accountID int64) (*UpstreamBillingProbeSnapshot, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.ProbeAccount(ctx, accountID)
 }
 
 func (s *UpstreamBillingProbeService) probeAccount(ctx context.Context, accountID int64, intervalMinutes int) (*UpstreamBillingProbeSnapshot, error) {
@@ -531,6 +553,13 @@ func (s *UpstreamBillingProbeService) ProbeAccounts(ctx context.Context, account
 	return results
 }
 
+func (s *UpstreamBillingProbeService) AdminProbeAccounts(ctx context.Context, actor authz.Actor, accountIDs []int64) ([]UpstreamBillingProbeResult, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.ProbeAccounts(ctx, accountIDs), nil
+}
+
 func upstreamBillingProbeLeaderLockKeyAt(now time.Time) string {
 	return fmt.Sprintf("%s:%d", upstreamBillingProbeLeaderLockKey, now.Unix()/int64(upstreamBillingProbeCycleInterval/time.Second))
 }
@@ -583,6 +612,13 @@ func (s *UpstreamBillingProbeService) SetAccountEnabled(ctx context.Context, acc
 		updates[UpstreamBillingRateSyncEnabledExtraKey] = false
 	}
 	return s.accountRepo.UpdateExtra(ctx, accountID, updates)
+}
+
+func (s *UpstreamBillingProbeService) AdminSetAccountEnabled(ctx context.Context, actor authz.Actor, accountID int64, enabled bool) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
+	return s.SetAccountEnabled(ctx, accountID, enabled)
 }
 
 func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, account *Account, intervalMinutes int) (*UpstreamBillingProbeSnapshot, error) {

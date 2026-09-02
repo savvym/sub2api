@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
+	"github.com/Wei-Shaw/sub2api/ent/user"
 )
 
 // AccountCreate is the builder for creating a Account entity.
@@ -419,6 +420,62 @@ func (_c *AccountCreate) SetNillableQuotaDimension(v *account.QuotaDimension) *A
 	return _c
 }
 
+// SetOwnerUserID sets the "owner_user_id" field.
+func (_c *AccountCreate) SetOwnerUserID(v int64) *AccountCreate {
+	_c.mutation.SetOwnerUserID(v)
+	return _c
+}
+
+// SetNillableOwnerUserID sets the "owner_user_id" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableOwnerUserID(v *int64) *AccountCreate {
+	if v != nil {
+		_c.SetOwnerUserID(*v)
+	}
+	return _c
+}
+
+// SetCreatedByUserID sets the "created_by_user_id" field.
+func (_c *AccountCreate) SetCreatedByUserID(v int64) *AccountCreate {
+	_c.mutation.SetCreatedByUserID(v)
+	return _c
+}
+
+// SetNillableCreatedByUserID sets the "created_by_user_id" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableCreatedByUserID(v *int64) *AccountCreate {
+	if v != nil {
+		_c.SetCreatedByUserID(*v)
+	}
+	return _c
+}
+
+// SetPublicAccessLevel sets the "public_access_level" field.
+func (_c *AccountCreate) SetPublicAccessLevel(v string) *AccountCreate {
+	_c.mutation.SetPublicAccessLevel(v)
+	return _c
+}
+
+// SetNillablePublicAccessLevel sets the "public_access_level" field if the given value is not nil.
+func (_c *AccountCreate) SetNillablePublicAccessLevel(v *string) *AccountCreate {
+	if v != nil {
+		_c.SetPublicAccessLevel(*v)
+	}
+	return _c
+}
+
+// SetAccessVersion sets the "access_version" field.
+func (_c *AccountCreate) SetAccessVersion(v int64) *AccountCreate {
+	_c.mutation.SetAccessVersion(v)
+	return _c
+}
+
+// SetNillableAccessVersion sets the "access_version" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableAccessVersion(v *int64) *AccountCreate {
+	if v != nil {
+		_c.SetAccessVersion(*v)
+	}
+	return _c
+}
+
 // AddGroupIDs adds the "groups" edge to the Group entity by IDs.
 func (_c *AccountCreate) AddGroupIDs(ids ...int64) *AccountCreate {
 	_c.mutation.AddGroupIDs(ids...)
@@ -471,6 +528,44 @@ func (_c *AccountCreate) AddChildren(v ...*Account) *AccountCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddChildIDs(ids...)
+}
+
+// SetOwnerID sets the "owner" edge to the User entity by ID.
+func (_c *AccountCreate) SetOwnerID(id int64) *AccountCreate {
+	_c.mutation.SetOwnerID(id)
+	return _c
+}
+
+// SetNillableOwnerID sets the "owner" edge to the User entity by ID if the given value is not nil.
+func (_c *AccountCreate) SetNillableOwnerID(id *int64) *AccountCreate {
+	if id != nil {
+		_c = _c.SetOwnerID(*id)
+	}
+	return _c
+}
+
+// SetOwner sets the "owner" edge to the User entity.
+func (_c *AccountCreate) SetOwner(v *User) *AccountCreate {
+	return _c.SetOwnerID(v.ID)
+}
+
+// SetCreatedByID sets the "created_by" edge to the User entity by ID.
+func (_c *AccountCreate) SetCreatedByID(id int64) *AccountCreate {
+	_c.mutation.SetCreatedByID(id)
+	return _c
+}
+
+// SetNillableCreatedByID sets the "created_by" edge to the User entity by ID if the given value is not nil.
+func (_c *AccountCreate) SetNillableCreatedByID(id *int64) *AccountCreate {
+	if id != nil {
+		_c = _c.SetCreatedByID(*id)
+	}
+	return _c
+}
+
+// SetCreatedBy sets the "created_by" edge to the User entity.
+func (_c *AccountCreate) SetCreatedBy(v *User) *AccountCreate {
+	return _c.SetCreatedByID(v.ID)
 }
 
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
@@ -581,6 +676,10 @@ func (_c *AccountCreate) defaults() error {
 		v := account.DefaultQuotaDimension
 		_c.mutation.SetQuotaDimension(v)
 	}
+	if _, ok := _c.mutation.AccessVersion(); !ok {
+		v := account.DefaultAccessVersion
+		_c.mutation.SetAccessVersion(v)
+	}
 	return nil
 }
 
@@ -657,6 +756,14 @@ func (_c *AccountCreate) check() error {
 		if err := account.QuotaDimensionValidator(v); err != nil {
 			return &ValidationError{Name: "quota_dimension", err: fmt.Errorf(`ent: validator failed for field "Account.quota_dimension": %w`, err)}
 		}
+	}
+	if v, ok := _c.mutation.PublicAccessLevel(); ok {
+		if err := account.PublicAccessLevelValidator(v); err != nil {
+			return &ValidationError{Name: "public_access_level", err: fmt.Errorf(`ent: validator failed for field "Account.public_access_level": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.AccessVersion(); !ok {
+		return &ValidationError{Name: "access_version", err: errors.New(`ent: missing required field "Account.access_version"`)}
 	}
 	return nil
 }
@@ -801,6 +908,14 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 		_spec.SetField(account.FieldQuotaDimension, field.TypeEnum, value)
 		_node.QuotaDimension = value
 	}
+	if value, ok := _c.mutation.PublicAccessLevel(); ok {
+		_spec.SetField(account.FieldPublicAccessLevel, field.TypeString, value)
+		_node.PublicAccessLevel = &value
+	}
+	if value, ok := _c.mutation.AccessVersion(); ok {
+		_spec.SetField(account.FieldAccessVersion, field.TypeInt64, value)
+		_node.AccessVersion = value
+	}
 	if nodes := _c.mutation.GroupsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2M,
@@ -869,6 +984,40 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.OwnerIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   account.OwnerTable,
+			Columns: []string{account.OwnerColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.OwnerUserID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.CreatedByIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   account.CreatedByTable,
+			Columns: []string{account.CreatedByColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.CreatedByUserID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.UsageLogsIDs(); len(nodes) > 0 {
@@ -1428,6 +1577,78 @@ func (u *AccountUpsert) SetQuotaDimension(v account.QuotaDimension) *AccountUpse
 // UpdateQuotaDimension sets the "quota_dimension" field to the value that was provided on create.
 func (u *AccountUpsert) UpdateQuotaDimension() *AccountUpsert {
 	u.SetExcluded(account.FieldQuotaDimension)
+	return u
+}
+
+// SetOwnerUserID sets the "owner_user_id" field.
+func (u *AccountUpsert) SetOwnerUserID(v int64) *AccountUpsert {
+	u.Set(account.FieldOwnerUserID, v)
+	return u
+}
+
+// UpdateOwnerUserID sets the "owner_user_id" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateOwnerUserID() *AccountUpsert {
+	u.SetExcluded(account.FieldOwnerUserID)
+	return u
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (u *AccountUpsert) ClearOwnerUserID() *AccountUpsert {
+	u.SetNull(account.FieldOwnerUserID)
+	return u
+}
+
+// SetCreatedByUserID sets the "created_by_user_id" field.
+func (u *AccountUpsert) SetCreatedByUserID(v int64) *AccountUpsert {
+	u.Set(account.FieldCreatedByUserID, v)
+	return u
+}
+
+// UpdateCreatedByUserID sets the "created_by_user_id" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateCreatedByUserID() *AccountUpsert {
+	u.SetExcluded(account.FieldCreatedByUserID)
+	return u
+}
+
+// ClearCreatedByUserID clears the value of the "created_by_user_id" field.
+func (u *AccountUpsert) ClearCreatedByUserID() *AccountUpsert {
+	u.SetNull(account.FieldCreatedByUserID)
+	return u
+}
+
+// SetPublicAccessLevel sets the "public_access_level" field.
+func (u *AccountUpsert) SetPublicAccessLevel(v string) *AccountUpsert {
+	u.Set(account.FieldPublicAccessLevel, v)
+	return u
+}
+
+// UpdatePublicAccessLevel sets the "public_access_level" field to the value that was provided on create.
+func (u *AccountUpsert) UpdatePublicAccessLevel() *AccountUpsert {
+	u.SetExcluded(account.FieldPublicAccessLevel)
+	return u
+}
+
+// ClearPublicAccessLevel clears the value of the "public_access_level" field.
+func (u *AccountUpsert) ClearPublicAccessLevel() *AccountUpsert {
+	u.SetNull(account.FieldPublicAccessLevel)
+	return u
+}
+
+// SetAccessVersion sets the "access_version" field.
+func (u *AccountUpsert) SetAccessVersion(v int64) *AccountUpsert {
+	u.Set(account.FieldAccessVersion, v)
+	return u
+}
+
+// UpdateAccessVersion sets the "access_version" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateAccessVersion() *AccountUpsert {
+	u.SetExcluded(account.FieldAccessVersion)
+	return u
+}
+
+// AddAccessVersion adds v to the "access_version" field.
+func (u *AccountUpsert) AddAccessVersion(v int64) *AccountUpsert {
+	u.Add(account.FieldAccessVersion, v)
 	return u
 }
 
@@ -2047,6 +2268,90 @@ func (u *AccountUpsertOne) SetQuotaDimension(v account.QuotaDimension) *AccountU
 func (u *AccountUpsertOne) UpdateQuotaDimension() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.UpdateQuotaDimension()
+	})
+}
+
+// SetOwnerUserID sets the "owner_user_id" field.
+func (u *AccountUpsertOne) SetOwnerUserID(v int64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetOwnerUserID(v)
+	})
+}
+
+// UpdateOwnerUserID sets the "owner_user_id" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateOwnerUserID() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateOwnerUserID()
+	})
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (u *AccountUpsertOne) ClearOwnerUserID() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearOwnerUserID()
+	})
+}
+
+// SetCreatedByUserID sets the "created_by_user_id" field.
+func (u *AccountUpsertOne) SetCreatedByUserID(v int64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetCreatedByUserID(v)
+	})
+}
+
+// UpdateCreatedByUserID sets the "created_by_user_id" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateCreatedByUserID() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateCreatedByUserID()
+	})
+}
+
+// ClearCreatedByUserID clears the value of the "created_by_user_id" field.
+func (u *AccountUpsertOne) ClearCreatedByUserID() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearCreatedByUserID()
+	})
+}
+
+// SetPublicAccessLevel sets the "public_access_level" field.
+func (u *AccountUpsertOne) SetPublicAccessLevel(v string) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetPublicAccessLevel(v)
+	})
+}
+
+// UpdatePublicAccessLevel sets the "public_access_level" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdatePublicAccessLevel() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdatePublicAccessLevel()
+	})
+}
+
+// ClearPublicAccessLevel clears the value of the "public_access_level" field.
+func (u *AccountUpsertOne) ClearPublicAccessLevel() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearPublicAccessLevel()
+	})
+}
+
+// SetAccessVersion sets the "access_version" field.
+func (u *AccountUpsertOne) SetAccessVersion(v int64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetAccessVersion(v)
+	})
+}
+
+// AddAccessVersion adds v to the "access_version" field.
+func (u *AccountUpsertOne) AddAccessVersion(v int64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddAccessVersion(v)
+	})
+}
+
+// UpdateAccessVersion sets the "access_version" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateAccessVersion() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateAccessVersion()
 	})
 }
 
@@ -2832,6 +3137,90 @@ func (u *AccountUpsertBulk) SetQuotaDimension(v account.QuotaDimension) *Account
 func (u *AccountUpsertBulk) UpdateQuotaDimension() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.UpdateQuotaDimension()
+	})
+}
+
+// SetOwnerUserID sets the "owner_user_id" field.
+func (u *AccountUpsertBulk) SetOwnerUserID(v int64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetOwnerUserID(v)
+	})
+}
+
+// UpdateOwnerUserID sets the "owner_user_id" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateOwnerUserID() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateOwnerUserID()
+	})
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (u *AccountUpsertBulk) ClearOwnerUserID() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearOwnerUserID()
+	})
+}
+
+// SetCreatedByUserID sets the "created_by_user_id" field.
+func (u *AccountUpsertBulk) SetCreatedByUserID(v int64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetCreatedByUserID(v)
+	})
+}
+
+// UpdateCreatedByUserID sets the "created_by_user_id" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateCreatedByUserID() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateCreatedByUserID()
+	})
+}
+
+// ClearCreatedByUserID clears the value of the "created_by_user_id" field.
+func (u *AccountUpsertBulk) ClearCreatedByUserID() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearCreatedByUserID()
+	})
+}
+
+// SetPublicAccessLevel sets the "public_access_level" field.
+func (u *AccountUpsertBulk) SetPublicAccessLevel(v string) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetPublicAccessLevel(v)
+	})
+}
+
+// UpdatePublicAccessLevel sets the "public_access_level" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdatePublicAccessLevel() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdatePublicAccessLevel()
+	})
+}
+
+// ClearPublicAccessLevel clears the value of the "public_access_level" field.
+func (u *AccountUpsertBulk) ClearPublicAccessLevel() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearPublicAccessLevel()
+	})
+}
+
+// SetAccessVersion sets the "access_version" field.
+func (u *AccountUpsertBulk) SetAccessVersion(v int64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetAccessVersion(v)
+	})
+}
+
+// AddAccessVersion adds v to the "access_version" field.
+func (u *AccountUpsertBulk) AddAccessVersion(v int64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddAccessVersion(v)
+	})
+}
+
+// UpdateAccessVersion sets the "access_version" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateAccessVersion() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateAccessVersion()
 	})
 }
 

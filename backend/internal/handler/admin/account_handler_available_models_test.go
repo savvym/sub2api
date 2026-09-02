@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -21,17 +22,18 @@ type availableModelsAdminService struct {
 	account service.Account
 }
 
-func (s *availableModelsAdminService) GetAccount(_ context.Context, id int64) (*service.Account, error) {
+func (s *availableModelsAdminService) GetAccount(_ context.Context, actor authz.Actor, id int64) (*service.Account, error) {
 	if s.account.ID == id {
 		acc := s.account
 		return &acc, nil
 	}
-	return s.stubAdminService.GetAccount(context.Background(), id)
+	return s.stubAdminService.GetAccount(context.Background(), actor, id)
 }
 
 func setupAvailableModelsRouter(adminSvc service.AdminService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(withAdminTestUserActorID(1))
 	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router.GET("/api/v1/admin/accounts/:id/models", handler.GetAvailableModels)
 	return router
@@ -62,6 +64,7 @@ func (u *syncUpstreamHTTPUpstream) DoWithTLS(req *http.Request, proxyURL string,
 func setupSyncUpstreamModelsRouter(adminSvc service.AdminService, upstream service.HTTPUpstream) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(withAdminTestUserActorID(1))
 	accountTestSvc := service.NewAccountTestService(
 		nil,
 		nil,

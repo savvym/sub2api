@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -116,6 +117,11 @@ type codexAccountIndex struct {
 }
 
 func (h *AccountHandler) ImportCodexSession(c *gin.Context) {
+	actor, ok := adminResourceActor(c)
+	if !ok {
+		return
+	}
+
 	var req CodexSessionImportRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -151,19 +157,18 @@ func (h *AccountHandler) ImportCodexSession(c *gin.Context) {
 		response.BadRequest(c, "请输入 accessToken 或 Codex session JSON")
 		return
 	}
-
 	executeAdminIdempotentJSON(c, "admin.accounts.import_codex_session", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
-		return h.importCodexSessions(ctx, req, entries)
+		return h.importCodexSessions(ctx, actor, req, entries)
 	})
 }
 
-func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessionImportRequest, entries []codexImportEntry) (CodexSessionImportResult, error) {
+func (h *AccountHandler) importCodexSessions(ctx context.Context, actor authz.Actor, req CodexSessionImportRequest, entries []codexImportEntry) (CodexSessionImportResult, error) {
 	result := CodexSessionImportResult{
 		Total: len(entries),
 		Items: make([]CodexSessionImportItem, 0, len(entries)),
 	}
 
-	existingAccounts, err := h.listAccountsFiltered(ctx, service.PlatformOpenAI, service.AccountTypeOAuth, "", "", 0, "", "created_at", "desc")
+	existingAccounts, err := h.listAccountsFiltered(ctx, actor, service.PlatformOpenAI, service.AccountTypeOAuth, "", "", 0, "", "created_at", "desc")
 	if err != nil {
 		return result, err
 	}
@@ -294,7 +299,7 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 				updateInput.GroupIDs = &groupIDs
 				updateInput.SkipMixedChannelCheck = skipMixedChannelCheck
 			}
-			updated, updateErr := h.adminService.UpdateAccount(ctx, existing.ID, updateInput)
+			updated, updateErr := h.adminService.UpdateAccount(ctx, actor, existing.ID, updateInput)
 			if updateErr != nil {
 				result.Failed++
 				result.Items = append(result.Items, CodexSessionImportItem{
@@ -328,7 +333,7 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 			continue
 		}
 
-		account, createErr := h.adminService.CreateAccount(ctx, &service.CreateAccountInput{
+		account, createErr := h.adminService.CreateAccount(ctx, actor, &service.CreateAccountInput{
 			Name:                  accountName,
 			Notes:                 req.Notes,
 			Platform:              service.PlatformOpenAI,

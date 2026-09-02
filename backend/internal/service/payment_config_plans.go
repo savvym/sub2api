@@ -8,6 +8,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
@@ -124,8 +125,22 @@ func (s *PaymentConfigService) GetGroupInfoMap(ctx context.Context, plans []*dbe
 	return m
 }
 
+func (s *PaymentConfigService) AdminGetGroupInfoMap(ctx context.Context, actor authz.Actor, plans []*dbent.SubscriptionPlan) (map[int64]PlanGroupInfo, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.GetGroupInfoMap(ctx, plans), nil
+}
+
 func (s *PaymentConfigService) ListPlans(ctx context.Context) ([]*dbent.SubscriptionPlan, error) {
 	return s.entClient.SubscriptionPlan.Query().Order(subscriptionplan.BySortOrder()).All(ctx)
+}
+
+func (s *PaymentConfigService) AdminListPlans(ctx context.Context, actor authz.Actor) ([]*dbent.SubscriptionPlan, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.ListPlans(ctx)
 }
 
 func (s *PaymentConfigService) ListPlansForSale(ctx context.Context) ([]*dbent.SubscriptionPlan, error) {
@@ -149,6 +164,13 @@ func (s *PaymentConfigService) CreatePlan(ctx context.Context, req CreatePlanReq
 		b.SetOriginalPrice(*req.OriginalPrice)
 	}
 	return b.Save(ctx)
+}
+
+func (s *PaymentConfigService) AdminCreatePlan(ctx context.Context, actor authz.Actor, req CreatePlanRequest) (*dbent.SubscriptionPlan, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.CreatePlan(ctx, req)
 }
 
 // UpdatePlan updates a subscription plan by ID (patch semantics).
@@ -202,6 +224,13 @@ func (s *PaymentConfigService) UpdatePlan(ctx context.Context, id int64, req Upd
 	return u.Save(ctx)
 }
 
+func (s *PaymentConfigService) AdminUpdatePlan(ctx context.Context, actor authz.Actor, id int64, req UpdatePlanRequest) (*dbent.SubscriptionPlan, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
+	return s.UpdatePlan(ctx, id, req)
+}
+
 func (s *PaymentConfigService) DeletePlan(ctx context.Context, id int64) error {
 	count, err := s.countPendingOrdersByPlan(ctx, id)
 	if err != nil {
@@ -212,6 +241,13 @@ func (s *PaymentConfigService) DeletePlan(ctx context.Context, id int64) error {
 			fmt.Sprintf("this plan has %d in-progress orders and cannot be deleted — wait for orders to complete first", count))
 	}
 	return s.entClient.SubscriptionPlan.DeleteOneID(id).Exec(ctx)
+}
+
+func (s *PaymentConfigService) AdminDeletePlan(ctx context.Context, actor authz.Actor, id int64) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
+	return s.DeletePlan(ctx, id)
 }
 
 // GetPlan returns a subscription plan by ID.

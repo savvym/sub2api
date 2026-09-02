@@ -28,7 +28,7 @@ func TestOpenAIOAuthService_GenerateAuthURL_OpenAIKeepsCodexFlow(t *testing.T) {
 	svc := NewOpenAIOAuthService(nil, &openaiOAuthClientAuthURLStub{})
 	defer svc.Stop()
 
-	result, err := svc.GenerateAuthURL(context.Background(), nil, "", PlatformOpenAI)
+	result, err := svc.AdminGenerateAuthURL(context.Background(), adminResourceUserTestActor(t), nil, "", PlatformOpenAI)
 	require.NoError(t, err)
 	require.NotEmpty(t, result.AuthURL)
 	require.NotEmpty(t, result.SessionID)

@@ -13,13 +13,17 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
 // User management implementations
-func (s *adminServiceImpl) ListUsers(ctx context.Context, page, pageSize int, filters UserListFilters, sortBy, sortOrder string) ([]User, int64, error) {
+func (s *adminServiceImpl) ListUsers(ctx context.Context, actor authz.Actor, page, pageSize int, filters UserListFilters, sortBy, sortOrder string) ([]User, int64, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, 0, err
+	}
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
 	users, result, err := s.userRepo.ListWithFilters(ctx, params, filters)
 	if err != nil {
@@ -78,7 +82,10 @@ func (s *adminServiceImpl) loadUserGroupRatesOneByOne(ctx context.Context, users
 	}
 }
 
-func (s *adminServiceImpl) GetUser(ctx context.Context, id int64) (*User, error) {
+func (s *adminServiceImpl) GetUser(ctx context.Context, actor authz.Actor, id int64) (*User, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -101,7 +108,10 @@ func (s *adminServiceImpl) GetUser(ctx context.Context, id int64) (*User, error)
 	return user, nil
 }
 
-func (s *adminServiceImpl) GetUserIncludeDeleted(ctx context.Context, id int64) (*User, error) {
+func (s *adminServiceImpl) GetUserIncludeDeleted(ctx context.Context, actor authz.Actor, id int64) (*User, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	return s.userRepo.GetByIDIncludeDeleted(ctx, id)
 }
 
@@ -117,7 +127,10 @@ func normalizeUserRole(role, fallback string) (string, error) {
 	return role, nil
 }
 
-func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInput) (*User, error) {
+func (s *adminServiceImpl) CreateUser(ctx context.Context, actor authz.Actor, input *CreateUserInput) (*User, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	balance := 0.0
 	if input.Balance != nil {
 		balance = *input.Balance
@@ -157,24 +170,6 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 	return user, nil
 }
 
-// ensureNotLastAdmin 降级管理员前确认系统中仍存在其他管理员，防止零 admin 锁死。
-// 注：读取与写入之间存在竞态窗口，极端并发下仍可能双双降级；作为后台低频操作
-// 的兜底保护足够，彻底防护需依赖数据库层约束。
-func (s *adminServiceImpl) ensureNotLastAdmin(ctx context.Context) error {
-	noSubs := false
-	_, result, err := s.userRepo.ListWithFilters(ctx,
-		pagination.PaginationParams{Page: 1, PageSize: 1},
-		UserListFilters{Role: RoleAdmin, IncludeSubscriptions: &noSubs},
-	)
-	if err != nil {
-		return fmt.Errorf("count admin users: %w", err)
-	}
-	if result == nil || result.Total <= 1 {
-		return errors.New("cannot demote the last admin user")
-	}
-	return nil
-}
-
 func (s *adminServiceImpl) assignDefaultSubscriptions(ctx context.Context, userID int64) {
 	if s.settingService == nil || s.defaultSubAssigner == nil || userID <= 0 {
 		return
@@ -192,7 +187,10 @@ func (s *adminServiceImpl) assignDefaultSubscriptions(ctx context.Context, userI
 	}
 }
 
-func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *UpdateUserInput) (*User, error) {
+func (s *adminServiceImpl) UpdateUser(ctx context.Context, actor authz.Actor, id int64, input *UpdateUserInput) (*User, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	// 校验用户专属分组倍率：必须 > 0（nil 合法，表示清除专属倍率）
 	if input.GroupRates != nil {
 		for groupID, rate := range input.GroupRates {
@@ -209,7 +207,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 
 	// Protect admin users: cannot disable admin accounts
 	if user.Role == "admin" && input.Status == "disabled" {
-		return nil, errors.New("cannot disable admin user")
+		return nil, ErrAdminCannotBeDisabled
 	}
 
 	oldConcurrency := user.Concurrency
@@ -217,6 +215,8 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	oldRole := user.Role
 	oldRPMLimit := user.RPMLimit
 	oldAllowedGroups := append([]int64(nil), user.AllowedGroups...)
+	desiredRole := oldRole
+	roleRequested := false
 
 	// fields 与下面的 input.X 判空条件一一对应：管理员没提交的列不写回，
 	// 避免这份快照回滚并发的扣费、状态变更或批量限额调整。
@@ -253,15 +253,11 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		if err != nil {
 			return nil, err
 		}
-		// 防锁死保护：不允许降级系统中最后一个管理员（自我降级已在 handler 层拦截，
-		// 此处兜底覆盖跨管理员互降导致零 admin 的场景）。
-		if user.Role == RoleAdmin && role == RoleUser {
-			if err := s.ensureNotLastAdmin(ctx); err != nil {
-				return nil, err
-			}
-		}
-		user.Role = role
-		fields.Role = true
+		desiredRole = role
+		roleRequested = true
+	}
+	if desiredRole == RoleAdmin && user.Status == StatusDisabled {
+		return nil, ErrAdminCannotBeDisabled
 	}
 
 	if input.Concurrency != nil {
@@ -279,7 +275,28 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		fields.AllowedGroups = true
 	}
 
-	if err := s.userRepo.Update(ctx, user, fields); err != nil {
+	persistAdjacentFields := func(updateCtx context.Context) error {
+		return s.userRepo.Update(updateCtx, user, fields)
+	}
+	if roleRequested {
+		if s.roleService == nil {
+			return nil, ErrRoleAuthorizationUnavailable
+		}
+		roleResult, err := s.roleService.ChangeLegacyRole(ctx, LegacyRoleChangeInput{
+			ActorUserID:        input.ActorAdminID,
+			TargetUserID:       id,
+			ExpectedLegacyRole: oldRole,
+			DesiredLegacyRole:  desiredRole,
+			DesiredStatus:      input.Status,
+		}, persistAdjacentFields)
+		if err != nil {
+			return nil, err
+		}
+		user.Role = desiredRole
+		if fields.IsEmpty() && !roleResult.UpdatedAt.IsZero() {
+			user.UpdatedAt = roleResult.UpdatedAt
+		}
+	} else if err := persistAdjacentFields(ctx); err != nil {
 		return nil, err
 	}
 
@@ -348,7 +365,10 @@ func sameInt64Set(a, b []int64) bool {
 	return true
 }
 
-func (s *adminServiceImpl) DeleteUser(ctx context.Context, id int64) error {
+func (s *adminServiceImpl) DeleteUser(ctx context.Context, actor authz.Actor, id int64) error {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return err
+	}
 	// Protect admin users: cannot delete admin accounts
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
@@ -593,7 +613,10 @@ func (s *adminServiceImpl) tryAccrueAffiliateRebateForAdminRecharge(ctx context.
 	}
 }
 
-func (s *adminServiceImpl) GetUserAPIKeys(ctx context.Context, userID int64, page, pageSize int, sortBy, sortOrder string) ([]APIKey, int64, error) {
+func (s *adminServiceImpl) GetUserAPIKeys(ctx context.Context, actor authz.Actor, userID int64, page, pageSize int, sortBy, sortOrder string) ([]APIKey, int64, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, 0, err
+	}
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
 	keys, result, err := s.apiKeyRepo.ListByUserID(ctx, userID, params, APIKeyListFilters{})
 	if err != nil {
@@ -602,7 +625,10 @@ func (s *adminServiceImpl) GetUserAPIKeys(ctx context.Context, userID int64, pag
 	return keys, result.Total, nil
 }
 
-func (s *adminServiceImpl) GetUserRPMStatus(ctx context.Context, userID int64) (*UserRPMStatus, error) {
+func (s *adminServiceImpl) GetUserRPMStatus(ctx context.Context, actor authz.Actor, userID int64) (*UserRPMStatus, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	if s.userRPMCache == nil {
 		return nil, ErrRPMStatusUnavailable
 	}
@@ -617,7 +643,7 @@ func (s *adminServiceImpl) GetUserRPMStatus(ctx context.Context, userID int64) (
 		logger.LegacyPrintf("service.admin", "failed to get user rpm: user_id=%d err=%v", userID, err)
 	}
 
-	keys, _, err := s.GetUserAPIKeys(ctx, userID, 1, 1000, "", "")
+	keys, _, err := s.GetUserAPIKeys(ctx, actor, userID, 1, 1000, "", "")
 	if err != nil {
 		return nil, err
 	}
@@ -1244,7 +1270,10 @@ func (s *adminServiceImpl) GetRedeemCode(ctx context.Context, id int64) (*Redeem
 	return s.redeemCodeRepo.GetByID(ctx, id)
 }
 
-func (s *adminServiceImpl) GenerateRedeemCodes(ctx context.Context, input *GenerateRedeemCodesInput) ([]RedeemCode, error) {
+func (s *adminServiceImpl) GenerateRedeemCodes(ctx context.Context, actor authz.Actor, input *GenerateRedeemCodesInput) ([]RedeemCode, error) {
+	if err := ValidateAdminResourceActor(actor); err != nil {
+		return nil, err
+	}
 	if input.ExpiresAt != nil && !input.ExpiresAt.After(time.Now()) {
 		return nil, ErrRedeemCodeExpired
 	}

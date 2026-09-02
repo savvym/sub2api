@@ -47,6 +47,8 @@ func ProvideAdminHandlers(
 	affiliateHandler *admin.AffiliateHandler,
 	complianceHandler *admin.ComplianceHandler,
 	auditLogHandler *admin.AuditLogHandler,
+	authorizationHandler *admin.AuthorizationHandler,
+	hostingEntitlementHandler *admin.HostingEntitlementHandler,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 ) *AdminHandlers {
@@ -89,6 +91,8 @@ func ProvideAdminHandlers(
 		Affiliate:              affiliateHandler,
 		Compliance:             complianceHandler,
 		AuditLog:               auditLogHandler,
+		Authorization:          authorizationHandler,
+		HostingEntitlement:     hostingEntitlementHandler,
 	}
 }
 
@@ -191,6 +195,8 @@ func ProvideHandlers(
 	paymentHandler *PaymentHandler,
 	paymentWebhookHandler *PaymentWebhookHandler,
 	availableChannelHandler *AvailableChannelHandler,
+	selfServiceAccountHandler *SelfServiceAccountHandler,
+	selfServiceGroupHandler *SelfServiceGroupHandler,
 	modelPlazaHandler *ModelPlazaHandler,
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
@@ -217,6 +223,8 @@ func ProvideHandlers(
 		Payment:          paymentHandler,
 		PaymentWebhook:   paymentWebhookHandler,
 		AvailableChannel: availableChannelHandler,
+		Account:          selfServiceAccountHandler,
+		Group:            selfServiceGroupHandler,
 		ModelPlaza:       modelPlazaHandler,
 		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
@@ -243,6 +251,8 @@ var ProviderSet = wire.NewSet(
 	NewPaymentHandler,
 	NewPaymentWebhookHandler,
 	NewAvailableChannelHandler,
+	NewSelfServiceAccountHandler,
+	NewSelfServiceGroupHandler,
 	NewModelPlazaHandler,
 	NewAsyncImageHandler,
 	ProvideBatchImageHandler,
@@ -283,6 +293,8 @@ var ProviderSet = wire.NewSet(
 	admin.NewAffiliateHandler,
 	admin.NewComplianceHandler,
 	admin.NewAuditLogHandler,
+	admin.NewAuthorizationHandler,
+	admin.NewHostingEntitlementHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

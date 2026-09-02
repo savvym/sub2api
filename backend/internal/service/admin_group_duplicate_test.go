@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/stretchr/testify/require"
 )
 
@@ -82,6 +83,11 @@ func (r *duplicateGroupRepoStub) FindByDuplicateOperationID(_ context.Context, o
 		return nil, nil
 	}
 	return cloneGroupForDuplicateTest(r.groups[id]), nil
+}
+
+func (r *duplicateGroupRepoStub) ExistsByName(_ context.Context, name string) (bool, error) {
+	_, exists := r.names[name]
+	return exists, nil
 }
 
 func (r *duplicateGroupRepoStub) CreateFromSource(_ context.Context, group *Group, sourceGroupID int64) error {
@@ -194,7 +200,8 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 	}
 	svc := &adminServiceImpl{groupRepo: repo, groupDuplicateRepo: repo}
 
-	duplicate, err := svc.DuplicateGroup(context.Background(), source.ID, "admin:7", "stable-key")
+	actor := adminResourceTestActor(t, authz.SubjectKindUser, 7)
+	duplicate, err := svc.DuplicateGroup(context.Background(), actor, source.ID, "stable-key")
 
 	require.NoError(t, err)
 	require.NotEqual(t, source.ID, duplicate.ID)
@@ -246,14 +253,16 @@ func TestDuplicateGroupRecoversSameOperationAndScopesByAdmin(t *testing.T) {
 	repo := newDuplicateGroupRepoStub(source)
 	svc := &adminServiceImpl{groupRepo: repo, groupDuplicateRepo: repo}
 	ctx := context.Background()
+	actor7 := adminResourceTestActor(t, authz.SubjectKindUser, 7)
+	actor8 := adminResourceTestActor(t, authz.SubjectKindUser, 8)
 
-	first, err := svc.DuplicateGroup(ctx, source.ID, "admin:7", "same-key")
+	first, err := svc.DuplicateGroup(ctx, actor7, source.ID, "same-key")
 	require.NoError(t, err)
-	retry, err := svc.DuplicateGroup(ctx, source.ID, "admin:7", "same-key")
+	retry, err := svc.DuplicateGroup(ctx, actor7, source.ID, "same-key")
 	require.NoError(t, err)
-	recovered, err := svc.RecoverDuplicateGroup(ctx, source.ID, "admin:7", "same-key")
+	recovered, err := svc.RecoverDuplicateGroup(ctx, actor7, source.ID, "same-key")
 	require.NoError(t, err)
-	otherAdmin, err := svc.DuplicateGroup(ctx, source.ID, "admin:8", "same-key")
+	otherAdmin, err := svc.DuplicateGroup(ctx, actor8, source.ID, "same-key")
 	require.NoError(t, err)
 
 	require.Equal(t, first.ID, retry.ID)
@@ -268,7 +277,7 @@ func TestDuplicateGroupAdvancesNameAndTruncatesUnicodeByRunes(t *testing.T) {
 	repo.names["team (Copy)"] = struct{}{}
 	svc := &adminServiceImpl{groupRepo: repo, groupDuplicateRepo: repo}
 
-	duplicate, err := svc.DuplicateGroup(context.Background(), source.ID, "admin:1", "")
+	duplicate, err := svc.DuplicateGroup(context.Background(), adminResourceUserTestActor(t), source.ID, "")
 	require.NoError(t, err)
 	require.Equal(t, "team (Copy 2)", duplicate.Name)
 
@@ -283,10 +292,41 @@ func TestDuplicateGroupAtomicCreateFailureReturnsNoCopy(t *testing.T) {
 	repo.atomicCreateErr = errors.New("binding insert failed")
 	svc := &adminServiceImpl{groupRepo: repo, groupDuplicateRepo: repo}
 
-	duplicate, err := svc.DuplicateGroup(context.Background(), source.ID, "admin:1", "key")
+	duplicate, err := svc.DuplicateGroup(context.Background(), adminResourceUserTestActor(t), source.ID, "key")
 
 	require.ErrorContains(t, err, "binding insert failed")
 	require.Nil(t, duplicate)
 	require.Len(t, repo.groups, 1)
 	require.Empty(t, repo.byOperation)
+}
+
+func TestDuplicateGroupInvisibleOperationConflictRequestsTransactionRetry(t *testing.T) {
+	source := &Group{ID: 16, Name: "team", Platform: PlatformAnthropic, Status: StatusActive}
+	repo := newDuplicateGroupRepoStub(source)
+	repo.atomicCreateErr = ErrGroupExists
+	svc := &adminServiceImpl{groupRepo: repo, groupDuplicateRepo: repo}
+
+	duplicate, err := svc.DuplicateGroup(context.Background(), adminResourceUserTestActor(t), source.ID, "key")
+
+	require.ErrorIs(t, err, ErrResourceMutationConflict)
+	require.Nil(t, duplicate)
+	require.Len(t, repo.groups, 1)
+	require.Empty(t, repo.byOperation)
+}
+
+func TestRecoverDuplicateGroupChecksLegacyAdminScopeFromContext(t *testing.T) {
+	source := &Group{ID: 19, Name: "team", Platform: PlatformAnthropic, Status: StatusActive}
+	legacyCopy := &Group{ID: 101, Name: "team (Copy)", Platform: PlatformAnthropic, Status: duplicateGroupInactiveStatus}
+	repo := newDuplicateGroupRepoStub(source)
+	repo.groups[legacyCopy.ID] = legacyCopy
+	repo.byOperation[duplicateGroupOperationID(source.ID, "admin:7", "legacy-key")] = legacyCopy.ID
+	svc := &adminServiceImpl{groupRepo: repo, groupDuplicateRepo: repo}
+	ctx := ContextWithIdempotencyLegacyActorScopes(context.Background(), []string{"admin:7"})
+	actor := adminResourceTestActor(t, authz.SubjectKindUser, 7)
+
+	recovered, err := svc.RecoverDuplicateGroup(ctx, actor, source.ID, "legacy-key")
+
+	require.NoError(t, err)
+	require.NotNil(t, recovered)
+	require.Equal(t, legacyCopy.ID, recovered.ID)
 }
