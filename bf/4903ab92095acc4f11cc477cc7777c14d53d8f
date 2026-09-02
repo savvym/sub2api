@@ -1,0 +1,22 @@
+backend/internal/service/admin_resource_entry_actor.go
+  s_f888de8e3912e8::t_50f2dc9e267a3d 15
+backend/internal/service/gemini_oauth_service.go
+  s_f888de8e3912e8::t_50f2dc9e267a3d 103,108,166,507,528
+  s_f888de8e3912e8::t_718de9594e6623 531,534
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "bf4903ab92095acc4f11cc477cc7777c14d53d8f",
+  "prompts": {},
+  "sessions": {
+    "s_f888de8e3912e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06103-92d4-72a1-8af8-9cc9355e6050",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Savin Zhang <savi@base.ctripsmartdns.com>"
+    }
+  }
+}
