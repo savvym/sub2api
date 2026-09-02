@@ -567,11 +567,11 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 
 ## 2026-09-02 - OpenAI Quota Auto-Reset Hardening and Latest Main Rebase
 
-本节记录上一节 `d47ca4bea567f778c6356a761344f376ca471ea4` 采证之后的 migration 243/auto-reset hardening，以及 2026-09-02 对最新主线的最终本地收口。上一节关于当时 CI 和 PR 状态的结论保留为历史事实；本节不把尚未运行的新 SHA 远端 CI 反写成已经完成。
+本节记录上一节 `d47ca4bea567f778c6356a761344f376ca471ea4` 采证之后的 migration 243/auto-reset hardening、2026-09-02 对最新主线的本地收口，以及随后完成的当前代码 SHA push/PR CI、Testcontainers、lint、Security Scan 与 PR 状态。上一节关于当时 CI 和 PR 状态的结论保留为历史事实。
 
 ### Latest Main Rebase 收口
 
-- 已获取并将 24 个分支提交线性 rebase 到 `origin/main@efb46db0a`；rebase 后 `origin/main` 是当前分支祖先，分支相对主线为 ahead 24/behind 0。
+- 已获取并将 24 个分支提交线性 rebase 到 `origin/main@efb46db0a`；rebase 后 `origin/main` 是当前分支祖先。随后加入 hardening 与 CI 收口两个提交，最终代码提交 `aeb967ebe0d9ed9aa5b43f0f9e60dc030f3839e6` 相对该主线为 ahead 26/behind 0。
 - 生成文件冲突统一保留最新 main 版本，rebase 与 hardening 恢复完成后重新运行 Ent/Wire generation。源码冲突保留主线新增的 upstream model catalog、共享 OpenAI quota post-process 和 Grok unsupported 语义，同时新增/保留 Actor-aware facade，使同一管理员 User 或固定 Admin API Key Service Principal Actor 继续贯穿模型同步、quota query/cache、account recovery 和 account reload。
 - Go 1.27 的 Wire generation 要求显式记录 `github.com/google/subcommands v1.2.0` 工具依赖；`go.mod`/`go.sum` 已补齐后生成成功。占位内容的临时 `frontend/pnpm-workspace.yaml` 未纳入提交。
 
@@ -641,12 +641,31 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 | `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
 | `git diff --check` | 通过 |
 
-当前机器仍无 Docker，因此以上本机 PostgreSQL 18.6 动态测试不能冒充当前工作树的 Testcontainers 门禁。SHA `d47ca4bea567f778c6356a761344f376ca471ea4` 的 push/PR CI 与 Security Scan 只覆盖上一节快照，不覆盖 migration 243、Worker Actor、账号租约或原子 finalizer；必须在当前工作树形成新的最终 SHA 后重新归档 push/PR CI、无过滤完整 Testcontainers suite 和 Security Scan。
+当前机器仍无 Docker，因此以上本机 PostgreSQL 18.6 动态测试本身不冒充 Testcontainers 门禁；最终代码提交的远端动态结果由下节单独归档。
+
+### Current Code SHA CI / PR 收口
+
+首次推送的代码提交 `7acf5a0ddadb1b915392594eedb97f2b58dfd39a` 暴露了两类 CI 问题，随后由 `aeb967ebe0d9ed9aa5b43f0f9e60dc030f3839e6` 修复并重新采证。
+
+| 字段 | 证据 |
+| --- | --- |
+| 首次失败 | push [CI Run 33607286800](https://github.com/savvym/sub2api/actions/runs/33607286800) 与 PR [CI Run 33607293167](https://github.com/savvym/sub2api/actions/runs/33607293167) 均在 `7acf5a0ddadb1b915392594eedb97f2b58dfd39a` 上失败；两边 unit step 均成功，integration 在同一 repository 用例失败，lint 同时失败 |
+| Integration 根因 | `TestListOpenAIAutoResetRecoveryCandidatePageBypassesMutableEligibilityWithoutSkippingAfterConvergence` 的 shadow fixture 写入了 `parent_account_id`，却沿用默认 `quota_dimension='global'`，违反最新 main 的 `chk_accounts_parent_dimension`；push 日志中的 repository package 在 `34.791s` 后报告该唯一失败 |
+| Lint 根因 | golangci-lint v2.13.2 报告 6 项：Ed25519 公钥类型断言 1 项 errcheck、故意 nil context 测试 2 项 SA1012、布尔表达式 2 项 QF1001、嵌入字段 selector 1 项 QF1008 |
+| 修复提交 | `aeb967ebe0d9ed9aa5b43f0f9e60dc030f3839e6`：父 shadow fixture 显式写 `spark`、根帐号写 `global`；Ed25519 公钥断言改为显式校验并传播错误；其余 lint 命中按意图收敛。提交已推送到 `origin/codex/resource-access-control-foundation` |
+| Push CI | [Run 33608505225](https://github.com/savvym/sub2api/actions/runs/33608505225)，attempt 1，结论 success；[test job 100177927975](https://github.com/savvym/sub2api/actions/runs/33608505225/job/100177927975) 总时长 `10m07s`，unit `6m12s`，integration `3m38s` |
+| PR CI | [Run 33608510880](https://github.com/savvym/sub2api/actions/runs/33608510880)，attempt 1，结论 success；[test job 100177945050](https://github.com/savvym/sub2api/actions/runs/33608510880/job/100177945050) 总时长 `10m08s`，unit `6m12s`，integration `3m38s` |
+| Integration 动态执行 | 两个 Ubuntu job 均使用 Go 1.27.0，执行 `make test-integration` → `go test -tags=integration ./...`，没有 `-run` 过滤；Testcontainers harness 配置 PostgreSQL `18.1-alpine3.23` 与 Redis `8.4-alpine`；`internal/repository` 分别非缓存运行 `50.632s` 与 `49.677s` 并成功，因此包含 228→migration 243 持久升级/reapply 与完整 repository suite |
+| Lint | push [job 100177928348](https://github.com/savvym/sub2api/actions/runs/33608505225/job/100177928348) 使用 golangci-lint v2.13.2，输出 `0 issues`，总时长 `4m06s`；PR [job 100177945213](https://github.com/savvym/sub2api/actions/runs/33608510880/job/100177945213) 同样成功，总时长 `3m58s` |
+| Security Scan | push [Run 33608505242](https://github.com/savvym/sub2api/actions/runs/33608505242) 与 PR [Run 33608511032](https://github.com/savvym/sub2api/actions/runs/33608511032) 均成功；两个 backend job 的 `govulncheck ./...` 均报告代码受影响漏洞 0 个，两个 frontend production audit exception check 均通过 |
+| Draft PR | 2026-09-02 采证时 [PR #1](https://github.com/savvym/sub2api/pull/1) 仍为 Draft，base OID `efb46db0a960fdad94502b1c3a982a0051cf5245`，head OID `aeb967ebe0d9ed9aa5b43f0f9e60dc030f3839e6`，GitHub 报告 `MERGEABLE/CLEAN`；退出门禁完成前不得转 Ready 或合并 |
+
+上述结果补齐 migration 243、Worker Actor、帐号租约、原子 finalizer、recovery pager 与最新 main 约束的当前代码 SHA push/PR CI、完整 Testcontainers、lint 和 Security Scan 工程证据。它不替代生产只读 preflight、旧 Worker drain、目标环境 shadow 观察或批准人证据。
 
 ### 发布、回滚与剩余门禁
 
 - migration 243 不能撤回旧 Worker 已经发出的上游调用。生产迁移前必须对批准的只读副本执行并归档完整 `data-preflight.sql`：五列 provenance inventory 的每行必须 `provenance_state='resolved'`，三列 terminal-recovery inventory 必须零行；任一非 `resolved` provenance 或任一 terminal row 都按上表阻断并处理，不能绕过或猜测。发布必须保持 auto-reset 关闭，在维护窗停止并排空全部旧 Worker，再应用 migration 243，并将所有实例切换为同一兼容版本。
-- 迁移后每条 unresolved marker 只能依据外部证据选择 confirmed-success 或 confirmed-no-effect；unknown 必须保持保护。confirmed-no-effect 批准前必须归档旧 fleet shutdown/drain 与上游无效果证明，并将不含凭据的 evidence ref/decision owner 写入该条 409 SP audit；函数的 drained 布尔参数不是环境检测或证据本身。unresolved=0、Worker identity/readiness、回滚演练和当前 SHA 门禁全部完成后才能重新启用，不能采用新旧 Worker 混跑。
+- 迁移后每条 unresolved marker 只能依据外部证据选择 confirmed-success 或 confirmed-no-effect；unknown 必须保持保护。confirmed-no-effect 批准前必须归档旧 fleet shutdown/drain 与上游无效果证明，并将不含凭据的 evidence ref/decision owner 写入该条 409 SP audit；函数的 drained 布尔参数不是环境检测或证据本身。当前代码 SHA 工程门禁已经完成，但仍须 unresolved=0、Worker identity/readiness、回滚演练及生产批准后才能重新启用，不能采用新旧 Worker 混跑。
 - 回滚到旧 binary 时 auto-reset 必须继续关闭；数据库围栏会有意拒绝旧版本使用的 account-qualified scope，不能在旧 binary 上重新启用该功能。回滚演练和证据需要纳入目标环境 readiness 记录。
 - Phase 0 的 0.4/0.5 仍是 `Review Ready` 而非 `Decision Accepted`，0.8 尚无平台/认证/安全批准；生产 `data-preflight.sql` 与 `credential-key-preflight.sql` 也未执行归档。目标环境仍需完成 role-mode readiness、shadow 观察窗口、具体差异指标、日志量、sink `dropped_count` 和回滚证据。
-- 本地工程收口不改变任务进度：仍为 20/49，0.4、0.5、0.8 和 1.12 保持未勾选；当前工作树形成最终 SHA 后的 CI/Testcontainers/Security Scan、生产/目标环境证据及平台/认证/安全最终批准完成前，不得宣称 Phase 1 正式退出或开始 Phase 2。
+- 当前代码 SHA 的 CI/Testcontainers/lint/Security Scan 已完成，但不改变任务进度：仍为 20/49，0.4、0.5、0.8 和 1.12 保持未勾选；生产/目标环境证据及平台/认证/安全最终批准完成前，不得宣称 Phase 1 正式退出或开始 Phase 2。
