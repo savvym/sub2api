@@ -284,7 +284,9 @@ func TestSelfServiceAccountProductionCatalogStartsEmpty(t *testing.T) {
 	})
 	require.Nil(t, created)
 	require.ErrorIs(t, err, ErrSelfServiceAccountProductUnavailable)
-	require.Zero(t, service.repository.(*selfServiceAccountRepositoryStub).txCalls)
+	repository, ok := service.repository.(*selfServiceAccountRepositoryStub)
+	require.True(t, ok)
+	require.Zero(t, repository.txCalls)
 }
 
 func TestStaticSelfServiceAccountCatalogAcceptsOnlyReviewedAPIKeyProducts(t *testing.T) {
