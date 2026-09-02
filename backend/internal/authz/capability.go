@@ -5,17 +5,18 @@ package authz
 type Capability string
 
 const (
-	CapabilityAPIKeyCreate               Capability = "api_key.create"
-	CapabilityAccountCreate              Capability = "account.create"
-	CapabilityGroupCreate                Capability = "group.create"
-	CapabilityResourceShare              Capability = "resource.share"
-	CapabilityResourceTransfer           Capability = "resource.transfer"
-	CapabilityPlatformResourceViewAll    Capability = "platform.resource.view_all"
-	CapabilityPlatformResourceOperateAll Capability = "platform.resource.operate_all"
-	CapabilityPlatformResourceManageAll  Capability = "platform.resource.manage_all"
-	CapabilityPlatformRoleManage         Capability = "platform.role.manage"
-	CapabilityPlatformGrantManage        Capability = "platform.grant.manage"
-	CapabilityPlatformSecretExport       Capability = "platform.secret.export"
+	CapabilityAPIKeyCreate                        Capability = "api_key.create"
+	CapabilityAccountCreate                       Capability = "account.create"
+	CapabilityGroupCreate                         Capability = "group.create"
+	CapabilityResourceShare                       Capability = "resource.share"
+	CapabilityResourceTransfer                    Capability = "resource.transfer"
+	CapabilityPlatformResourceViewAll             Capability = "platform.resource.view_all"
+	CapabilityPlatformResourceOperateAll          Capability = "platform.resource.operate_all"
+	CapabilityPlatformResourceManageAll           Capability = "platform.resource.manage_all"
+	CapabilityPlatformRoleManage                  Capability = "platform.role.manage"
+	CapabilityPlatformGrantManage                 Capability = "platform.grant.manage"
+	CapabilityPlatformSecretExport                Capability = "platform.secret.export"
+	CapabilityPlatformAccountOpenAIQuotaAutoReset Capability = "platform.account.openai_quota_auto_reset"
 )
 
 var allCapabilities = [...]Capability{
@@ -30,6 +31,7 @@ var allCapabilities = [...]Capability{
 	CapabilityPlatformRoleManage,
 	CapabilityPlatformGrantManage,
 	CapabilityPlatformSecretExport,
+	CapabilityPlatformAccountOpenAIQuotaAutoReset,
 }
 
 func (c Capability) Valid() bool {
@@ -44,7 +46,8 @@ func (c Capability) Valid() bool {
 		CapabilityPlatformResourceManageAll,
 		CapabilityPlatformRoleManage,
 		CapabilityPlatformGrantManage,
-		CapabilityPlatformSecretExport:
+		CapabilityPlatformSecretExport,
+		CapabilityPlatformAccountOpenAIQuotaAutoReset:
 		return true
 	default:
 		return false

@@ -1,6 +1,11 @@
 # 自助托管出站安全基线
 
-状态：**Review Ready（尚未 Accepted）**。本文件可进入安全评审，但在下列硬阻塞全部关闭前，不得启用 Phase 2 自助托管开关。管理员现有高级能力不在本文件中被静默收紧。
+阶段状态：
+
+- Phase 0 设计决策：**Review Ready（尚未 Decision Accepted）**。
+- Phase 2 实施/发布验收：**Not Ready（尚未 Release Accepted）**。
+
+`Decision Accepted` 只冻结自助产品矩阵、固定目标、网络契约、限频基线和延期范围，可用于勾选任务 0.5；它不证明第 6 节已经实现，也不允许开启任何自助平台。只有第 6、7 节的代码与目标环境证据完成并取得 `Release Accepted` 后，候选组合才可逐项启用。两种状态不得简写为含义不明的 `Accepted`。管理员现有高级能力不在本文件中被静默收紧。
 
 ## 1. 范围与结论
 
@@ -84,7 +89,7 @@ Allowlist 必须由服务端按照 `(platform, auth_type, product_version)` 选�
 
 这些值应成为服务端配置的保守默认值；允许运营者调低。调高、管理员豁免或新增批量入口必须单独审计。Redis 限频异常时，自助凭证出站不能沿用 Panel 的 fail-open 语义，应拒绝或进入严格的进程内降级上限。
 
-## 6. Phase 2 硬阻塞
+## 6. Phase 2 实施/发布硬阻塞
 
 1. **产品矩阵缺失**：实现并测试独立自助 DTO、平台/类型矩阵和凭证键 allowlist；证明管理员请求体无法穿透。
 2. **安全拨号缺失**：通用出站组件完成 dial-time IP 校验/绑定、保留 SNI、禁重定向和全 CIDR 测试；不得仅调用现有 `ValidateResolvedIP` 后普通拨号。
@@ -106,6 +111,30 @@ Allowlist 必须由服务端按照 `(platform, auth_type, product_version)` 选�
 - 响应与日志：超大/压缩响应、恶意错误体、CRLF Header、凭证 canary；canary 不得出现在日志、错误、审计、Redis、前端状态或 API 响应。
 - 回归：管理员现有代理、自定义上游和 Header override 行为保持不变；所有新开关关闭时，旧用户/管理员行为与现网一致。
 
-## 8. 评审后决策记录
+## 8. 分阶段批准记录
 
-安全评审需要明确记录：首批实际启用的平台、每个平台的精确 host/path、初始限频值是否调整、direct transport 实现、OAuth 是否继续延期，以及所有硬阻塞的代码/测试证据。只有记录完成并由安全与平台负责人共同批准后，本文件状态才能从 `Review Ready` 改为 `Accepted`。
+### 8.1 Phase 0 设计决策批准（任务 0.5）
+
+以下项目全部完成后，才能将 Phase 0 状态从 `Review Ready` 改为 `Decision Accepted` 并勾选任务 0.5：
+
+- [ ] 冻结首批候选、暂缓和禁止的 `(platform, auth_type, product_version)` 组合；每个候选明确精确 scheme/host/port/path 模板和允许的凭证键，客户端不能选择网络目标。
+- [ ] 冻结 direct transport 安全契约：dial-time 全地址校验并绑定已验证 IP、保留 TLS SNI/证书校验、禁重定向、禁环境/帐号代理、响应大小上限和连接复用边界。
+- [ ] 冻结第 5.2 节初始限频、pending flow、帐号配额、provider bulkhead、Redis 故障 fail-closed 和调高配置的审批规则。
+- [ ] 明确 OAuth 是否继续延期；任何拟开放 OAuth 组合都必须先冻结 Actor/Owner 强绑定、PKCE、redirect URI、TTL 和单次消费契约。
+- [ ] 明确自助专用 DTO、未知键拒绝、凭证/日志边界、逐平台灰度指标和全关回滚的验收责任。
+- [ ] 为第 6、7 节每个未决实施项登记 owner、目标任务/版本和验收方法；Phase 0 不要求这些代码已经完成，但不允许存在无 owner 的安全阻塞。
+- [ ] 建立一条不可变的设计批准记录，包含评审文档 commit/PR、日期、首批组合与精确目标、限频值、OAuth 决策和未决实施清单，并分别附安全、平台及每个候选组合认证类型负责人的批准链接。
+
+批准链接必须能追溯批准人身份、角色、日期、明确结论和所批准的文档版本。仅填写姓名、口头确认或不可长期访问的聊天截图不算证据。新增平台、认证类型、目标 host/path、代理能力或调高限频会使对应决策失效，必须重新批准。
+
+### 8.2 Phase 2 实施/发布验收
+
+以下项目全部完成后，才能把实施/发布状态改为 `Release Accepted` 并启用获批组合：
+
+- [ ] 第 6 节七项硬阻塞全部关闭，且每项附实现 PR/commit、配置和测试链接。
+- [ ] 第 7 节验收矩阵在 CI 与目标环境通过；SSRF、凭证重放、OAuth、多实例限频、泄漏 canary 和旧管理员回归均有可追溯结果。
+- [ ] 发布记录列出实际启用组合、精确 host/path、最终限频值、direct transport 版本、OAuth 状态、观察指标、告警阈值、灰度窗口和全关回滚演练结果。
+- [ ] `credential-inventory.md` 已取得对应范围的 `Release Accepted`，且无未到期的高风险例外。
+- [ ] 安全与平台负责人共同批准发布；每个实际启用组合的认证类型负责人确认实现未偏离第 8.1 节决策。任何豁免都必须有风险 owner、范围、补偿控制、到期时间和批准链接。
+
+Phase 0 的 `Decision Accepted` 不能替代本节。任一发布证据缺失时，即使管理员路径已工作，相关自助平台仍必须保持关闭。

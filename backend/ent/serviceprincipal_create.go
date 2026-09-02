@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Wei-Shaw/sub2api/ent/permission"
 	"github.com/Wei-Shaw/sub2api/ent/role"
 	"github.com/Wei-Shaw/sub2api/ent/serviceprincipal"
 	"github.com/Wei-Shaw/sub2api/ent/serviceprincipalrole"
@@ -105,6 +106,21 @@ func (_c *ServicePrincipalCreate) AddRoles(v ...*Role) *ServicePrincipalCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddRoleIDs(ids...)
+}
+
+// AddWorkerPermissionIDs adds the "worker_permissions" edge to the Permission entity by IDs.
+func (_c *ServicePrincipalCreate) AddWorkerPermissionIDs(ids ...int64) *ServicePrincipalCreate {
+	_c.mutation.AddWorkerPermissionIDs(ids...)
+	return _c
+}
+
+// AddWorkerPermissions adds the "worker_permissions" edges to the Permission entity.
+func (_c *ServicePrincipalCreate) AddWorkerPermissions(v ...*Permission) *ServicePrincipalCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddWorkerPermissionIDs(ids...)
 }
 
 // AddServicePrincipalRoleIDs adds the "service_principal_roles" edge to the ServicePrincipalRole entity by IDs.
@@ -276,6 +292,26 @@ func (_c *ServicePrincipalCreate) createSpec() (*ServicePrincipal, *sqlgraph.Cre
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		createE := &ServicePrincipalRoleCreate{config: _c.config, mutation: newServicePrincipalRoleMutation(_c.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.WorkerPermissionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   serviceprincipal.WorkerPermissionsTable,
+			Columns: serviceprincipal.WorkerPermissionsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(permission.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &ServicePrincipalWorkerPermissionCreate{config: _c.config, mutation: newServicePrincipalWorkerPermissionMutation(_c.config, OpCreate)}
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields

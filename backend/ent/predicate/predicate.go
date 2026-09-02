@@ -114,6 +114,9 @@ type ServicePrincipal func(*sql.Selector)
 // ServicePrincipalRole is the predicate function for serviceprincipalrole builders.
 type ServicePrincipalRole func(*sql.Selector)
 
+// ServicePrincipalWorkerPermission is the predicate function for serviceprincipalworkerpermission builders.
+type ServicePrincipalWorkerPermission func(*sql.Selector)
+
 // Setting is the predicate function for setting builders.
 type Setting func(*sql.Selector)
 

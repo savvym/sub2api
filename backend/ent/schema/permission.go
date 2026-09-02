@@ -43,5 +43,8 @@ func (Permission) Edges() []ent.Edge {
 		edge.From("roles", Role.Type).
 			Ref("permissions").
 			Through("role_permissions", RolePermission.Type),
+		edge.From("worker_service_principals", ServicePrincipal.Type).
+			Ref("worker_permissions").
+			Through("worker_permission_grants", ServicePrincipalWorkerPermission.Type),
 	}
 }

@@ -70,17 +70,18 @@ func TestLegacyAdminCapabilityAllowlistMatchesCompatibilitySeed(t *testing.T) {
 	// migration seed. This table makes the legacy subset an explicit review
 	// boundary so future seeded capabilities are denied by default.
 	expected := map[Capability]bool{
-		CapabilityAPIKeyCreate:               true,
-		CapabilityAccountCreate:              true,
-		CapabilityGroupCreate:                true,
-		CapabilityResourceShare:              true,
-		CapabilityResourceTransfer:           true,
-		CapabilityPlatformResourceViewAll:    true,
-		CapabilityPlatformResourceOperateAll: true,
-		CapabilityPlatformResourceManageAll:  true,
-		CapabilityPlatformRoleManage:         true,
-		CapabilityPlatformGrantManage:        true,
-		CapabilityPlatformSecretExport:       false,
+		CapabilityAPIKeyCreate:                        true,
+		CapabilityAccountCreate:                       true,
+		CapabilityGroupCreate:                         true,
+		CapabilityResourceShare:                       true,
+		CapabilityResourceTransfer:                    true,
+		CapabilityPlatformResourceViewAll:             true,
+		CapabilityPlatformResourceOperateAll:          true,
+		CapabilityPlatformResourceManageAll:           true,
+		CapabilityPlatformRoleManage:                  true,
+		CapabilityPlatformGrantManage:                 true,
+		CapabilityPlatformSecretExport:                false,
+		CapabilityPlatformAccountOpenAIQuotaAutoReset: false,
 	}
 	if len(expected) != len(AllCapabilities()) {
 		t.Fatalf("legacy compatibility table does not cover every seeded capability: %d of %d", len(expected), len(AllCapabilities()))

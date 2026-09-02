@@ -77,7 +77,7 @@ CI=1 go test -tags=integration ./internal/repository
 
 - Docker/Testcontainers repository integration suite 当时未执行；该阶段要求后续在 CI 或有 Docker 的机器补跑，最终动态结果见 1.12 CI 记录。
 - 本地测试库已完成只读预检，但不是生产数据；仍需对真实服务器只读数据运行同一脚本。
-- credentials/extra 与自助 outbound allowlist 已达到 Review Ready，尚待负责人批准，不得据此开放 Phase 2。
+- credentials/extra 与自助 outbound allowlist 已达到 Phase 0 `Review Ready`，尚待负责人将设计决策批准为 `Decision Accepted`；Phase 2 `Release Accepted` 仍需生产数据、实现与目标环境证据，不得据此开放 Phase 2。
 
 ### 提交与远程
 
@@ -113,7 +113,7 @@ PGOPTIONS='-c default_transaction_read_only=on' \
 
 - `credential-inventory.md` 已覆盖 credentials/extra 键族、PostgreSQL/Redis/DTO/日志/导出/备份暴露面、JSONB/CAS/调度依赖和加密迁移批次。
 - `outbound-security.md` 已冻结 Review Ready 候选：首批仅考虑固定官方端点的 OpenAI/Anthropic/Gemini API Key；其他平台、OAuth、代理、自定义 URL/Header 和云凭证暂缓或禁止。
-- 两份文档均未标为 Accepted；生产键名统计、direct safe dialer、专用 DTO、Owner-bound OAuth、限频/配额、泄漏 canary 和负责人批准仍是硬门禁。
+- 两份文档的 Phase 0 状态均未达到 `Decision Accepted`，Phase 2 状态也未达到 `Release Accepted`；生产键名统计、direct safe dialer、专用 DTO、Owner-bound OAuth、限频/配额和泄漏 canary 属于发布验收硬门禁，不能反向阻塞 Phase 0 设计批准，但必须有 owner、目标任务和验收方法。
 
 ## 2026-08-20 - Authorization Domain Contract（1.5）
 
@@ -564,3 +564,89 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 - 本次 main integration 不改变任务进度：仍为 20/49，1.12 保持未勾选，Phase 2 的 2.1 不得开始。
 - 最终代码 SHA 的 push/PR CI、Testcontainers、Security Scan 与 Draft PR mergeability 已归档；旧 Run `32711471080` 不作为 main 新增 migration 和双线收敛测试的证据。
 - Phase 0 批准、生产预检/凭据键名统计、目标环境 shadow 观察与平台/认证/安全批准仍未完成。
+
+## 2026-09-02 - OpenAI Quota Auto-Reset Hardening and Latest Main Rebase
+
+本节记录上一节 `d47ca4bea567f778c6356a761344f376ca471ea4` 采证之后的 migration 243/auto-reset hardening，以及 2026-09-02 对最新主线的最终本地收口。上一节关于当时 CI 和 PR 状态的结论保留为历史事实；本节不把尚未运行的新 SHA 远端 CI 反写成已经完成。
+
+### Latest Main Rebase 收口
+
+- 已获取并将 24 个分支提交线性 rebase 到 `origin/main@efb46db0a`；rebase 后 `origin/main` 是当前分支祖先，分支相对主线为 ahead 24/behind 0。
+- 生成文件冲突统一保留最新 main 版本，rebase 与 hardening 恢复完成后重新运行 Ent/Wire generation。源码冲突保留主线新增的 upstream model catalog、共享 OpenAI quota post-process 和 Grok unsupported 语义，同时新增/保留 Actor-aware facade，使同一管理员 User 或固定 Admin API Key Service Principal Actor 继续贯穿模型同步、quota query/cache、account recovery 和 account reload。
+- Go 1.27 的 Wire generation 要求显式记录 `github.com/google/subcommands v1.2.0` 工具依赖；`go.mod`/`go.sum` 已补齐后生成成功。占位内容的临时 `frontend/pnpm-workspace.yaml` 未纳入提交。
+
+### Worker Actor 与逐操作授权
+
+- migration 243 新增固定、可停用且 roleless 的 `openai_quota_auto_reset_worker` Service Principal，只通过独立关联表直接拥有一个 `platform.account.openai_quota_auto_reset` Worker permission。它不获得普通 RBAC role；主体缺失、disabled、授权版本变化、出现任意角色、缺少或多出 direct permission 时，专用 WorkerPolicy 均 fail closed。
+- scanner、帐号读取、quota 查询/缓存、幂等 claim/reclaim/lease 等 repository 操作、上游 reset、恢复、帐号重新加载和状态写入在各自新操作前重新解析或校验同一 Worker Actor。授权失败发生在对应 repository 或上游调用之前，不能沿用启动时快照继续执行；已经发生上游效果后的原子事实终结是下节明确记录的唯一例外。
+- recovery candidate 先于普通 enabled-account 扫描，并使用独立 PostgreSQL keyset pager（`id > after_id ORDER BY id LIMIT`）。查询只保留运行时结构边界（未删除、OpenAI OAuth、非 shadow）和可能存在上游效果的 state，不依赖 auto-reset enabled、帐号 status 或 schedulable；`resetting` 无/坏 hash 与 `failed` partial hash 也会入选，交由 strict parser fail closed。scanner 使用可取消的阻塞式去重入队，队列满时等待 worker 容量，避免持续失败的低 ID 反复占据 offset 页并饿死后续 recovery；请求热路径 `Notify` 仍是可丢信号的非阻塞入口。
+- managed-state key 存在且非 null 时以 `DisallowUnknownFields` 解码，拒绝错误字段类型和未知字段；status 只允许六个已知值，attempt credit/cycle hash 必须同时为空或同时为 24 位小写十六进制，`resetting` 必须携带 hash 对，`available_count` 必须是 `0..2147483647` 的整数。任何错误都在普通 eligibility/query/reset 前返回 reconciliation-required，不能把 malformed state 当作 nil 后开始新 attempt。
+- 普通执行先在初次帐号加载、quota query 后重新加载、幂等 claim 前第三次加载执行 mutable eligibility reload；帐号必须非 shadow、auto-reset config enabled、active 且 schedulable。第四次检查位于每个 POST 前的 proxy/account 锁内，并同时绑定完整 upstream identity。测试分别在 query 期间、post-query reload 之后和锁升级边界修改 eligibility/identity，均在 POST 前停止且不写 reset audit。
+- 新执行使用 `openai_auto_reset_credit|service_principal:<id>` Actor-qualified scope；稳定 key 同时绑定 account、credit hash 与 cycle hash，redeem request ID 由该 key 确定性生成。durable audit 只归因同一个 Service Principal，不再用 `system` 字符串或 account-qualified scope 代替主体身份。
+
+### 跨实例账号租约与原子终结
+
+- 每次帐号评估在首次帐号业务读取前取得 PostgreSQL transaction advisory lease；请求 context 取消不会让已开始的 lease 提前丢锁。claim、查询和发布 `resetting` 的前半程只持 advisory lock，避免 worker 被自己的独立帐号写事务阻塞。真正发出每次上游 POST 前，external-effect guard 才在同一 lease 内先对所选 proxy `FOR SHARE`、再对 account `FOR UPDATE`，并复核 proxy ID 未切换、完整 eligibility，以及 credential/auth fingerprint、ChatGPT account/FedRAMP、proxy ID/URL fingerprint 等完整 upstream identity。POST 返回后立即 release/rollback 该 lease，不把帐号或 proxy 行锁带入 recovery、audit/finalizer 与状态写；agent task recovery 后的第二次 POST 必须取得新 lease 并重新执行全部锁定与复核。不同实例不能同时跨过同一帐号的 POST 边界，不同帐号仍可并行；未取得 lease 时无副作用，接口错误返回 acquired 但 lease 为 nil 或 typed-nil 时显式失败。
+- 专用 PostgreSQL finalizer 以 `FOR UPDATE` 锁定 Actor-qualified `processing` 记录，在同一事务内校验 scope、fingerprint、expiry、终态内容和 audit Service Principal 归属，写入唯一 audit，再完成 `processing -> succeeded`。audit 冲突、写入失败或状态更新失败会整体回滚，不能留下“成功幂等记录但无审计”或相反的半提交状态。
+- finalizer 有意不重新解析或授权 Worker。reset 上游效果已返回后若 Worker 权限被撤销，post-process 的 recovery/query/cache/load/update 会停止，但 finalizer 仍可把 `recovery_deferred` audit 与 succeeded 幂等终态作为已经发生的同一事实原子提交，随后 service 返回授权错误；恢复授权后只做 recovery-only，不再调用 reset。该例外不允许 claim、reset、恢复或任何其他新副作用绕过逐操作授权。
+- 真实 PostgreSQL 并发用例证明：相同 outcome 的两个 finalizer 都可幂等确认同一提交；不同 outcome 只允许一个提交，另一个得到 conflict，最终 response 与 audit 始终属于同一 winner。外部调用已经开始后的 timeout、终结失败和过期 `processing` 不会自动重发，保留给 reconciliation。
+
+### Migration 243 升级与混合版本围栏
+
+- migration 243 新增五列 `openai_quota_auto_reset_protected_attempts` marker：record 主键/RESTRICT FK、正 `account_id`、保护时间和成对的 reconciliation 时间/audit request ID。`account_id` 故意没有 accounts FK，使帐号物理删除后审计 provenance 仍保留。`openai_quota_auto_reset_protection_backfill` 只允许 `completed=TRUE`，作为精确一次 snapshot sentinel。
+- snapshot 中 account scope 直接解析帐号；raw/任意旧 SP scope 必须以 OpenAI 帐号 `extra` 中 24 位 attempt credit/cycle hash 重建 `SHA256("oarc:<account_id>:<credit_hash>:<cycle_hash>")` 并与 idempotency key hash 唯一匹配。0 或多候选会抛 `check_violation` 回滚整个 migration，而不是猜测。被标记的 `failed_retryable` 冻结为 `processing`；全部 account 记录（含 succeeded replay）与 protected raw/旧 SP scope 归一到 reserved SP。raw fence、malformed raw 和 post-snapshot current retryable 不迁移、不标记，reapply sentinel 使当前行不被重新扫描。
+- 两个协调函数都在 SQL 内强制 audit extra 的 `account_id`、`idempotency_record_id`、`request_fingerprint` 与调用/父记录精确一致，`evidence_ref` 必须为 trim 后 1..256 字符的 string，`decision_owner` 必须为 trim 后 1..128 字符的 string；任一缺失、错类型、越界或不匹配都以 `check_violation` 使 audit/状态整体回滚。evidence ref 只引用已归档证据，不得携带凭据或上游秘密。
+- confirmed-success 使用 `reconcile_openai_quota_auto_reset_protected_attempt`：调用方 account ID 必须与 marker 精确一致，audit path/extra 由该 provenance 约束，audit request ID 必须为专用 deterministic decision ID `reconcile-success:<record_id>`，不得复用 upstream redeem request ID；函数同事务锁 attempt/marker、插入或核验 SP audit、写 reconciled tombstone，再执行唯一 `processing -> succeeded`。调用方不再传入终态过期时间；数据库固定设为 reconciliation statement time + 8 天，exact retry 核验该保留期。marker 不在终态前删除，通用 UPDATE 在 unresolved/reconciled 两态都拒绝旧 status-only succeeded/failed，等待行锁的旧请求在协调提交后仍失败。
+- confirmed-success 当前唯一入口为八参数 `reconcile_openai_quota_auto_reset_protected_attempt(bigint,text,text,bigint,timestamptz,text,integer,jsonb)`；终态 body、result 与固定八天 retention 均由数据库从受约束 audit 构造，不再由调用方传入。raw migration reapply 显式 `DROP FUNCTION IF EXISTS` 两个废弃的 caller-controlled outcome/expiry overload；PostgreSQL 回归在 reapply 后按 `REGPROCEDURE` 校验旧签名不存在，避免 `CREATE OR REPLACE` 留下旁路入口。
+- confirmed-no-effect 使用 `discard_openai_quota_auto_reset_protected_attempt_no_effect`，audit request ID 必须为 `reconcile-no-effect:<record_id>`，仅限操作者已停止并排空全部旧 Worker、且正面确认受保护上游调用无效果。`p_old_fleet_drained=TRUE` 只是调用方断言，函数无法探测 fleet；批准执行前必须归档 shutdown/drain 与 upstream no-effect 证据，并在 audit extra 记录不含凭据的可追溯 evidence ref 和 decision owner。函数校验 marker account provenance 与 audit 精确一致，在同一事务写 409 SP audit（`result_code=reconciled_no_effect`、`windows_reset=0`），仅当帐号当前 `resetting|failed` managed state 重算的 stable-key hash 精确匹配父 record 时清除该 state，不同、更新或已缺失 state 保留，再删除 unresolved marker 和父 record；exact retry 只接受同一 audit，等待行锁的迟到旧 UPDATE 在删除提交后影响 0 行。两个协调函数均为 `SECURITY INVOKER` 且 `REVOKE ALL ... FROM PUBLIC`；unknown 结果不得调用任一函数。
+- 未协调 DELETE 返回 `NULL` 使 cleanup 跳过；confirmed-success 的 reconciled terminal 至少保留 8 天，过期后 trigger 仍会重算帐号当前 managed state：同一 stable-key 且状态为 `resetting|failed` 时返回 `NULL` 继续保留父行/tombstone，只在 recovery 已终结、不匹配或已缺失时才在父行前删除 tombstone。trigger 缺失/禁用时 RESTRICT FK fail closed。confirmed-no-effect 的 marker/父行只由上述 owner-only 函数原子删除。
+- raw upgrade fence、malformed raw identity 和首次 snapshot 后由当前版本创建的 retryable attempt 不迁移、不标记。raw migration reapply 因 `completed=TRUE` sentinel 已存在而不会把 post-snapshot current retryable 冻结；最终 PostgreSQL 回归已证明该行仍可 reclaim、finalize 和 delete。
+- 安装写围栏前以 `LOCK TABLE idempotency_records IN SHARE ROW EXCLUSIVE MODE` 关闭迁移扫描与 trigger 生效之间的并发写窗口。后续 trigger 拒绝 `openai_auto_reset_credit|account:<id>` 的 INSERT 和 UPDATE；raw upgrade fence、当前 Service Principal scope 和无关业务 scope 仍可正常写入。
+- seed/table/index/trigger 都校验精确数据库形状；不安全的保留 code 碰撞或 look-alike marker/sentinel schema 会在授予 Worker 权限前失败。
+
+### 双 Inventory 发布门禁与处理路由
+
+`data-preflight.sql` 在同一个 `REPEATABLE READ READ ONLY` snapshot 中返回两份独立结果。第一份五列 provenance inventory 会同时输出 `resolved` 和 blocker，只有每行 `provenance_state='resolved'` 才能继续；第二份三列 terminal-recovery inventory 只输出 blocker，因此必须为零行。两份结果都不得包含 key hash、fingerprint、response body、attempt hash 或凭据，且每次数据修复后都必须在同一批准只读副本上重新执行并归档。
+
+| Inventory / blocker | 含义 | 允许的处理路由 |
+| --- | --- | --- |
+| provenance / `malformed_identity` | scope、key hash、fingerprint 或 scope ID 不是 canonical identity | 从可信数据库备份、audit 或 upstream 证据重建精确 identity；不能靠字符串猜测补齐 |
+| provenance / `unmatched` | raw/旧 SP attempt 无法映射到持久 pending state | 找回唯一 account/stable-key provenance，或依据外部效果证据先完成人工协调；不得强行指定帐号 |
+| provenance / `ambiguous` | 同一 attempt 可映射多个帐号 | 消除重复/冲突数据并证明唯一 owner；在唯一性恢复前保持阻断 |
+| provenance / `recovery_fingerprint_mismatch` | stable key 可映射但 Actor/payload fingerprint 不一致 | 核对原始 Actor 与 canonical payload，仅凭可信 provenance 修复；无法证明时升级人工事件 |
+| provenance / `target_scope_collision` | 归一到 reserved Worker scope 会违反 `(scope,key_hash)` 唯一性 | 逐条确认重复记录的外部效果与 owner，消除 collision 后重跑；不能删除“看起来多余”的记录 |
+| terminal / `malformed_pending_state` | managed state 违反 strict schema、状态、类型、hash pair 或 count 范围 | 从可信 state/audit 修复为 strict schema；若状态已无法恢复，须先取得上游效果证据并按批准 runbook 人工收口 |
+| terminal / `unreachable_account` | pending attempt 位于 deleted、非 OpenAI OAuth 或 shadow 帐号，runtime pager/GetByID 不可达 | 若帐号仍应恢复则先恢复为 runtime 可达结构并运行 recovery；否则凭权威效果证据完成人工协调并清除 pending state，不能原样迁移 |
+| terminal / `missing_attempt_record` | pending state 没有 exact stable-key durable record/in-flight parent | 定位并恢复权威 durable record，或用 upstream/audit 证据人工协调帐号状态；禁止合成猜测记录 |
+| terminal / `unreachable_scope` | succeeded record 位于 raw、旧/其他 SP 等 runtime recovery 不读取的 scope | 先证明 account、stable key 与 fingerprint 的唯一绑定，再通过评审的数据修复归一到同帐号或 reserved Worker scope |
+| terminal / `fingerprint_mismatch` | record scope/key 可达但请求 fingerprint 与 legacy/current Actor 都不一致 | 调查 conflicting Actor/payload，仅凭可信原始请求证据修复；无法证明时保持阻断 |
+| terminal / `legacy_redacted_result` | 旧 generic redactor 已把 legacy `code` 破坏为 `***` | 从 upstream/audit 证明真实 outcome，再写入经验证的 canonical terminal result 并收敛帐号 state；绝不把 `***` 猜成 success/no-credit |
+| terminal / `invalid_terminal_response` | response status/body/schema/count/flag 不能被 hardened replay decoder 消费 | 根据权威 outcome 证据修复 canonical response 与帐号 state，或走人工协调；不得只为清空 inventory 放宽 decoder |
+| 任意未知分类 | 当前 runbook 未覆盖的数据形态 | 停止 migration，升级平台与安全评审并补充分类/测试；不得默认视为 resolved |
+
+### 当前本地验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| `make -C backend generate` | 通过；Ent 与 Wire 已在 `origin/main@efb46db0a` 基线上按 Worker permission、repository 和 service 注入重新生成 |
+| `make -C backend test-unit` | 通过；Go 1.27.0，`internal/service` 非缓存执行 161.400s |
+| `cd backend && go test -race ./internal/service ./internal/repository -run 'OpenAIQuotaAutoReset' -count=1` | 通过；service 5.046s、repository 3.696s，覆盖三次 mutable eligibility reload、POST 前第四次 locked eligibility/upstream identity 检查、逐操作授权、reset 后撤权仅原子终结、恢复授权后不二次 reset、nil/typed-nil lease 以及不同 attempt 并发 |
+| `SUB2API_AUTHZ_POLICY_POSTGRES_ADMIN_DSN=... go test ./internal/repository -run 'Test(OpenAIQuotaAutoResetFinalizerPostgres\|AuthzWorkerPolicyStorePostgresMigration243AuthorizationMatrix)' -count=1 -v` | 通过，33.793s；本机 PostgreSQL 18.6 覆盖 WorkerPolicy 数据库矩阵和 5 个 finalizer PG tests，包括原子提交、失败回滚、精确重试和相同/不同 outcome 并发 |
+| `cd backend && go test ./migrations -count=1` | 通过；当前 migration 243 static/default migration tests 全部执行 |
+| `SUB2API_AUTHZ_POLICY_POSTGRES_ADMIN_DSN=... go test -tags=integration ./migrations -count=1` | 通过，22.454s；使用本机 PostgreSQL 18.6 管理员角色完整动态执行。首次用非管理员 `sub2api` 角色只因缺少 `CREATEROLE`/`pg_terminate_backend` 权限失败，改用本机管理员角色后全包通过 |
+| `SUB2API_AUTHZ_POLICY_POSTGRES_ADMIN_DSN=... go test -tags=integration ./migrations -run 'TestOpenAIQuotaAutoResetActorMigrationPostgres\|TestOpenAIQuotaAutoResetDataPreflightPostgres\|TestOpenAIQuotaAutoResetTerminalRecoveryDataPreflightPostgres' -count=1 -v` | 通过；定向覆盖 actor migration/reapply、五列 provenance inventory 与三列 terminal-recovery inventory。terminal fixture 覆盖 strict managed state、不可达帐号、缺 record、scope/fingerprint、redacted/invalid response；不替代生产只读结果归档 |
+| `cd backend && go test -tags=integration ./... -run '^$' -count=1` | 通过；全 integration 标签树编译成功，只证明 tagged tree 编译，不代表当前提交执行了 Testcontainers 动态套件 |
+| `cd backend && go vet ./internal/service ./internal/repository ./internal/authz ./migrations ./cmd/server` | 通过；当前最终运行时代码重跑 |
+| `make -C backend build` | 通过；当前最终运行时代码重跑 |
+| `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
+| `git diff --check` | 通过 |
+
+当前机器仍无 Docker，因此以上本机 PostgreSQL 18.6 动态测试不能冒充当前工作树的 Testcontainers 门禁。SHA `d47ca4bea567f778c6356a761344f376ca471ea4` 的 push/PR CI 与 Security Scan 只覆盖上一节快照，不覆盖 migration 243、Worker Actor、账号租约或原子 finalizer；必须在当前工作树形成新的最终 SHA 后重新归档 push/PR CI、无过滤完整 Testcontainers suite 和 Security Scan。
+
+### 发布、回滚与剩余门禁
+
+- migration 243 不能撤回旧 Worker 已经发出的上游调用。生产迁移前必须对批准的只读副本执行并归档完整 `data-preflight.sql`：五列 provenance inventory 的每行必须 `provenance_state='resolved'`，三列 terminal-recovery inventory 必须零行；任一非 `resolved` provenance 或任一 terminal row 都按上表阻断并处理，不能绕过或猜测。发布必须保持 auto-reset 关闭，在维护窗停止并排空全部旧 Worker，再应用 migration 243，并将所有实例切换为同一兼容版本。
+- 迁移后每条 unresolved marker 只能依据外部证据选择 confirmed-success 或 confirmed-no-effect；unknown 必须保持保护。confirmed-no-effect 批准前必须归档旧 fleet shutdown/drain 与上游无效果证明，并将不含凭据的 evidence ref/decision owner 写入该条 409 SP audit；函数的 drained 布尔参数不是环境检测或证据本身。unresolved=0、Worker identity/readiness、回滚演练和当前 SHA 门禁全部完成后才能重新启用，不能采用新旧 Worker 混跑。
+- 回滚到旧 binary 时 auto-reset 必须继续关闭；数据库围栏会有意拒绝旧版本使用的 account-qualified scope，不能在旧 binary 上重新启用该功能。回滚演练和证据需要纳入目标环境 readiness 记录。
+- Phase 0 的 0.4/0.5 仍是 `Review Ready` 而非 `Decision Accepted`，0.8 尚无平台/认证/安全批准；生产 `data-preflight.sql` 与 `credential-key-preflight.sql` 也未执行归档。目标环境仍需完成 role-mode readiness、shadow 观察窗口、具体差异指标、日志量、sink `dropped_count` 和回滚证据。
+- 本地工程收口不改变任务进度：仍为 20/49，0.4、0.5、0.8 和 1.12 保持未勾选；当前工作树形成最终 SHA 后的 CI/Testcontainers/Security Scan、生产/目标环境证据及平台/认证/安全最终批准完成前，不得宣称 Phase 1 正式退出或开始 Phase 2。

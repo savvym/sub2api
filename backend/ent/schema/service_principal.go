@@ -52,5 +52,7 @@ func (ServicePrincipal) Edges() []ent.Edge {
 	return []ent.Edge{
 		edge.To("roles", Role.Type).
 			Through("service_principal_roles", ServicePrincipalRole.Type),
+		edge.To("worker_permissions", Permission.Type).
+			Through("worker_permission_grants", ServicePrincipalWorkerPermission.Type),
 	}
 }

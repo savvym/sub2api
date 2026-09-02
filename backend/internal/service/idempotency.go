@@ -94,6 +94,7 @@ type IdempotencyExecuteOptions struct {
 	LegacyActorScopes       []string
 	LegacyRequests          []IdempotencyLegacyRequest
 	QualifiedLegacyRequests []IdempotencyLegacyRequest
+	SuccessFinalizer        IdempotencySuccessFinalizer
 	Method                  string
 	Route                   string
 	IdempotencyKey          string
@@ -101,6 +102,19 @@ type IdempotencyExecuteOptions struct {
 	TTL                     time.Duration
 	RequireKey              bool
 }
+
+// IdempotencySuccessFinalization contains the persisted record identity and
+// response state required to finalize an idempotent owner execution.
+type IdempotencySuccessFinalization struct {
+	RecordID           int64
+	Scope              string
+	RequestFingerprint string
+	ResponseStatus     int
+	ResponseBody       string
+	ExpiresAt          time.Time
+}
+
+type IdempotencySuccessFinalizer func(context.Context, IdempotencySuccessFinalization) error
 
 // IdempotencyLegacyRequest describes an exact pre-upgrade request identity.
 // Actor scope and payload stay paired so compatibility cannot make the current
@@ -520,6 +534,8 @@ func (c *IdempotencyCoordinator) Execute(
 					"claim_mode": "expired_reclaim",
 				})
 				record.ID = existing.ID
+				record.Scope = existing.Scope
+				record.RequestFingerprint = existing.RequestFingerprint
 			} else {
 				latest, latestErr := c.repo.GetByScopeAndKeyHash(ctx, record.Scope, keyHash)
 				if latestErr != nil {
@@ -590,6 +606,8 @@ func (c *IdempotencyCoordinator) Execute(
 					"claim_mode": "reclaim",
 				})
 				record.ID = existing.ID
+				record.Scope = existing.Scope
+				record.RequestFingerprint = existing.RequestFingerprint
 			default:
 				recordIdempotencyConflict(opts.Route, opts.Scope, map[string]string{"reason": "unexpected_status"})
 				logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "existing->conflict", false, map[string]string{
@@ -620,10 +638,6 @@ func (c *IdempotencyCoordinator) Execute(
 		if reason == "" {
 			reason = "EXECUTION_FAILED"
 		}
-		recordIdempotencyRetryBackoff(opts.Route, opts.Scope, nil)
-		logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "processing->failed_retryable", false, map[string]string{
-			"reason": reason,
-		})
 		finalizeCtx, cancelFinalize := idempotencyFinalizationContext(ctx)
 		markErr := c.repo.MarkFailedRetryable(finalizeCtx, record.ID, reason, backoffUntil, expiresAt)
 		cancelFinalize()
@@ -631,6 +645,11 @@ func (c *IdempotencyCoordinator) Execute(
 			RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "mark_failed_retryable_error")
 			logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "processing->store_unavailable", false, map[string]string{
 				"operation": "mark_failed_retryable",
+			})
+		} else {
+			recordIdempotencyRetryBackoff(opts.Route, opts.Scope, nil)
+			logIdempotencyAudit(opts.Route, opts.Scope, keyHash, "processing->failed_retryable", false, map[string]string{
+				"reason": reason,
 			})
 		}
 		return nil, execErr
@@ -645,7 +664,26 @@ func (c *IdempotencyCoordinator) Execute(
 		return nil, ErrIdempotencyStoreUnavail.WithCause(marshalErr)
 	}
 	finalizeCtx, cancelFinalize := idempotencyFinalizationContext(ctx)
-	markErr := c.repo.MarkSucceeded(finalizeCtx, record.ID, 200, storedBody, expiresAt)
+	finalization := IdempotencySuccessFinalization{
+		RecordID:           record.ID,
+		Scope:              record.Scope,
+		RequestFingerprint: record.RequestFingerprint,
+		ResponseStatus:     200,
+		ResponseBody:       storedBody,
+		ExpiresAt:          expiresAt,
+	}
+	var markErr error
+	if opts.SuccessFinalizer != nil {
+		markErr = opts.SuccessFinalizer(finalizeCtx, finalization)
+	} else {
+		markErr = c.repo.MarkSucceeded(
+			finalizeCtx,
+			finalization.RecordID,
+			finalization.ResponseStatus,
+			finalization.ResponseBody,
+			finalization.ExpiresAt,
+		)
+	}
 	cancelFinalize()
 	if markErr != nil {
 		RecordIdempotencyStoreUnavailable(opts.Route, opts.Scope, "mark_succeeded_error")

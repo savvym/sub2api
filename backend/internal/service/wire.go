@@ -31,6 +31,10 @@ func ProvideResourcePolicy(store authz.PolicyStore, shadowObserver authz.RoleSha
 	return authz.NewPolicyServiceWithShadowObserver(store, shadowObserver)
 }
 
+func ProvideWorkerPolicy(store authz.WorkerPolicyStore) authz.WorkerPolicy {
+	return authz.NewWorkerPolicy(store)
+}
+
 // BuildInfo contains build information
 type BuildInfo struct {
 	Version   string
@@ -200,21 +204,31 @@ func ProvideOpenAIQuotaAutoResetService(
 	quotaService *OpenAIQuotaService,
 	rateLimitService *RateLimitService,
 	idempotency *IdempotencyCoordinator,
+	finalizer OpenAIQuotaAutoResetFinalizer,
+	accountLock OpenAIQuotaAutoResetAccountLocker,
 	audit *AuditLogService,
 	settingService *SettingService,
 	leaderLock LeaderLockCache,
-) *OpenAIQuotaAutoResetService {
+	resolver authz.Resolver,
+	workerPolicy authz.WorkerPolicy,
+) (*OpenAIQuotaAutoResetService, error) {
 	service := NewOpenAIQuotaAutoResetService(
 		accountRepo,
 		quotaService,
 		rateLimitService,
 		idempotency,
+		finalizer,
+		accountLock,
 		audit,
 		settingService,
 		leaderLock,
+		resolver,
+		workerPolicy,
 	)
-	service.Start()
-	return service
+	if err := service.Start(); err != nil {
+		return nil, err
+	}
+	return service, nil
 }
 
 func ProvideAccountUsageService(
@@ -833,6 +847,7 @@ func ProvideAPIKeyService(
 
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
+	ProvideWorkerPolicy,
 	// Core services
 	ProvideAuthService,
 	NewAuthorizationRoleShadowObserver,

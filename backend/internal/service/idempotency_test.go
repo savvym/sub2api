@@ -1298,6 +1298,219 @@ func TestIdempotencyCoordinator_MarkAndMarshalBranches(t *testing.T) {
 	require.Equal(t, "plain failure", err.Error())
 }
 
+func TestIdempotencyCoordinator_CustomSuccessFinalizer(t *testing.T) {
+	t.Run("invoked with persisted response on detached context", func(t *testing.T) {
+		repo := newInMemoryIdempotencyRepo()
+		coordinator := NewIdempotencyCoordinator(repo, DefaultIdempotencyConfig())
+		requestCtx, cancelRequest := context.WithCancel(context.Background())
+		var got IdempotencySuccessFinalization
+		calls := 0
+
+		result, err := coordinator.Execute(requestCtx, IdempotencyExecuteOptions{
+			Scope:          "custom-finalizer",
+			ActorScope:     "user:42",
+			Method:         "POST",
+			Route:          "/custom-finalizer",
+			IdempotencyKey: "success",
+			Payload:        map[string]any{"value": "stored"},
+			TTL:            time.Hour,
+			SuccessFinalizer: func(ctx context.Context, finalization IdempotencySuccessFinalization) error {
+				calls++
+				got = finalization
+				require.NoError(t, ctx.Err())
+				_, hasDeadline := ctx.Deadline()
+				require.True(t, hasDeadline)
+				return repo.MarkSucceeded(
+					ctx,
+					finalization.RecordID,
+					finalization.ResponseStatus,
+					finalization.ResponseBody,
+					finalization.ExpiresAt,
+				)
+			},
+		}, func(context.Context) (any, error) {
+			cancelRequest()
+			return map[string]any{"ok": true}, nil
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Equal(t, 1, calls)
+		require.NotZero(t, got.RecordID)
+		require.Equal(t, "custom-finalizer|user:42", got.Scope)
+		fingerprint, fingerprintErr := BuildIdempotencyFingerprint(
+			"POST",
+			"/custom-finalizer",
+			"user:42",
+			map[string]any{"value": "stored"},
+		)
+		require.NoError(t, fingerprintErr)
+		require.Equal(t, fingerprint, got.RequestFingerprint)
+		require.Equal(t, 200, got.ResponseStatus)
+		require.JSONEq(t, `{"ok":true}`, got.ResponseBody)
+		require.WithinDuration(t, time.Now().Add(time.Hour), got.ExpiresAt, 5*time.Second)
+	})
+
+	t.Run("error is wrapped with original cause", func(t *testing.T) {
+		repo := newInMemoryIdempotencyRepo()
+		coordinator := NewIdempotencyCoordinator(repo, DefaultIdempotencyConfig())
+		finalizeErr := errors.New("custom finalization failed")
+
+		result, err := coordinator.Execute(context.Background(), IdempotencyExecuteOptions{
+			Scope:          "custom-finalizer-error",
+			ActorScope:     "user:42",
+			Method:         "POST",
+			Route:          "/custom-finalizer-error",
+			IdempotencyKey: "failure",
+			Payload:        map[string]any{"value": 1},
+			SuccessFinalizer: func(context.Context, IdempotencySuccessFinalization) error {
+				return finalizeErr
+			},
+		}, func(context.Context) (any, error) {
+			return map[string]any{"ok": true}, nil
+		})
+
+		require.Nil(t, result)
+		require.ErrorIs(t, err, ErrIdempotencyStoreUnavail)
+		require.ErrorIs(t, err, finalizeErr)
+	})
+
+	t.Run("not invoked for replay or execution failure", func(t *testing.T) {
+		repo := newInMemoryIdempotencyRepo()
+		coordinator := NewIdempotencyCoordinator(repo, DefaultIdempotencyConfig())
+		base := IdempotencyExecuteOptions{
+			Scope:          "custom-finalizer-skipped",
+			ActorScope:     "user:42",
+			Method:         "POST",
+			Route:          "/custom-finalizer-skipped",
+			IdempotencyKey: "replay",
+			Payload:        map[string]any{"value": 1},
+		}
+		_, err := coordinator.Execute(context.Background(), base, func(context.Context) (any, error) {
+			return map[string]any{"ok": true}, nil
+		})
+		require.NoError(t, err)
+
+		calls := 0
+		base.SuccessFinalizer = func(context.Context, IdempotencySuccessFinalization) error {
+			calls++
+			return nil
+		}
+		replayed, err := coordinator.Execute(context.Background(), base, func(context.Context) (any, error) {
+			return nil, errors.New("replay executor must not run")
+		})
+		require.NoError(t, err)
+		require.True(t, replayed.Replayed)
+
+		base.IdempotencyKey = "execution-failure"
+		executionErr := errors.New("execution failed")
+		result, err := coordinator.Execute(context.Background(), base, func(context.Context) (any, error) {
+			return nil, executionErr
+		})
+		require.Nil(t, result)
+		require.ErrorIs(t, err, executionErr)
+		require.Zero(t, calls)
+	})
+}
+
+func TestIdempotencyCoordinator_CustomSuccessFinalizerUsesReclaimedRecordIdentity(t *testing.T) {
+	now := time.Now()
+	canonicalPayload := map[string]any{"operation_id": "canonical"}
+	legacyPayload := map[string]any{"operation_id": "legacy"}
+
+	for _, testCase := range []struct {
+		name               string
+		scope              string
+		fingerprintActor   string
+		fingerprintPayload any
+		status             string
+		expiresAt          time.Time
+		lockedUntil        *time.Time
+		configure          func(*IdempotencyExecuteOptions)
+	}{
+		{
+			name:               "expired raw legacy record",
+			scope:              "legacy-finalizer",
+			fingerprintActor:   "account:42",
+			fingerprintPayload: canonicalPayload,
+			status:             IdempotencyStatusSucceeded,
+			expiresAt:          now.Add(-time.Minute),
+			configure: func(opts *IdempotencyExecuteOptions) {
+				opts.LegacyActorScopes = []string{"account:42"}
+			},
+		},
+		{
+			name:               "retryable qualified legacy record",
+			scope:              "legacy-finalizer|service_principal:7",
+			fingerprintActor:   "service_principal:7",
+			fingerprintPayload: legacyPayload,
+			status:             IdempotencyStatusFailedRetryable,
+			expiresAt:          now.Add(time.Hour),
+			lockedUntil:        func() *time.Time { value := now.Add(-time.Minute); return &value }(),
+			configure: func(opts *IdempotencyExecuteOptions) {
+				opts.QualifiedLegacyRequests = []IdempotencyLegacyRequest{{
+					ActorScope: "service_principal:7",
+					Payload:    legacyPayload,
+				}}
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			repo := newInMemoryIdempotencyRepo()
+			key := "reclaimed-identity"
+			keyHash := HashIdempotencyKey(key)
+			legacyFingerprint, err := BuildIdempotencyFingerprint(
+				"POST",
+				"/legacy-finalizer",
+				testCase.fingerprintActor,
+				testCase.fingerprintPayload,
+			)
+			require.NoError(t, err)
+			repo.data[repo.key(testCase.scope, keyHash)] = &IdempotencyRecord{
+				ID:                 73,
+				Scope:              testCase.scope,
+				IdempotencyKeyHash: keyHash,
+				RequestFingerprint: legacyFingerprint,
+				Status:             testCase.status,
+				LockedUntil:        testCase.lockedUntil,
+				ExpiresAt:          testCase.expiresAt,
+			}
+
+			var got IdempotencySuccessFinalization
+			opts := IdempotencyExecuteOptions{
+				Scope:          "legacy-finalizer",
+				ActorScope:     "service_principal:7",
+				Method:         "POST",
+				Route:          "/legacy-finalizer",
+				IdempotencyKey: key,
+				Payload:        canonicalPayload,
+				SuccessFinalizer: func(ctx context.Context, finalization IdempotencySuccessFinalization) error {
+					got = finalization
+					return repo.MarkSucceeded(
+						ctx,
+						finalization.RecordID,
+						finalization.ResponseStatus,
+						finalization.ResponseBody,
+						finalization.ExpiresAt,
+					)
+				},
+			}
+			testCase.configure(&opts)
+
+			result, err := NewIdempotencyCoordinator(repo, DefaultIdempotencyConfig()).Execute(
+				context.Background(),
+				opts,
+				func(context.Context) (any, error) { return map[string]any{"ok": true}, nil },
+			)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, int64(73), got.RecordID)
+			require.Equal(t, testCase.scope, got.Scope)
+			require.Equal(t, legacyFingerprint, got.RequestFingerprint)
+		})
+	}
+}
+
 type contextValidatingFinalizationRepo struct {
 	*inMemoryIdempotencyRepo
 	markSucceededContextErr error

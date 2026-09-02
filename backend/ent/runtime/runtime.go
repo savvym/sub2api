@@ -42,6 +42,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/serviceprincipal"
 	"github.com/Wei-Shaw/sub2api/ent/serviceprincipalrole"
+	"github.com/Wei-Shaw/sub2api/ent/serviceprincipalworkerpermission"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
@@ -2104,6 +2105,12 @@ func init() {
 	serviceprincipalrole.DefaultUpdatedAt = serviceprincipalroleDescUpdatedAt.Default.(func() time.Time)
 	// serviceprincipalrole.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	serviceprincipalrole.UpdateDefaultUpdatedAt = serviceprincipalroleDescUpdatedAt.UpdateDefault.(func() time.Time)
+	serviceprincipalworkerpermissionFields := schema.ServicePrincipalWorkerPermission{}.Fields()
+	_ = serviceprincipalworkerpermissionFields
+	// serviceprincipalworkerpermissionDescCreatedAt is the schema descriptor for created_at field.
+	serviceprincipalworkerpermissionDescCreatedAt := serviceprincipalworkerpermissionFields[2].Descriptor()
+	// serviceprincipalworkerpermission.DefaultCreatedAt holds the default value on creation for the created_at field.
+	serviceprincipalworkerpermission.DefaultCreatedAt = serviceprincipalworkerpermissionDescCreatedAt.Default.(func() time.Time)
 	settingFields := schema.Setting{}.Fields()
 	_ = settingFields
 	// settingDescKey is the schema descriptor for key field.

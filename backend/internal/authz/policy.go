@@ -14,17 +14,22 @@ type ResourcePolicy interface {
 
 type PolicyService struct {
 	store          PolicyStore
+	workerStore    WorkerPolicyStore
 	shadowObserver RoleShadowObserver
 }
 
 var _ ResourcePolicy = (*PolicyService)(nil)
 
 func NewPolicyService(store PolicyStore) *PolicyService {
-	return &PolicyService{store: store}
+	service := &PolicyService{store: store}
+	service.workerStore, _ = store.(WorkerPolicyStore)
+	return service
 }
 
 func NewPolicyServiceWithShadowObserver(store PolicyStore, observer RoleShadowObserver) *PolicyService {
-	return &PolicyService{store: store, shadowObserver: observer}
+	service := &PolicyService{store: store, shadowObserver: observer}
+	service.workerStore, _ = store.(WorkerPolicyStore)
+	return service
 }
 
 func (s *PolicyService) CheckCapability(ctx context.Context, actor Actor, capability Capability) (Decision, error) {

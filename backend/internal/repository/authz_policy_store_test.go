@@ -768,6 +768,51 @@ func TestAuthzPolicyStoreSQLUsesStrictDatabaseExpiryBoundary(t *testing.T) {
 	}
 }
 
+func TestAuthzPolicyStoreSQLLoadsDirectWorkerPermissionsOnlyForServicePrincipals(t *testing.T) {
+	servicePrincipalQueries := []struct {
+		name  string
+		query string
+	}{
+		{name: "subject by ID", query: buildSubjectSnapshotSQL(authz.SubjectKindServicePrincipal)},
+		{name: "subject by code", query: buildServicePrincipalSubjectSnapshotByCodeSQL()},
+		{name: "account resource", query: buildResourceSnapshotSQL(authz.SubjectKindServicePrincipal, authz.ResourceTypeAccount)},
+		{name: "group resource", query: buildResourceSnapshotSQL(authz.SubjectKindServicePrincipal, authz.ResourceTypeGroup)},
+	}
+	for _, testCase := range servicePrincipalQueries {
+		t.Run("service principal "+testCase.name, func(t *testing.T) {
+			if got := strings.Count(testCase.query, "FROM service_principal_worker_permissions spwp"); got != 1 {
+				t.Fatalf("direct worker permission sources = %d, want 1:\n%s", got, testCase.query)
+			}
+			for _, fragment := range []string{
+				"current_capabilities AS (",
+				"UNION",
+				"JOIN subject_row sr ON sr.id = spwp.service_principal_id",
+				"JOIN permissions p ON p.id = spwp.permission_id",
+			} {
+				if !strings.Contains(testCase.query, fragment) {
+					t.Fatalf("service principal query is missing %q:\n%s", fragment, testCase.query)
+				}
+			}
+		})
+	}
+
+	userQueries := []struct {
+		name  string
+		query string
+	}{
+		{name: "subject", query: buildSubjectSnapshotSQL(authz.SubjectKindUser)},
+		{name: "account resource", query: buildResourceSnapshotSQL(authz.SubjectKindUser, authz.ResourceTypeAccount)},
+		{name: "group resource", query: buildResourceSnapshotSQL(authz.SubjectKindUser, authz.ResourceTypeGroup)},
+	}
+	for _, testCase := range userQueries {
+		t.Run("user "+testCase.name, func(t *testing.T) {
+			if strings.Contains(testCase.query, "service_principal_worker_permissions") {
+				t.Fatalf("user query must not load direct worker permissions:\n%s", testCase.query)
+			}
+		})
+	}
+}
+
 func newAuthzPolicyStoreSQLMock(t *testing.T) (*authzPolicyStore, sqlmock.Sqlmock) {
 	t.Helper()
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))

@@ -17,9 +17,10 @@ var ErrAuditLogNotFound = infraerrors.NotFound("AUDIT_LOG_NOT_FOUND", "audit log
 // 审计日志相关常量。
 const (
 	// AuditAuthMethodJWT / AuditAuthMethodAdminAPIKey 与 auth 中间件写入的 auth_method 对齐。
-	AuditAuthMethodJWT         = "jwt"
-	AuditAuthMethodAdminAPIKey = "admin_api_key"
-	AuditAuthMethodPasskey     = "passkey"
+	AuditAuthMethodJWT              = "jwt"
+	AuditAuthMethodAdminAPIKey      = "admin_api_key"
+	AuditAuthMethodPasskey          = "passkey"
+	AuditAuthMethodServicePrincipal = "service_principal"
 
 	// auditRequestBodyMaxBytes 请求体脱敏后入库的最大长度（字节），超出截断。
 	auditRequestBodyMaxBytes = 16 * 1024
@@ -37,6 +38,7 @@ const (
 	AuditActionSessionBindingMismatch = "auth.session_binding.mismatch"
 	AuditActionStepUpVerify           = "auth.step_up.verify"
 	AuditActionAuditLogClear          = "admin.audit_log.clear"
+	AuditActionOpenAIQuotaAutoReset   = "system.openai.reset_credit.auto"
 )
 
 // AuditLog 一条管理面操作审计记录。

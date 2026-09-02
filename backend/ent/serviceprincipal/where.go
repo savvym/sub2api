@@ -423,6 +423,29 @@ func HasRolesWith(preds ...predicate.Role) predicate.ServicePrincipal {
 	})
 }
 
+// HasWorkerPermissions applies the HasEdge predicate on the "worker_permissions" edge.
+func HasWorkerPermissions() predicate.ServicePrincipal {
+	return predicate.ServicePrincipal(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, false, WorkerPermissionsTable, WorkerPermissionsPrimaryKey...),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasWorkerPermissionsWith applies the HasEdge predicate on the "worker_permissions" edge with a given conditions (other predicates).
+func HasWorkerPermissionsWith(preds ...predicate.Permission) predicate.ServicePrincipal {
+	return predicate.ServicePrincipal(func(s *sql.Selector) {
+		step := newWorkerPermissionsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasServicePrincipalRoles applies the HasEdge predicate on the "service_principal_roles" edge.
 func HasServicePrincipalRoles() predicate.ServicePrincipal {
 	return predicate.ServicePrincipal(func(s *sql.Selector) {
@@ -438,6 +461,29 @@ func HasServicePrincipalRoles() predicate.ServicePrincipal {
 func HasServicePrincipalRolesWith(preds ...predicate.ServicePrincipalRole) predicate.ServicePrincipal {
 	return predicate.ServicePrincipal(func(s *sql.Selector) {
 		step := newServicePrincipalRolesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasWorkerPermissionGrants applies the HasEdge predicate on the "worker_permission_grants" edge.
+func HasWorkerPermissionGrants() predicate.ServicePrincipal {
+	return predicate.ServicePrincipal(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, WorkerPermissionGrantsTable, WorkerPermissionGrantsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasWorkerPermissionGrantsWith applies the HasEdge predicate on the "worker_permission_grants" edge with a given conditions (other predicates).
+func HasWorkerPermissionGrantsWith(preds ...predicate.ServicePrincipalWorkerPermission) predicate.ServicePrincipal {
+	return predicate.ServicePrincipal(func(s *sql.Selector) {
+		step := newWorkerPermissionGrantsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

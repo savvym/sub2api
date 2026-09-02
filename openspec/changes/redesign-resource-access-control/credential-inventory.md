@@ -1,6 +1,11 @@
 # Credential Inventory
 
-状态：**Review Ready**（2026-08-20）。本清单基于仓库静态审计建立，供平台、认证类型和安全负责人复核；尚未执行生产只读键名统计，因此不代表 Accepted，也不解除 Phase 2 自助托管开放前的安全门禁。
+阶段状态：
+
+- Phase 0 设计决策：**Review Ready（尚未 Decision Accepted）**，2026-08-20 基于仓库静态审计建立，供平台、认证类型和安全负责人复核。
+- Phase 2 实施/发布验收：**Not Ready（尚未 Release Accepted）**；生产只读键名统计、实现证据和泄漏测试仍未完成。
+
+`Decision Accepted` 只表示敏感分类、所有权、加密边界和迁移约束已经冻结，可用于勾选任务 0.4；它不表示对应控制已经实现，也不允许启用 Phase 2 自助托管。`Release Accepted` 才表示第 8.2 节的生产数据与实现门禁已经关闭。两种状态不得简写为含义不明的 `Accepted`。
 
 审计范围包括帐号 `credentials` / `extra` 的 schema、DTO、导入导出、OAuth 刷新、探测、调度快照、Redis 缓存、备份、日志脱敏、直接 SQL、migration 和并发更新路径。主要事实源包括 `backend/ent/schema/account.go`、`backend/internal/repository/account_repo*.go`、`backend/internal/repository/gemini_token_cache.go`、`backend/internal/repository/scheduler_cache.go`、`backend/internal/repository/backup_pg_dumper.go`、`backend/internal/service/account_data.go`、各平台认证 service、帐号 DTO、日志脱敏实现和 `backend/migrations/*.sql`。
 
@@ -160,16 +165,30 @@ CRS 同步会复制远端 `Extra` 后补充本地标识；`sanitizeCredentialsMa
 - 目前没有统一 platform/account-type schema，也没有覆盖所有响应、日志、缓存、导出和备份的 canary 泄漏测试。
 - 通用 envelope 的 KMS、key hierarchy、轮换、恢复、break-glass 和灾备解密流程尚未决策。
 
-## 8. Review Ready 待确认项
+## 8. 分阶段批准门禁
 
-以下项目完成后，负责人才能把本清单从 Review Ready 标为 Accepted：
+### 8.1 Phase 0 设计决策批准（任务 0.4）
 
-- [ ] 在生产只读副本运行 [`credential-key-preflight.sql`](credential-key-preflight.sql)，聚合 `jsonb_object_keys(credentials)` 与 `jsonb_object_keys(extra)`；只输出键名、平台/类型、软删除状态、帐号 status、JSON shape 和计数，绝不输出值或帐号 ID，并将结果作为受限安全评审材料归档。
-- [ ] 各平台/认证类型负责人确认必需、可选、废弃键及刷新、CAS、probe 和缓存依赖。
-- [ ] 安全负责人确认未知键 fail-closed、DTO allowlist 和 `header_overrides` 整体 Secret 策略。
-- [ ] 平台负责人确认 PostgreSQL、Redis、导出和备份的加密边界、KMS/key hierarchy、轮换与灾备方案。
-- [ ] 产品/安全负责人确认管理员明文导出的 break-glass、审批、审计、有效期和水印要求。
-- [ ] 为 API response、audit log、ops log、system log、Redis、export 和 backup 建立固定 canary 泄漏测试。
-- [ ] 证明加密迁移不破坏 JSONB 查询、历史 migration、bulk merge、OAuth refresh CAS、Grok/probe CAS 和 Scheduler Outbox。
+以下项目全部完成后，才能将 Phase 0 状态从 `Review Ready` 改为 `Decision Accepted` 并勾选任务 0.4：
 
-Phase 2 自助托管开放前，以上未决项及 `outbound-security.md` 的平台/认证类型 allowlist 必须完成评审。
+- [ ] 各平台/认证类型负责人确认本清单覆盖的必需、可选、废弃键，以及 refresh、CAS、probe、Scheduler/OAuth Redis cache 和 Spark shadow 引用依赖；未识别键的处置规则保持 fail closed。
+- [ ] 安全负责人确认 Secret/Sensitive/Operational/Public config 分类、DTO allowlist、未知键默认 Secret 和 `header_overrides` 整体 Secret 策略。
+- [ ] 平台基础设施负责人确认 PostgreSQL、OAuth Redis、Scheduler Redis、导出和备份的目标加密边界，以及 KMS/key hierarchy、轮换、恢复和灾备责任归属。
+- [ ] 产品与安全负责人确认管理员明文导出的目标策略：默认关闭、break-glass、审批、durable audit、有效期、水印和撤销方式。
+- [ ] 迁移负责人确认第 6 节的批次顺序与不变量作为实施约束；任何变更都必须重新经过平台、认证和安全评审。
+- [ ] 建立一条不可变的设计批准记录，包含评审文档 commit/PR、日期、适用平台/认证类型、所有未决实施项及其 owner/目标阶段，并分别附平台、相关认证类型、安全负责人的批准链接；涉及明文导出时另附产品与安全批准链接。
+
+批准链接必须能追溯批准人身份、角色、日期、明确结论和所批准的文档版本。仅填写姓名、口头确认或不可长期访问的聊天截图不算证据。Phase 0 可以在第 8.2 节尚未实施时完成，但所有未决项必须有 owner、目标任务和验收方法，不能以设计批准替代发布验收。
+
+### 8.2 Phase 2 实施/发布验收
+
+以下项目全部完成后，才能把实施/发布状态改为 `Release Accepted` 并允许相关自助平台逐项启用：
+
+- [ ] 在批准的生产只读副本运行 [`credential-key-preflight.sql`](credential-key-preflight.sql)，聚合 `jsonb_object_keys(credentials)` 与 `jsonb_object_keys(extra)`；只输出键名、平台/类型、软删除状态、帐号 status、JSON shape 和计数，绝不输出值或帐号 ID，并将受限结果、异常处置和风险接受链接归档。
+- [ ] 实现并验证平台 schema registry、未知键 fail-closed、DTO/日志/cache/export allowlist、`header_overrides` 整体 Secret 和管理员导出 break-glass 控制。
+- [ ] 为 API response、audit log、ops log、system log、Redis、任务 payload、export 和 backup 建立固定 canary 泄漏测试，并归档目标环境结果。
+- [ ] 证明加密迁移不破坏 JSONB 查询、历史 migration、bulk merge、OAuth refresh CAS、Grok/probe CAS、Spark shadow 解析和 Scheduler Outbox。
+- [ ] 归档实现 PR/commit、迁移批次、目标环境、回滚/灾备演练结果和所有例外的有期限风险接受链接。
+- [ ] 平台、相关认证类型、安全负责人完成发布复核；涉及导出或 break-glass 时，产品与安全负责人再次确认实现与第 8.1 节决策一致。
+
+`Release Accepted` 与 `outbound-security.md` 的发布验收必须同时满足；任一项缺失时，自助托管开关保持默认关闭。

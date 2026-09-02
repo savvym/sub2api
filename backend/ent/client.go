@@ -51,6 +51,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/serviceprincipal"
 	"github.com/Wei-Shaw/sub2api/ent/serviceprincipalrole"
+	"github.com/Wei-Shaw/sub2api/ent/serviceprincipalworkerpermission"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
@@ -144,6 +145,8 @@ type Client struct {
 	ServicePrincipal *ServicePrincipalClient
 	// ServicePrincipalRole is the client for interacting with the ServicePrincipalRole builders.
 	ServicePrincipalRole *ServicePrincipalRoleClient
+	// ServicePrincipalWorkerPermission is the client for interacting with the ServicePrincipalWorkerPermission builders.
+	ServicePrincipalWorkerPermission *ServicePrincipalWorkerPermissionClient
 	// Setting is the client for interacting with the Setting builders.
 	Setting *SettingClient
 	// SubscriptionPlan is the client for interacting with the SubscriptionPlan builders.
@@ -215,6 +218,7 @@ func (c *Client) init() {
 	c.SecuritySecret = NewSecuritySecretClient(c.config)
 	c.ServicePrincipal = NewServicePrincipalClient(c.config)
 	c.ServicePrincipalRole = NewServicePrincipalRoleClient(c.config)
+	c.ServicePrincipalWorkerPermission = NewServicePrincipalWorkerPermissionClient(c.config)
 	c.Setting = NewSettingClient(c.config)
 	c.SubscriptionPlan = NewSubscriptionPlanClient(c.config)
 	c.TLSFingerprintProfile = NewTLSFingerprintProfileClient(c.config)
@@ -317,56 +321,57 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:                           ctx,
-		config:                        cfg,
-		APIKey:                        NewAPIKeyClient(cfg),
-		Account:                       NewAccountClient(cfg),
-		AccountAccessGrant:            NewAccountAccessGrantClient(cfg),
-		AccountGroup:                  NewAccountGroupClient(cfg),
-		Announcement:                  NewAnnouncementClient(cfg),
-		AnnouncementRead:              NewAnnouncementReadClient(cfg),
-		AuthIdentity:                  NewAuthIdentityClient(cfg),
-		AuthIdentityChannel:           NewAuthIdentityChannelClient(cfg),
-		BatchImageEvent:               NewBatchImageEventClient(cfg),
-		BatchImageItem:                NewBatchImageItemClient(cfg),
-		BatchImageJob:                 NewBatchImageJobClient(cfg),
-		ChannelMonitor:                NewChannelMonitorClient(cfg),
-		ChannelMonitorDailyRollup:     NewChannelMonitorDailyRollupClient(cfg),
-		ChannelMonitorHistory:         NewChannelMonitorHistoryClient(cfg),
-		ChannelMonitorRequestTemplate: NewChannelMonitorRequestTemplateClient(cfg),
-		CompositeModelRoute:           NewCompositeModelRouteClient(cfg),
-		ErrorPassthroughRule:          NewErrorPassthroughRuleClient(cfg),
-		Group:                         NewGroupClient(cfg),
-		GroupAccessGrant:              NewGroupAccessGrantClient(cfg),
-		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
-		IdentityAdoptionDecision:      NewIdentityAdoptionDecisionClient(cfg),
-		PaymentAuditLog:               NewPaymentAuditLogClient(cfg),
-		PaymentOrder:                  NewPaymentOrderClient(cfg),
-		PaymentProviderInstance:       NewPaymentProviderInstanceClient(cfg),
-		PendingAuthSession:            NewPendingAuthSessionClient(cfg),
-		Permission:                    NewPermissionClient(cfg),
-		PromoCode:                     NewPromoCodeClient(cfg),
-		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
-		Proxy:                         NewProxyClient(cfg),
-		RedeemCode:                    NewRedeemCodeClient(cfg),
-		ResourceAuthorizationEvent:    NewResourceAuthorizationEventClient(cfg),
-		Role:                          NewRoleClient(cfg),
-		RolePermission:                NewRolePermissionClient(cfg),
-		SecuritySecret:                NewSecuritySecretClient(cfg),
-		ServicePrincipal:              NewServicePrincipalClient(cfg),
-		ServicePrincipalRole:          NewServicePrincipalRoleClient(cfg),
-		Setting:                       NewSettingClient(cfg),
-		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
-		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
-		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
-		UsageLog:                      NewUsageLogClient(cfg),
-		User:                          NewUserClient(cfg),
-		UserAllowedGroup:              NewUserAllowedGroupClient(cfg),
-		UserAttributeDefinition:       NewUserAttributeDefinitionClient(cfg),
-		UserAttributeValue:            NewUserAttributeValueClient(cfg),
-		UserPlatformQuota:             NewUserPlatformQuotaClient(cfg),
-		UserRole:                      NewUserRoleClient(cfg),
-		UserSubscription:              NewUserSubscriptionClient(cfg),
+		ctx:                              ctx,
+		config:                           cfg,
+		APIKey:                           NewAPIKeyClient(cfg),
+		Account:                          NewAccountClient(cfg),
+		AccountAccessGrant:               NewAccountAccessGrantClient(cfg),
+		AccountGroup:                     NewAccountGroupClient(cfg),
+		Announcement:                     NewAnnouncementClient(cfg),
+		AnnouncementRead:                 NewAnnouncementReadClient(cfg),
+		AuthIdentity:                     NewAuthIdentityClient(cfg),
+		AuthIdentityChannel:              NewAuthIdentityChannelClient(cfg),
+		BatchImageEvent:                  NewBatchImageEventClient(cfg),
+		BatchImageItem:                   NewBatchImageItemClient(cfg),
+		BatchImageJob:                    NewBatchImageJobClient(cfg),
+		ChannelMonitor:                   NewChannelMonitorClient(cfg),
+		ChannelMonitorDailyRollup:        NewChannelMonitorDailyRollupClient(cfg),
+		ChannelMonitorHistory:            NewChannelMonitorHistoryClient(cfg),
+		ChannelMonitorRequestTemplate:    NewChannelMonitorRequestTemplateClient(cfg),
+		CompositeModelRoute:              NewCompositeModelRouteClient(cfg),
+		ErrorPassthroughRule:             NewErrorPassthroughRuleClient(cfg),
+		Group:                            NewGroupClient(cfg),
+		GroupAccessGrant:                 NewGroupAccessGrantClient(cfg),
+		IdempotencyRecord:                NewIdempotencyRecordClient(cfg),
+		IdentityAdoptionDecision:         NewIdentityAdoptionDecisionClient(cfg),
+		PaymentAuditLog:                  NewPaymentAuditLogClient(cfg),
+		PaymentOrder:                     NewPaymentOrderClient(cfg),
+		PaymentProviderInstance:          NewPaymentProviderInstanceClient(cfg),
+		PendingAuthSession:               NewPendingAuthSessionClient(cfg),
+		Permission:                       NewPermissionClient(cfg),
+		PromoCode:                        NewPromoCodeClient(cfg),
+		PromoCodeUsage:                   NewPromoCodeUsageClient(cfg),
+		Proxy:                            NewProxyClient(cfg),
+		RedeemCode:                       NewRedeemCodeClient(cfg),
+		ResourceAuthorizationEvent:       NewResourceAuthorizationEventClient(cfg),
+		Role:                             NewRoleClient(cfg),
+		RolePermission:                   NewRolePermissionClient(cfg),
+		SecuritySecret:                   NewSecuritySecretClient(cfg),
+		ServicePrincipal:                 NewServicePrincipalClient(cfg),
+		ServicePrincipalRole:             NewServicePrincipalRoleClient(cfg),
+		ServicePrincipalWorkerPermission: NewServicePrincipalWorkerPermissionClient(cfg),
+		Setting:                          NewSettingClient(cfg),
+		SubscriptionPlan:                 NewSubscriptionPlanClient(cfg),
+		TLSFingerprintProfile:            NewTLSFingerprintProfileClient(cfg),
+		UsageCleanupTask:                 NewUsageCleanupTaskClient(cfg),
+		UsageLog:                         NewUsageLogClient(cfg),
+		User:                             NewUserClient(cfg),
+		UserAllowedGroup:                 NewUserAllowedGroupClient(cfg),
+		UserAttributeDefinition:          NewUserAttributeDefinitionClient(cfg),
+		UserAttributeValue:               NewUserAttributeValueClient(cfg),
+		UserPlatformQuota:                NewUserPlatformQuotaClient(cfg),
+		UserRole:                         NewUserRoleClient(cfg),
+		UserSubscription:                 NewUserSubscriptionClient(cfg),
 	}, nil
 }
 
@@ -384,56 +389,57 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:                           ctx,
-		config:                        cfg,
-		APIKey:                        NewAPIKeyClient(cfg),
-		Account:                       NewAccountClient(cfg),
-		AccountAccessGrant:            NewAccountAccessGrantClient(cfg),
-		AccountGroup:                  NewAccountGroupClient(cfg),
-		Announcement:                  NewAnnouncementClient(cfg),
-		AnnouncementRead:              NewAnnouncementReadClient(cfg),
-		AuthIdentity:                  NewAuthIdentityClient(cfg),
-		AuthIdentityChannel:           NewAuthIdentityChannelClient(cfg),
-		BatchImageEvent:               NewBatchImageEventClient(cfg),
-		BatchImageItem:                NewBatchImageItemClient(cfg),
-		BatchImageJob:                 NewBatchImageJobClient(cfg),
-		ChannelMonitor:                NewChannelMonitorClient(cfg),
-		ChannelMonitorDailyRollup:     NewChannelMonitorDailyRollupClient(cfg),
-		ChannelMonitorHistory:         NewChannelMonitorHistoryClient(cfg),
-		ChannelMonitorRequestTemplate: NewChannelMonitorRequestTemplateClient(cfg),
-		CompositeModelRoute:           NewCompositeModelRouteClient(cfg),
-		ErrorPassthroughRule:          NewErrorPassthroughRuleClient(cfg),
-		Group:                         NewGroupClient(cfg),
-		GroupAccessGrant:              NewGroupAccessGrantClient(cfg),
-		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
-		IdentityAdoptionDecision:      NewIdentityAdoptionDecisionClient(cfg),
-		PaymentAuditLog:               NewPaymentAuditLogClient(cfg),
-		PaymentOrder:                  NewPaymentOrderClient(cfg),
-		PaymentProviderInstance:       NewPaymentProviderInstanceClient(cfg),
-		PendingAuthSession:            NewPendingAuthSessionClient(cfg),
-		Permission:                    NewPermissionClient(cfg),
-		PromoCode:                     NewPromoCodeClient(cfg),
-		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
-		Proxy:                         NewProxyClient(cfg),
-		RedeemCode:                    NewRedeemCodeClient(cfg),
-		ResourceAuthorizationEvent:    NewResourceAuthorizationEventClient(cfg),
-		Role:                          NewRoleClient(cfg),
-		RolePermission:                NewRolePermissionClient(cfg),
-		SecuritySecret:                NewSecuritySecretClient(cfg),
-		ServicePrincipal:              NewServicePrincipalClient(cfg),
-		ServicePrincipalRole:          NewServicePrincipalRoleClient(cfg),
-		Setting:                       NewSettingClient(cfg),
-		SubscriptionPlan:              NewSubscriptionPlanClient(cfg),
-		TLSFingerprintProfile:         NewTLSFingerprintProfileClient(cfg),
-		UsageCleanupTask:              NewUsageCleanupTaskClient(cfg),
-		UsageLog:                      NewUsageLogClient(cfg),
-		User:                          NewUserClient(cfg),
-		UserAllowedGroup:              NewUserAllowedGroupClient(cfg),
-		UserAttributeDefinition:       NewUserAttributeDefinitionClient(cfg),
-		UserAttributeValue:            NewUserAttributeValueClient(cfg),
-		UserPlatformQuota:             NewUserPlatformQuotaClient(cfg),
-		UserRole:                      NewUserRoleClient(cfg),
-		UserSubscription:              NewUserSubscriptionClient(cfg),
+		ctx:                              ctx,
+		config:                           cfg,
+		APIKey:                           NewAPIKeyClient(cfg),
+		Account:                          NewAccountClient(cfg),
+		AccountAccessGrant:               NewAccountAccessGrantClient(cfg),
+		AccountGroup:                     NewAccountGroupClient(cfg),
+		Announcement:                     NewAnnouncementClient(cfg),
+		AnnouncementRead:                 NewAnnouncementReadClient(cfg),
+		AuthIdentity:                     NewAuthIdentityClient(cfg),
+		AuthIdentityChannel:              NewAuthIdentityChannelClient(cfg),
+		BatchImageEvent:                  NewBatchImageEventClient(cfg),
+		BatchImageItem:                   NewBatchImageItemClient(cfg),
+		BatchImageJob:                    NewBatchImageJobClient(cfg),
+		ChannelMonitor:                   NewChannelMonitorClient(cfg),
+		ChannelMonitorDailyRollup:        NewChannelMonitorDailyRollupClient(cfg),
+		ChannelMonitorHistory:            NewChannelMonitorHistoryClient(cfg),
+		ChannelMonitorRequestTemplate:    NewChannelMonitorRequestTemplateClient(cfg),
+		CompositeModelRoute:              NewCompositeModelRouteClient(cfg),
+		ErrorPassthroughRule:             NewErrorPassthroughRuleClient(cfg),
+		Group:                            NewGroupClient(cfg),
+		GroupAccessGrant:                 NewGroupAccessGrantClient(cfg),
+		IdempotencyRecord:                NewIdempotencyRecordClient(cfg),
+		IdentityAdoptionDecision:         NewIdentityAdoptionDecisionClient(cfg),
+		PaymentAuditLog:                  NewPaymentAuditLogClient(cfg),
+		PaymentOrder:                     NewPaymentOrderClient(cfg),
+		PaymentProviderInstance:          NewPaymentProviderInstanceClient(cfg),
+		PendingAuthSession:               NewPendingAuthSessionClient(cfg),
+		Permission:                       NewPermissionClient(cfg),
+		PromoCode:                        NewPromoCodeClient(cfg),
+		PromoCodeUsage:                   NewPromoCodeUsageClient(cfg),
+		Proxy:                            NewProxyClient(cfg),
+		RedeemCode:                       NewRedeemCodeClient(cfg),
+		ResourceAuthorizationEvent:       NewResourceAuthorizationEventClient(cfg),
+		Role:                             NewRoleClient(cfg),
+		RolePermission:                   NewRolePermissionClient(cfg),
+		SecuritySecret:                   NewSecuritySecretClient(cfg),
+		ServicePrincipal:                 NewServicePrincipalClient(cfg),
+		ServicePrincipalRole:             NewServicePrincipalRoleClient(cfg),
+		ServicePrincipalWorkerPermission: NewServicePrincipalWorkerPermissionClient(cfg),
+		Setting:                          NewSettingClient(cfg),
+		SubscriptionPlan:                 NewSubscriptionPlanClient(cfg),
+		TLSFingerprintProfile:            NewTLSFingerprintProfileClient(cfg),
+		UsageCleanupTask:                 NewUsageCleanupTaskClient(cfg),
+		UsageLog:                         NewUsageLogClient(cfg),
+		User:                             NewUserClient(cfg),
+		UserAllowedGroup:                 NewUserAllowedGroupClient(cfg),
+		UserAttributeDefinition:          NewUserAttributeDefinitionClient(cfg),
+		UserAttributeValue:               NewUserAttributeValueClient(cfg),
+		UserPlatformQuota:                NewUserPlatformQuotaClient(cfg),
+		UserRole:                         NewUserRoleClient(cfg),
+		UserSubscription:                 NewUserSubscriptionClient(cfg),
 	}, nil
 }
 
@@ -472,9 +478,10 @@ func (c *Client) Use(hooks ...Hook) {
 		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
 		c.PendingAuthSession, c.Permission, c.PromoCode, c.PromoCodeUsage, c.Proxy,
 		c.RedeemCode, c.ResourceAuthorizationEvent, c.Role, c.RolePermission,
-		c.SecuritySecret, c.ServicePrincipal, c.ServicePrincipalRole, c.Setting,
-		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog,
-		c.User, c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.SecuritySecret, c.ServicePrincipal, c.ServicePrincipalRole,
+		c.ServicePrincipalWorkerPermission, c.Setting, c.SubscriptionPlan,
+		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
+		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
 		c.UserPlatformQuota, c.UserRole, c.UserSubscription,
 	} {
 		n.Use(hooks...)
@@ -494,9 +501,10 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
 		c.PendingAuthSession, c.Permission, c.PromoCode, c.PromoCodeUsage, c.Proxy,
 		c.RedeemCode, c.ResourceAuthorizationEvent, c.Role, c.RolePermission,
-		c.SecuritySecret, c.ServicePrincipal, c.ServicePrincipalRole, c.Setting,
-		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog,
-		c.User, c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.SecuritySecret, c.ServicePrincipal, c.ServicePrincipalRole,
+		c.ServicePrincipalWorkerPermission, c.Setting, c.SubscriptionPlan,
+		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
+		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
 		c.UserPlatformQuota, c.UserRole, c.UserSubscription,
 	} {
 		n.Intercept(interceptors...)
@@ -578,6 +586,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.ServicePrincipal.mutate(ctx, m)
 	case *ServicePrincipalRoleMutation:
 		return c.ServicePrincipalRole.mutate(ctx, m)
+	case *ServicePrincipalWorkerPermissionMutation:
+		return c.ServicePrincipalWorkerPermission.mutate(ctx, m)
 	case *SettingMutation:
 		return c.Setting.mutate(ctx, m)
 	case *SubscriptionPlanMutation:
@@ -4847,6 +4857,22 @@ func (c *PermissionClient) QueryRoles(_m *Permission) *RoleQuery {
 	return query
 }
 
+// QueryWorkerServicePrincipals queries the worker_service_principals edge of a Permission.
+func (c *PermissionClient) QueryWorkerServicePrincipals(_m *Permission) *ServicePrincipalQuery {
+	query := (&ServicePrincipalClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(permission.Table, permission.FieldID, id),
+			sqlgraph.To(serviceprincipal.Table, serviceprincipal.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, permission.WorkerServicePrincipalsTable, permission.WorkerServicePrincipalsPrimaryKey...),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryRolePermissions queries the role_permissions edge of a Permission.
 func (c *PermissionClient) QueryRolePermissions(_m *Permission) *RolePermissionQuery {
 	query := (&RolePermissionClient{config: c.config}).Query()
@@ -4856,6 +4882,22 @@ func (c *PermissionClient) QueryRolePermissions(_m *Permission) *RolePermissionQ
 			sqlgraph.From(permission.Table, permission.FieldID, id),
 			sqlgraph.To(rolepermission.Table, rolepermission.PermissionColumn),
 			sqlgraph.Edge(sqlgraph.O2M, true, permission.RolePermissionsTable, permission.RolePermissionsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryWorkerPermissionGrants queries the worker_permission_grants edge of a Permission.
+func (c *PermissionClient) QueryWorkerPermissionGrants(_m *Permission) *ServicePrincipalWorkerPermissionQuery {
+	query := (&ServicePrincipalWorkerPermissionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(permission.Table, permission.FieldID, id),
+			sqlgraph.To(serviceprincipalworkerpermission.Table, serviceprincipalworkerpermission.PermissionColumn),
+			sqlgraph.Edge(sqlgraph.O2M, true, permission.WorkerPermissionGrantsTable, permission.WorkerPermissionGrantsColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -6349,6 +6391,22 @@ func (c *ServicePrincipalClient) QueryRoles(_m *ServicePrincipal) *RoleQuery {
 	return query
 }
 
+// QueryWorkerPermissions queries the worker_permissions edge of a ServicePrincipal.
+func (c *ServicePrincipalClient) QueryWorkerPermissions(_m *ServicePrincipal) *PermissionQuery {
+	query := (&PermissionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(serviceprincipal.Table, serviceprincipal.FieldID, id),
+			sqlgraph.To(permission.Table, permission.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, false, serviceprincipal.WorkerPermissionsTable, serviceprincipal.WorkerPermissionsPrimaryKey...),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryServicePrincipalRoles queries the service_principal_roles edge of a ServicePrincipal.
 func (c *ServicePrincipalClient) QueryServicePrincipalRoles(_m *ServicePrincipal) *ServicePrincipalRoleQuery {
 	query := (&ServicePrincipalRoleClient{config: c.config}).Query()
@@ -6358,6 +6416,22 @@ func (c *ServicePrincipalClient) QueryServicePrincipalRoles(_m *ServicePrincipal
 			sqlgraph.From(serviceprincipal.Table, serviceprincipal.FieldID, id),
 			sqlgraph.To(serviceprincipalrole.Table, serviceprincipalrole.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, true, serviceprincipal.ServicePrincipalRolesTable, serviceprincipal.ServicePrincipalRolesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryWorkerPermissionGrants queries the worker_permission_grants edge of a ServicePrincipal.
+func (c *ServicePrincipalClient) QueryWorkerPermissionGrants(_m *ServicePrincipal) *ServicePrincipalWorkerPermissionQuery {
+	query := (&ServicePrincipalWorkerPermissionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(serviceprincipal.Table, serviceprincipal.FieldID, id),
+			sqlgraph.To(serviceprincipalworkerpermission.Table, serviceprincipalworkerpermission.ServicePrincipalColumn),
+			sqlgraph.Edge(sqlgraph.O2M, true, serviceprincipal.WorkerPermissionGrantsTable, serviceprincipal.WorkerPermissionGrantsColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -6568,6 +6642,122 @@ func (c *ServicePrincipalRoleClient) mutate(ctx context.Context, m *ServicePrinc
 		return (&ServicePrincipalRoleDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown ServicePrincipalRole mutation op: %q", m.Op())
+	}
+}
+
+// ServicePrincipalWorkerPermissionClient is a client for the ServicePrincipalWorkerPermission schema.
+type ServicePrincipalWorkerPermissionClient struct {
+	config
+}
+
+// NewServicePrincipalWorkerPermissionClient returns a client for the ServicePrincipalWorkerPermission from the given config.
+func NewServicePrincipalWorkerPermissionClient(c config) *ServicePrincipalWorkerPermissionClient {
+	return &ServicePrincipalWorkerPermissionClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `serviceprincipalworkerpermission.Hooks(f(g(h())))`.
+func (c *ServicePrincipalWorkerPermissionClient) Use(hooks ...Hook) {
+	c.hooks.ServicePrincipalWorkerPermission = append(c.hooks.ServicePrincipalWorkerPermission, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `serviceprincipalworkerpermission.Intercept(f(g(h())))`.
+func (c *ServicePrincipalWorkerPermissionClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ServicePrincipalWorkerPermission = append(c.inters.ServicePrincipalWorkerPermission, interceptors...)
+}
+
+// Create returns a builder for creating a ServicePrincipalWorkerPermission entity.
+func (c *ServicePrincipalWorkerPermissionClient) Create() *ServicePrincipalWorkerPermissionCreate {
+	mutation := newServicePrincipalWorkerPermissionMutation(c.config, OpCreate)
+	return &ServicePrincipalWorkerPermissionCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ServicePrincipalWorkerPermission entities.
+func (c *ServicePrincipalWorkerPermissionClient) CreateBulk(builders ...*ServicePrincipalWorkerPermissionCreate) *ServicePrincipalWorkerPermissionCreateBulk {
+	return &ServicePrincipalWorkerPermissionCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ServicePrincipalWorkerPermissionClient) MapCreateBulk(slice any, setFunc func(*ServicePrincipalWorkerPermissionCreate, int)) *ServicePrincipalWorkerPermissionCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ServicePrincipalWorkerPermissionCreateBulk{err: fmt.Errorf("calling to ServicePrincipalWorkerPermissionClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ServicePrincipalWorkerPermissionCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ServicePrincipalWorkerPermissionCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ServicePrincipalWorkerPermission.
+func (c *ServicePrincipalWorkerPermissionClient) Update() *ServicePrincipalWorkerPermissionUpdate {
+	mutation := newServicePrincipalWorkerPermissionMutation(c.config, OpUpdate)
+	return &ServicePrincipalWorkerPermissionUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ServicePrincipalWorkerPermissionClient) UpdateOne(_m *ServicePrincipalWorkerPermission) *ServicePrincipalWorkerPermissionUpdateOne {
+	mutation := newServicePrincipalWorkerPermissionMutation(c.config, OpUpdateOne)
+	mutation.service_principal = &_m.ServicePrincipalID
+	mutation.permission = &_m.PermissionID
+	return &ServicePrincipalWorkerPermissionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ServicePrincipalWorkerPermission.
+func (c *ServicePrincipalWorkerPermissionClient) Delete() *ServicePrincipalWorkerPermissionDelete {
+	mutation := newServicePrincipalWorkerPermissionMutation(c.config, OpDelete)
+	return &ServicePrincipalWorkerPermissionDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Query returns a query builder for ServicePrincipalWorkerPermission.
+func (c *ServicePrincipalWorkerPermissionClient) Query() *ServicePrincipalWorkerPermissionQuery {
+	return &ServicePrincipalWorkerPermissionQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeServicePrincipalWorkerPermission},
+		inters: c.Interceptors(),
+	}
+}
+
+// QueryServicePrincipal queries the service_principal edge of a ServicePrincipalWorkerPermission.
+func (c *ServicePrincipalWorkerPermissionClient) QueryServicePrincipal(_m *ServicePrincipalWorkerPermission) *ServicePrincipalQuery {
+	return c.Query().
+		Where(serviceprincipalworkerpermission.ServicePrincipalID(_m.ServicePrincipalID), serviceprincipalworkerpermission.PermissionID(_m.PermissionID)).
+		QueryServicePrincipal()
+}
+
+// QueryPermission queries the permission edge of a ServicePrincipalWorkerPermission.
+func (c *ServicePrincipalWorkerPermissionClient) QueryPermission(_m *ServicePrincipalWorkerPermission) *PermissionQuery {
+	return c.Query().
+		Where(serviceprincipalworkerpermission.ServicePrincipalID(_m.ServicePrincipalID), serviceprincipalworkerpermission.PermissionID(_m.PermissionID)).
+		QueryPermission()
+}
+
+// Hooks returns the client hooks.
+func (c *ServicePrincipalWorkerPermissionClient) Hooks() []Hook {
+	return c.hooks.ServicePrincipalWorkerPermission
+}
+
+// Interceptors returns the client interceptors.
+func (c *ServicePrincipalWorkerPermissionClient) Interceptors() []Interceptor {
+	return c.inters.ServicePrincipalWorkerPermission
+}
+
+func (c *ServicePrincipalWorkerPermissionClient) mutate(ctx context.Context, m *ServicePrincipalWorkerPermissionMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ServicePrincipalWorkerPermissionCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ServicePrincipalWorkerPermissionUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ServicePrincipalWorkerPermissionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ServicePrincipalWorkerPermissionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ServicePrincipalWorkerPermission mutation op: %q", m.Op())
 	}
 }
 
@@ -8698,9 +8888,10 @@ type (
 		PaymentProviderInstance, PendingAuthSession, Permission, PromoCode,
 		PromoCodeUsage, Proxy, RedeemCode, ResourceAuthorizationEvent, Role,
 		RolePermission, SecuritySecret, ServicePrincipal, ServicePrincipalRole,
-		Setting, SubscriptionPlan, TLSFingerprintProfile, UsageCleanupTask, UsageLog,
-		User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
-		UserPlatformQuota, UserRole, UserSubscription []ent.Hook
+		ServicePrincipalWorkerPermission, Setting, SubscriptionPlan,
+		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
+		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota, UserRole,
+		UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountAccessGrant, AccountGroup, Announcement,
@@ -8712,9 +8903,10 @@ type (
 		PaymentProviderInstance, PendingAuthSession, Permission, PromoCode,
 		PromoCodeUsage, Proxy, RedeemCode, ResourceAuthorizationEvent, Role,
 		RolePermission, SecuritySecret, ServicePrincipal, ServicePrincipalRole,
-		Setting, SubscriptionPlan, TLSFingerprintProfile, UsageCleanupTask, UsageLog,
-		User, UserAllowedGroup, UserAttributeDefinition, UserAttributeValue,
-		UserPlatformQuota, UserRole, UserSubscription []ent.Interceptor
+		ServicePrincipalWorkerPermission, Setting, SubscriptionPlan,
+		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
+		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota, UserRole,
+		UserSubscription []ent.Interceptor
 	}
 )
 

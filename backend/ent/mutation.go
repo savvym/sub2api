@@ -49,6 +49,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/serviceprincipal"
 	"github.com/Wei-Shaw/sub2api/ent/serviceprincipalrole"
+	"github.com/Wei-Shaw/sub2api/ent/serviceprincipalworkerpermission"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
@@ -73,54 +74,55 @@ const (
 	OpUpdateOne = ent.OpUpdateOne
 
 	// Node types.
-	TypeAPIKey                        = "APIKey"
-	TypeAccount                       = "Account"
-	TypeAccountAccessGrant            = "AccountAccessGrant"
-	TypeAccountGroup                  = "AccountGroup"
-	TypeAnnouncement                  = "Announcement"
-	TypeAnnouncementRead              = "AnnouncementRead"
-	TypeAuthIdentity                  = "AuthIdentity"
-	TypeAuthIdentityChannel           = "AuthIdentityChannel"
-	TypeBatchImageEvent               = "BatchImageEvent"
-	TypeBatchImageItem                = "BatchImageItem"
-	TypeBatchImageJob                 = "BatchImageJob"
-	TypeChannelMonitor                = "ChannelMonitor"
-	TypeChannelMonitorDailyRollup     = "ChannelMonitorDailyRollup"
-	TypeChannelMonitorHistory         = "ChannelMonitorHistory"
-	TypeChannelMonitorRequestTemplate = "ChannelMonitorRequestTemplate"
-	TypeCompositeModelRoute           = "CompositeModelRoute"
-	TypeErrorPassthroughRule          = "ErrorPassthroughRule"
-	TypeGroup                         = "Group"
-	TypeGroupAccessGrant              = "GroupAccessGrant"
-	TypeIdempotencyRecord             = "IdempotencyRecord"
-	TypeIdentityAdoptionDecision      = "IdentityAdoptionDecision"
-	TypePaymentAuditLog               = "PaymentAuditLog"
-	TypePaymentOrder                  = "PaymentOrder"
-	TypePaymentProviderInstance       = "PaymentProviderInstance"
-	TypePendingAuthSession            = "PendingAuthSession"
-	TypePermission                    = "Permission"
-	TypePromoCode                     = "PromoCode"
-	TypePromoCodeUsage                = "PromoCodeUsage"
-	TypeProxy                         = "Proxy"
-	TypeRedeemCode                    = "RedeemCode"
-	TypeResourceAuthorizationEvent    = "ResourceAuthorizationEvent"
-	TypeRole                          = "Role"
-	TypeRolePermission                = "RolePermission"
-	TypeSecuritySecret                = "SecuritySecret"
-	TypeServicePrincipal              = "ServicePrincipal"
-	TypeServicePrincipalRole          = "ServicePrincipalRole"
-	TypeSetting                       = "Setting"
-	TypeSubscriptionPlan              = "SubscriptionPlan"
-	TypeTLSFingerprintProfile         = "TLSFingerprintProfile"
-	TypeUsageCleanupTask              = "UsageCleanupTask"
-	TypeUsageLog                      = "UsageLog"
-	TypeUser                          = "User"
-	TypeUserAllowedGroup              = "UserAllowedGroup"
-	TypeUserAttributeDefinition       = "UserAttributeDefinition"
-	TypeUserAttributeValue            = "UserAttributeValue"
-	TypeUserPlatformQuota             = "UserPlatformQuota"
-	TypeUserRole                      = "UserRole"
-	TypeUserSubscription              = "UserSubscription"
+	TypeAPIKey                           = "APIKey"
+	TypeAccount                          = "Account"
+	TypeAccountAccessGrant               = "AccountAccessGrant"
+	TypeAccountGroup                     = "AccountGroup"
+	TypeAnnouncement                     = "Announcement"
+	TypeAnnouncementRead                 = "AnnouncementRead"
+	TypeAuthIdentity                     = "AuthIdentity"
+	TypeAuthIdentityChannel              = "AuthIdentityChannel"
+	TypeBatchImageEvent                  = "BatchImageEvent"
+	TypeBatchImageItem                   = "BatchImageItem"
+	TypeBatchImageJob                    = "BatchImageJob"
+	TypeChannelMonitor                   = "ChannelMonitor"
+	TypeChannelMonitorDailyRollup        = "ChannelMonitorDailyRollup"
+	TypeChannelMonitorHistory            = "ChannelMonitorHistory"
+	TypeChannelMonitorRequestTemplate    = "ChannelMonitorRequestTemplate"
+	TypeCompositeModelRoute              = "CompositeModelRoute"
+	TypeErrorPassthroughRule             = "ErrorPassthroughRule"
+	TypeGroup                            = "Group"
+	TypeGroupAccessGrant                 = "GroupAccessGrant"
+	TypeIdempotencyRecord                = "IdempotencyRecord"
+	TypeIdentityAdoptionDecision         = "IdentityAdoptionDecision"
+	TypePaymentAuditLog                  = "PaymentAuditLog"
+	TypePaymentOrder                     = "PaymentOrder"
+	TypePaymentProviderInstance          = "PaymentProviderInstance"
+	TypePendingAuthSession               = "PendingAuthSession"
+	TypePermission                       = "Permission"
+	TypePromoCode                        = "PromoCode"
+	TypePromoCodeUsage                   = "PromoCodeUsage"
+	TypeProxy                            = "Proxy"
+	TypeRedeemCode                       = "RedeemCode"
+	TypeResourceAuthorizationEvent       = "ResourceAuthorizationEvent"
+	TypeRole                             = "Role"
+	TypeRolePermission                   = "RolePermission"
+	TypeSecuritySecret                   = "SecuritySecret"
+	TypeServicePrincipal                 = "ServicePrincipal"
+	TypeServicePrincipalRole             = "ServicePrincipalRole"
+	TypeServicePrincipalWorkerPermission = "ServicePrincipalWorkerPermission"
+	TypeSetting                          = "Setting"
+	TypeSubscriptionPlan                 = "SubscriptionPlan"
+	TypeTLSFingerprintProfile            = "TLSFingerprintProfile"
+	TypeUsageCleanupTask                 = "UsageCleanupTask"
+	TypeUsageLog                         = "UsageLog"
+	TypeUser                             = "User"
+	TypeUserAllowedGroup                 = "UserAllowedGroup"
+	TypeUserAttributeDefinition          = "UserAttributeDefinition"
+	TypeUserAttributeValue               = "UserAttributeValue"
+	TypeUserPlatformQuota                = "UserPlatformQuota"
+	TypeUserRole                         = "UserRole"
+	TypeUserSubscription                 = "UserSubscription"
 )
 
 // APIKeyMutation represents an operation that mutates the APIKey nodes in the graph.
@@ -38646,19 +38648,22 @@ func (m *PendingAuthSessionMutation) ResetEdge(name string) error {
 // PermissionMutation represents an operation that mutates the Permission nodes in the graph.
 type PermissionMutation struct {
 	config
-	op            Op
-	typ           string
-	id            *int64
-	code          *string
-	description   *string
-	created_at    *time.Time
-	clearedFields map[string]struct{}
-	roles         map[int64]struct{}
-	removedroles  map[int64]struct{}
-	clearedroles  bool
-	done          bool
-	oldValue      func(context.Context) (*Permission, error)
-	predicates    []predicate.Permission
+	op                               Op
+	typ                              string
+	id                               *int64
+	code                             *string
+	description                      *string
+	created_at                       *time.Time
+	clearedFields                    map[string]struct{}
+	roles                            map[int64]struct{}
+	removedroles                     map[int64]struct{}
+	clearedroles                     bool
+	worker_service_principals        map[int64]struct{}
+	removedworker_service_principals map[int64]struct{}
+	clearedworker_service_principals bool
+	done                             bool
+	oldValue                         func(context.Context) (*Permission, error)
+	predicates                       []predicate.Permission
 }
 
 var _ ent.Mutation = (*PermissionMutation)(nil)
@@ -38921,6 +38926,60 @@ func (m *PermissionMutation) ResetRoles() {
 	m.removedroles = nil
 }
 
+// AddWorkerServicePrincipalIDs adds the "worker_service_principals" edge to the ServicePrincipal entity by ids.
+func (m *PermissionMutation) AddWorkerServicePrincipalIDs(ids ...int64) {
+	if m.worker_service_principals == nil {
+		m.worker_service_principals = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.worker_service_principals[ids[i]] = struct{}{}
+	}
+}
+
+// ClearWorkerServicePrincipals clears the "worker_service_principals" edge to the ServicePrincipal entity.
+func (m *PermissionMutation) ClearWorkerServicePrincipals() {
+	m.clearedworker_service_principals = true
+}
+
+// WorkerServicePrincipalsCleared reports if the "worker_service_principals" edge to the ServicePrincipal entity was cleared.
+func (m *PermissionMutation) WorkerServicePrincipalsCleared() bool {
+	return m.clearedworker_service_principals
+}
+
+// RemoveWorkerServicePrincipalIDs removes the "worker_service_principals" edge to the ServicePrincipal entity by IDs.
+func (m *PermissionMutation) RemoveWorkerServicePrincipalIDs(ids ...int64) {
+	if m.removedworker_service_principals == nil {
+		m.removedworker_service_principals = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.worker_service_principals, ids[i])
+		m.removedworker_service_principals[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedWorkerServicePrincipals returns the removed IDs of the "worker_service_principals" edge to the ServicePrincipal entity.
+func (m *PermissionMutation) RemovedWorkerServicePrincipalsIDs() (ids []int64) {
+	for id := range m.removedworker_service_principals {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// WorkerServicePrincipalsIDs returns the "worker_service_principals" edge IDs in the mutation.
+func (m *PermissionMutation) WorkerServicePrincipalsIDs() (ids []int64) {
+	for id := range m.worker_service_principals {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetWorkerServicePrincipals resets all changes to the "worker_service_principals" edge.
+func (m *PermissionMutation) ResetWorkerServicePrincipals() {
+	m.worker_service_principals = nil
+	m.clearedworker_service_principals = false
+	m.removedworker_service_principals = nil
+}
+
 // Where appends a list predicates to the PermissionMutation builder.
 func (m *PermissionMutation) Where(ps ...predicate.Permission) {
 	m.predicates = append(m.predicates, ps...)
@@ -39088,9 +39147,12 @@ func (m *PermissionMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *PermissionMutation) AddedEdges() []string {
-	edges := make([]string, 0, 1)
+	edges := make([]string, 0, 2)
 	if m.roles != nil {
 		edges = append(edges, permission.EdgeRoles)
+	}
+	if m.worker_service_principals != nil {
+		edges = append(edges, permission.EdgeWorkerServicePrincipals)
 	}
 	return edges
 }
@@ -39105,15 +39167,24 @@ func (m *PermissionMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case permission.EdgeWorkerServicePrincipals:
+		ids := make([]ent.Value, 0, len(m.worker_service_principals))
+		for id := range m.worker_service_principals {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *PermissionMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 1)
+	edges := make([]string, 0, 2)
 	if m.removedroles != nil {
 		edges = append(edges, permission.EdgeRoles)
+	}
+	if m.removedworker_service_principals != nil {
+		edges = append(edges, permission.EdgeWorkerServicePrincipals)
 	}
 	return edges
 }
@@ -39128,15 +39199,24 @@ func (m *PermissionMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case permission.EdgeWorkerServicePrincipals:
+		ids := make([]ent.Value, 0, len(m.removedworker_service_principals))
+		for id := range m.removedworker_service_principals {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *PermissionMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 1)
+	edges := make([]string, 0, 2)
 	if m.clearedroles {
 		edges = append(edges, permission.EdgeRoles)
+	}
+	if m.clearedworker_service_principals {
+		edges = append(edges, permission.EdgeWorkerServicePrincipals)
 	}
 	return edges
 }
@@ -39147,6 +39227,8 @@ func (m *PermissionMutation) EdgeCleared(name string) bool {
 	switch name {
 	case permission.EdgeRoles:
 		return m.clearedroles
+	case permission.EdgeWorkerServicePrincipals:
+		return m.clearedworker_service_principals
 	}
 	return false
 }
@@ -39165,6 +39247,9 @@ func (m *PermissionMutation) ResetEdge(name string) error {
 	switch name {
 	case permission.EdgeRoles:
 		m.ResetRoles()
+		return nil
+	case permission.EdgeWorkerServicePrincipals:
+		m.ResetWorkerServicePrincipals()
 		return nil
 	}
 	return fmt.Errorf("unknown Permission edge %s", name)
@@ -46552,6 +46637,9 @@ type ServicePrincipalMutation struct {
 	roles                          map[int64]struct{}
 	removedroles                   map[int64]struct{}
 	clearedroles                   bool
+	worker_permissions             map[int64]struct{}
+	removedworker_permissions      map[int64]struct{}
+	clearedworker_permissions      bool
 	service_principal_roles        map[int64]struct{}
 	removedservice_principal_roles map[int64]struct{}
 	clearedservice_principal_roles bool
@@ -46948,6 +47036,60 @@ func (m *ServicePrincipalMutation) ResetRoles() {
 	m.removedroles = nil
 }
 
+// AddWorkerPermissionIDs adds the "worker_permissions" edge to the Permission entity by ids.
+func (m *ServicePrincipalMutation) AddWorkerPermissionIDs(ids ...int64) {
+	if m.worker_permissions == nil {
+		m.worker_permissions = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.worker_permissions[ids[i]] = struct{}{}
+	}
+}
+
+// ClearWorkerPermissions clears the "worker_permissions" edge to the Permission entity.
+func (m *ServicePrincipalMutation) ClearWorkerPermissions() {
+	m.clearedworker_permissions = true
+}
+
+// WorkerPermissionsCleared reports if the "worker_permissions" edge to the Permission entity was cleared.
+func (m *ServicePrincipalMutation) WorkerPermissionsCleared() bool {
+	return m.clearedworker_permissions
+}
+
+// RemoveWorkerPermissionIDs removes the "worker_permissions" edge to the Permission entity by IDs.
+func (m *ServicePrincipalMutation) RemoveWorkerPermissionIDs(ids ...int64) {
+	if m.removedworker_permissions == nil {
+		m.removedworker_permissions = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.worker_permissions, ids[i])
+		m.removedworker_permissions[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedWorkerPermissions returns the removed IDs of the "worker_permissions" edge to the Permission entity.
+func (m *ServicePrincipalMutation) RemovedWorkerPermissionsIDs() (ids []int64) {
+	for id := range m.removedworker_permissions {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// WorkerPermissionsIDs returns the "worker_permissions" edge IDs in the mutation.
+func (m *ServicePrincipalMutation) WorkerPermissionsIDs() (ids []int64) {
+	for id := range m.worker_permissions {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetWorkerPermissions resets all changes to the "worker_permissions" edge.
+func (m *ServicePrincipalMutation) ResetWorkerPermissions() {
+	m.worker_permissions = nil
+	m.clearedworker_permissions = false
+	m.removedworker_permissions = nil
+}
+
 // AddServicePrincipalRoleIDs adds the "service_principal_roles" edge to the ServicePrincipalRole entity by ids.
 func (m *ServicePrincipalMutation) AddServicePrincipalRoleIDs(ids ...int64) {
 	if m.service_principal_roles == nil {
@@ -47235,9 +47377,12 @@ func (m *ServicePrincipalMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *ServicePrincipalMutation) AddedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
 	if m.roles != nil {
 		edges = append(edges, serviceprincipal.EdgeRoles)
+	}
+	if m.worker_permissions != nil {
+		edges = append(edges, serviceprincipal.EdgeWorkerPermissions)
 	}
 	if m.service_principal_roles != nil {
 		edges = append(edges, serviceprincipal.EdgeServicePrincipalRoles)
@@ -47255,6 +47400,12 @@ func (m *ServicePrincipalMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case serviceprincipal.EdgeWorkerPermissions:
+		ids := make([]ent.Value, 0, len(m.worker_permissions))
+		for id := range m.worker_permissions {
+			ids = append(ids, id)
+		}
+		return ids
 	case serviceprincipal.EdgeServicePrincipalRoles:
 		ids := make([]ent.Value, 0, len(m.service_principal_roles))
 		for id := range m.service_principal_roles {
@@ -47267,9 +47418,12 @@ func (m *ServicePrincipalMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *ServicePrincipalMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
 	if m.removedroles != nil {
 		edges = append(edges, serviceprincipal.EdgeRoles)
+	}
+	if m.removedworker_permissions != nil {
+		edges = append(edges, serviceprincipal.EdgeWorkerPermissions)
 	}
 	if m.removedservice_principal_roles != nil {
 		edges = append(edges, serviceprincipal.EdgeServicePrincipalRoles)
@@ -47287,6 +47441,12 @@ func (m *ServicePrincipalMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case serviceprincipal.EdgeWorkerPermissions:
+		ids := make([]ent.Value, 0, len(m.removedworker_permissions))
+		for id := range m.removedworker_permissions {
+			ids = append(ids, id)
+		}
+		return ids
 	case serviceprincipal.EdgeServicePrincipalRoles:
 		ids := make([]ent.Value, 0, len(m.removedservice_principal_roles))
 		for id := range m.removedservice_principal_roles {
@@ -47299,9 +47459,12 @@ func (m *ServicePrincipalMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *ServicePrincipalMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
 	if m.clearedroles {
 		edges = append(edges, serviceprincipal.EdgeRoles)
+	}
+	if m.clearedworker_permissions {
+		edges = append(edges, serviceprincipal.EdgeWorkerPermissions)
 	}
 	if m.clearedservice_principal_roles {
 		edges = append(edges, serviceprincipal.EdgeServicePrincipalRoles)
@@ -47315,6 +47478,8 @@ func (m *ServicePrincipalMutation) EdgeCleared(name string) bool {
 	switch name {
 	case serviceprincipal.EdgeRoles:
 		return m.clearedroles
+	case serviceprincipal.EdgeWorkerPermissions:
+		return m.clearedworker_permissions
 	case serviceprincipal.EdgeServicePrincipalRoles:
 		return m.clearedservice_principal_roles
 	}
@@ -47335,6 +47500,9 @@ func (m *ServicePrincipalMutation) ResetEdge(name string) error {
 	switch name {
 	case serviceprincipal.EdgeRoles:
 		m.ResetRoles()
+		return nil
+	case serviceprincipal.EdgeWorkerPermissions:
+		m.ResetWorkerPermissions()
 		return nil
 	case serviceprincipal.EdgeServicePrincipalRoles:
 		m.ResetServicePrincipalRoles()
@@ -48108,6 +48276,423 @@ func (m *ServicePrincipalRoleMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown ServicePrincipalRole edge %s", name)
+}
+
+// ServicePrincipalWorkerPermissionMutation represents an operation that mutates the ServicePrincipalWorkerPermission nodes in the graph.
+type ServicePrincipalWorkerPermissionMutation struct {
+	config
+	op                       Op
+	typ                      string
+	created_at               *time.Time
+	clearedFields            map[string]struct{}
+	service_principal        *int64
+	clearedservice_principal bool
+	permission               *int64
+	clearedpermission        bool
+	done                     bool
+	oldValue                 func(context.Context) (*ServicePrincipalWorkerPermission, error)
+	predicates               []predicate.ServicePrincipalWorkerPermission
+}
+
+var _ ent.Mutation = (*ServicePrincipalWorkerPermissionMutation)(nil)
+
+// serviceprincipalworkerpermissionOption allows management of the mutation configuration using functional options.
+type serviceprincipalworkerpermissionOption func(*ServicePrincipalWorkerPermissionMutation)
+
+// newServicePrincipalWorkerPermissionMutation creates new mutation for the ServicePrincipalWorkerPermission entity.
+func newServicePrincipalWorkerPermissionMutation(c config, op Op, opts ...serviceprincipalworkerpermissionOption) *ServicePrincipalWorkerPermissionMutation {
+	m := &ServicePrincipalWorkerPermissionMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeServicePrincipalWorkerPermission,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ServicePrincipalWorkerPermissionMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ServicePrincipalWorkerPermissionMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetServicePrincipalID sets the "service_principal_id" field.
+func (m *ServicePrincipalWorkerPermissionMutation) SetServicePrincipalID(i int64) {
+	m.service_principal = &i
+}
+
+// ServicePrincipalID returns the value of the "service_principal_id" field in the mutation.
+func (m *ServicePrincipalWorkerPermissionMutation) ServicePrincipalID() (r int64, exists bool) {
+	v := m.service_principal
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetServicePrincipalID resets all changes to the "service_principal_id" field.
+func (m *ServicePrincipalWorkerPermissionMutation) ResetServicePrincipalID() {
+	m.service_principal = nil
+}
+
+// SetPermissionID sets the "permission_id" field.
+func (m *ServicePrincipalWorkerPermissionMutation) SetPermissionID(i int64) {
+	m.permission = &i
+}
+
+// PermissionID returns the value of the "permission_id" field in the mutation.
+func (m *ServicePrincipalWorkerPermissionMutation) PermissionID() (r int64, exists bool) {
+	v := m.permission
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetPermissionID resets all changes to the "permission_id" field.
+func (m *ServicePrincipalWorkerPermissionMutation) ResetPermissionID() {
+	m.permission = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ServicePrincipalWorkerPermissionMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ServicePrincipalWorkerPermissionMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ServicePrincipalWorkerPermissionMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// ClearServicePrincipal clears the "service_principal" edge to the ServicePrincipal entity.
+func (m *ServicePrincipalWorkerPermissionMutation) ClearServicePrincipal() {
+	m.clearedservice_principal = true
+	m.clearedFields[serviceprincipalworkerpermission.FieldServicePrincipalID] = struct{}{}
+}
+
+// ServicePrincipalCleared reports if the "service_principal" edge to the ServicePrincipal entity was cleared.
+func (m *ServicePrincipalWorkerPermissionMutation) ServicePrincipalCleared() bool {
+	return m.clearedservice_principal
+}
+
+// ServicePrincipalIDs returns the "service_principal" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ServicePrincipalID instead. It exists only for internal usage by the builders.
+func (m *ServicePrincipalWorkerPermissionMutation) ServicePrincipalIDs() (ids []int64) {
+	if id := m.service_principal; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetServicePrincipal resets all changes to the "service_principal" edge.
+func (m *ServicePrincipalWorkerPermissionMutation) ResetServicePrincipal() {
+	m.service_principal = nil
+	m.clearedservice_principal = false
+}
+
+// ClearPermission clears the "permission" edge to the Permission entity.
+func (m *ServicePrincipalWorkerPermissionMutation) ClearPermission() {
+	m.clearedpermission = true
+	m.clearedFields[serviceprincipalworkerpermission.FieldPermissionID] = struct{}{}
+}
+
+// PermissionCleared reports if the "permission" edge to the Permission entity was cleared.
+func (m *ServicePrincipalWorkerPermissionMutation) PermissionCleared() bool {
+	return m.clearedpermission
+}
+
+// PermissionIDs returns the "permission" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// PermissionID instead. It exists only for internal usage by the builders.
+func (m *ServicePrincipalWorkerPermissionMutation) PermissionIDs() (ids []int64) {
+	if id := m.permission; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetPermission resets all changes to the "permission" edge.
+func (m *ServicePrincipalWorkerPermissionMutation) ResetPermission() {
+	m.permission = nil
+	m.clearedpermission = false
+}
+
+// Where appends a list predicates to the ServicePrincipalWorkerPermissionMutation builder.
+func (m *ServicePrincipalWorkerPermissionMutation) Where(ps ...predicate.ServicePrincipalWorkerPermission) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ServicePrincipalWorkerPermissionMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ServicePrincipalWorkerPermissionMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ServicePrincipalWorkerPermission, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ServicePrincipalWorkerPermissionMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ServicePrincipalWorkerPermissionMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ServicePrincipalWorkerPermission).
+func (m *ServicePrincipalWorkerPermissionMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ServicePrincipalWorkerPermissionMutation) Fields() []string {
+	fields := make([]string, 0, 3)
+	if m.service_principal != nil {
+		fields = append(fields, serviceprincipalworkerpermission.FieldServicePrincipalID)
+	}
+	if m.permission != nil {
+		fields = append(fields, serviceprincipalworkerpermission.FieldPermissionID)
+	}
+	if m.created_at != nil {
+		fields = append(fields, serviceprincipalworkerpermission.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ServicePrincipalWorkerPermissionMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case serviceprincipalworkerpermission.FieldServicePrincipalID:
+		return m.ServicePrincipalID()
+	case serviceprincipalworkerpermission.FieldPermissionID:
+		return m.PermissionID()
+	case serviceprincipalworkerpermission.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ServicePrincipalWorkerPermissionMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	return nil, errors.New("edge schema ServicePrincipalWorkerPermission does not support getting old values")
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ServicePrincipalWorkerPermissionMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case serviceprincipalworkerpermission.FieldServicePrincipalID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetServicePrincipalID(v)
+		return nil
+	case serviceprincipalworkerpermission.FieldPermissionID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPermissionID(v)
+		return nil
+	case serviceprincipalworkerpermission.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ServicePrincipalWorkerPermission field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ServicePrincipalWorkerPermissionMutation) AddedFields() []string {
+	var fields []string
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ServicePrincipalWorkerPermissionMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ServicePrincipalWorkerPermissionMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown ServicePrincipalWorkerPermission numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ServicePrincipalWorkerPermissionMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ServicePrincipalWorkerPermissionMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ServicePrincipalWorkerPermissionMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown ServicePrincipalWorkerPermission nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ServicePrincipalWorkerPermissionMutation) ResetField(name string) error {
+	switch name {
+	case serviceprincipalworkerpermission.FieldServicePrincipalID:
+		m.ResetServicePrincipalID()
+		return nil
+	case serviceprincipalworkerpermission.FieldPermissionID:
+		m.ResetPermissionID()
+		return nil
+	case serviceprincipalworkerpermission.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown ServicePrincipalWorkerPermission field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ServicePrincipalWorkerPermissionMutation) AddedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.service_principal != nil {
+		edges = append(edges, serviceprincipalworkerpermission.EdgeServicePrincipal)
+	}
+	if m.permission != nil {
+		edges = append(edges, serviceprincipalworkerpermission.EdgePermission)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ServicePrincipalWorkerPermissionMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case serviceprincipalworkerpermission.EdgeServicePrincipal:
+		if id := m.service_principal; id != nil {
+			return []ent.Value{*id}
+		}
+	case serviceprincipalworkerpermission.EdgePermission:
+		if id := m.permission; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ServicePrincipalWorkerPermissionMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 2)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ServicePrincipalWorkerPermissionMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ServicePrincipalWorkerPermissionMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.clearedservice_principal {
+		edges = append(edges, serviceprincipalworkerpermission.EdgeServicePrincipal)
+	}
+	if m.clearedpermission {
+		edges = append(edges, serviceprincipalworkerpermission.EdgePermission)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ServicePrincipalWorkerPermissionMutation) EdgeCleared(name string) bool {
+	switch name {
+	case serviceprincipalworkerpermission.EdgeServicePrincipal:
+		return m.clearedservice_principal
+	case serviceprincipalworkerpermission.EdgePermission:
+		return m.clearedpermission
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ServicePrincipalWorkerPermissionMutation) ClearEdge(name string) error {
+	switch name {
+	case serviceprincipalworkerpermission.EdgeServicePrincipal:
+		m.ClearServicePrincipal()
+		return nil
+	case serviceprincipalworkerpermission.EdgePermission:
+		m.ClearPermission()
+		return nil
+	}
+	return fmt.Errorf("unknown ServicePrincipalWorkerPermission unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ServicePrincipalWorkerPermissionMutation) ResetEdge(name string) error {
+	switch name {
+	case serviceprincipalworkerpermission.EdgeServicePrincipal:
+		m.ResetServicePrincipal()
+		return nil
+	case serviceprincipalworkerpermission.EdgePermission:
+		m.ResetPermission()
+		return nil
+	}
+	return fmt.Errorf("unknown ServicePrincipalWorkerPermission edge %s", name)
 }
 
 // SettingMutation represents an operation that mutates the Setting nodes in the graph.

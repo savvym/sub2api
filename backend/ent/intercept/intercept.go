@@ -45,6 +45,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/serviceprincipal"
 	"github.com/Wei-Shaw/sub2api/ent/serviceprincipalrole"
+	"github.com/Wei-Shaw/sub2api/ent/serviceprincipalworkerpermission"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
 	"github.com/Wei-Shaw/sub2api/ent/subscriptionplan"
 	"github.com/Wei-Shaw/sub2api/ent/tlsfingerprintprofile"
@@ -1087,6 +1088,33 @@ func (f TraverseServicePrincipalRole) Traverse(ctx context.Context, q ent.Query)
 	return fmt.Errorf("unexpected query type %T. expect *ent.ServicePrincipalRoleQuery", q)
 }
 
+// The ServicePrincipalWorkerPermissionFunc type is an adapter to allow the use of ordinary function as a Querier.
+type ServicePrincipalWorkerPermissionFunc func(context.Context, *ent.ServicePrincipalWorkerPermissionQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f ServicePrincipalWorkerPermissionFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.ServicePrincipalWorkerPermissionQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.ServicePrincipalWorkerPermissionQuery", q)
+}
+
+// The TraverseServicePrincipalWorkerPermission type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseServicePrincipalWorkerPermission func(context.Context, *ent.ServicePrincipalWorkerPermissionQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseServicePrincipalWorkerPermission) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseServicePrincipalWorkerPermission) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.ServicePrincipalWorkerPermissionQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.ServicePrincipalWorkerPermissionQuery", q)
+}
+
 // The SettingFunc type is an adapter to allow the use of ordinary function as a Querier.
 type SettingFunc func(context.Context, *ent.SettingQuery) (ent.Value, error)
 
@@ -1486,6 +1514,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.ServicePrincipalQuery, predicate.ServicePrincipal, serviceprincipal.OrderOption]{typ: ent.TypeServicePrincipal, tq: q}, nil
 	case *ent.ServicePrincipalRoleQuery:
 		return &query[*ent.ServicePrincipalRoleQuery, predicate.ServicePrincipalRole, serviceprincipalrole.OrderOption]{typ: ent.TypeServicePrincipalRole, tq: q}, nil
+	case *ent.ServicePrincipalWorkerPermissionQuery:
+		return &query[*ent.ServicePrincipalWorkerPermissionQuery, predicate.ServicePrincipalWorkerPermission, serviceprincipalworkerpermission.OrderOption]{typ: ent.TypeServicePrincipalWorkerPermission, tq: q}, nil
 	case *ent.SettingQuery:
 		return &query[*ent.SettingQuery, predicate.Setting, setting.OrderOption]{typ: ent.TypeSetting, tq: q}, nil
 	case *ent.SubscriptionPlanQuery:

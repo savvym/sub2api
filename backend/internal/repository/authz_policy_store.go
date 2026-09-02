@@ -26,6 +26,7 @@ type authzPolicyStore struct {
 var (
 	_ authz.PolicyStore        = (*authzPolicyStore)(nil)
 	_ authz.ActorResolverStore = (*authzPolicyStore)(nil)
+	_ authz.WorkerPolicyStore  = (*authzPolicyStore)(nil)
 )
 
 func NewAuthzPolicyStore(client *dbent.Client, cfg *config.Config) authz.PolicyStore {
@@ -436,17 +437,12 @@ func buildSubjectSnapshotSQL(kind authz.SubjectKind) string {
 	return fmt.Sprintf(`WITH
 subject_row AS (%s),
 active_roles AS (%s),
-current_capabilities AS (
-	SELECT DISTINCT p.code
-	FROM active_roles ar
-	JOIN role_permissions rp ON rp.role_id = ar.id
-	JOIN permissions p ON p.id = rp.permission_id
-),
+current_capabilities AS (%s),
 policy_configuration AS (%s)
 SELECT jsonb_build_object(
 	'subject', %s,
 	'configuration', %s
-)::text`, subjectRow, activeRoles, authzPolicyConfigurationCTE, authzSubjectJSON(kind), authzConfigurationJSON)
+)::text`, subjectRow, activeRoles, authzCurrentCapabilitiesCTE(kind), authzPolicyConfigurationCTE, authzSubjectJSON(kind), authzConfigurationJSON)
 }
 
 func buildServicePrincipalSubjectSnapshotByCodeSQL() string {
@@ -457,25 +453,21 @@ subject_row AS (
 	WHERE code = $1
 ),
 active_roles AS (
-	SELECT r.id, r.authz_version
-	FROM service_principal_roles spr
-	JOIN subject_row sr ON sr.id = spr.service_principal_id
-	JOIN roles r ON r.id = spr.role_id
-	WHERE spr.expires_at IS NULL OR spr.expires_at > statement_timestamp()
+		SELECT r.id, r.authz_version
+		FROM service_principal_roles spr
+		JOIN subject_row sr ON sr.id = spr.service_principal_id
+		JOIN roles r ON r.id = spr.role_id
+		WHERE spr.expires_at IS NULL OR spr.expires_at > statement_timestamp()
 ),
-current_capabilities AS (
-	SELECT DISTINCT p.code
-	FROM active_roles ar
-	JOIN role_permissions rp ON rp.role_id = ar.id
-	JOIN permissions p ON p.id = rp.permission_id
-),
+current_capabilities AS (%s),
 policy_configuration AS (%s)
 SELECT jsonb_build_object(
-	'subject_id', (SELECT id FROM subject_row),
+		'subject_id', (SELECT id FROM subject_row),
 	'subject', %s,
 	'configuration', %s
-)::text
-WHERE EXISTS (SELECT 1 FROM subject_row)`,
+	)::text
+	WHERE EXISTS (SELECT 1 FROM subject_row)`,
+		authzCurrentCapabilitiesCTE(authz.SubjectKindServicePrincipal),
 		authzPolicyConfigurationCTE,
 		authzSubjectJSON(authz.SubjectKindServicePrincipal),
 		authzConfigurationJSON,
@@ -488,12 +480,7 @@ func buildResourceSnapshotSQL(kind authz.SubjectKind, resourceType authz.Resourc
 	return fmt.Sprintf(`WITH
 subject_row AS (%s),
 active_roles AS (%s),
-current_capabilities AS (
-	SELECT DISTINCT p.code
-	FROM active_roles ar
-	JOIN role_permissions rp ON rp.role_id = ar.id
-	JOIN permissions p ON p.id = rp.permission_id
-),
+current_capabilities AS (%s),
 policy_configuration AS (%s),
 resource_row AS (%s),
 current_user_grants AS (%s),
@@ -527,6 +514,7 @@ SELECT jsonb_build_object(
 )::text`,
 		subjectRow,
 		activeRoles,
+		authzCurrentCapabilitiesCTE(kind),
 		authzPolicyConfigurationCTE,
 		resourceRow,
 		userGrants,
@@ -534,6 +522,25 @@ SELECT jsonb_build_object(
 		authzSubjectJSON(kind),
 		authzConfigurationJSON,
 	)
+}
+
+func authzCurrentCapabilitiesCTE(kind authz.SubjectKind) string {
+	roleCapabilities := `
+		SELECT p.code
+		FROM active_roles ar
+		JOIN role_permissions rp ON rp.role_id = ar.id
+		JOIN permissions p ON p.id = rp.permission_id
+	`
+	if kind != authz.SubjectKindServicePrincipal {
+		return roleCapabilities
+	}
+	return roleCapabilities + `
+		UNION
+		SELECT p.code
+		FROM service_principal_worker_permissions spwp
+		JOIN subject_row sr ON sr.id = spwp.service_principal_id
+		JOIN permissions p ON p.id = spwp.permission_id
+	`
 }
 
 func authzSubjectCTEs(kind authz.SubjectKind) (subjectRow, activeRoles string) {

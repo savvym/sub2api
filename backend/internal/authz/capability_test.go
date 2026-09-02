@@ -12,28 +12,31 @@ import (
 func TestCapabilitiesMatchMigrationSeed(t *testing.T) {
 	t.Parallel()
 
-	migrationPath := filepath.Join("..", "..", "migrations", "229_resource_authorization_rbac.sql")
-	contents, err := os.ReadFile(migrationPath)
-	if err != nil {
-		t.Fatalf("read permission migration: %v", err)
+	migrationPaths := []string{
+		filepath.Join("..", "..", "migrations", "229_resource_authorization_rbac.sql"),
+		filepath.Join("..", "..", "migrations", "243_openai_quota_auto_reset_actor.sql"),
 	}
+	seededSet := make(map[string]struct{})
+	for _, migrationPath := range migrationPaths {
+		contents, err := os.ReadFile(migrationPath)
+		if err != nil {
+			t.Fatalf("read permission migration %s: %v", migrationPath, err)
+		}
 
-	seed := string(contents)
-	start := strings.Index(seed, "INSERT INTO permissions (code, description)")
-	if start < 0 {
-		t.Fatal("permission seed start not found")
-	}
-	seed = seed[start:]
-	end := strings.Index(seed, "ON CONFLICT (code)")
-	if end < 0 {
-		t.Fatal("permission seed end not found")
-	}
-	seed = seed[:end]
+		seed := string(contents)
+		block := regexp.MustCompile(`(?s)INSERT INTO permissions \(code, description\)\s*VALUES\s*(.*?)(?:ON CONFLICT|RETURNING|;)`).FindStringSubmatch(seed)
+		if len(block) != 2 {
+			t.Fatalf("permission seed start not found in %s", migrationPath)
+		}
 
-	matches := regexp.MustCompile(`\('([^']+)',\s*'[^']*'\)`).FindAllStringSubmatch(seed, -1)
-	seeded := make([]string, 0, len(matches))
-	for _, match := range matches {
-		seeded = append(seeded, match[1])
+		matches := regexp.MustCompile(`\(\s*'([^']+)',\s*'[^']*'\s*\)`).FindAllStringSubmatch(block[1], -1)
+		for _, match := range matches {
+			seededSet[match[1]] = struct{}{}
+		}
+	}
+	seeded := make([]string, 0, len(seededSet))
+	for capability := range seededSet {
+		seeded = append(seeded, capability)
 	}
 
 	defined := make([]string, 0, len(AllCapabilities()))

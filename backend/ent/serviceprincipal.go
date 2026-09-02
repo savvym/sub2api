@@ -39,11 +39,15 @@ type ServicePrincipal struct {
 type ServicePrincipalEdges struct {
 	// Roles holds the value of the roles edge.
 	Roles []*Role `json:"roles,omitempty"`
+	// WorkerPermissions holds the value of the worker_permissions edge.
+	WorkerPermissions []*Permission `json:"worker_permissions,omitempty"`
 	// ServicePrincipalRoles holds the value of the service_principal_roles edge.
 	ServicePrincipalRoles []*ServicePrincipalRole `json:"service_principal_roles,omitempty"`
+	// WorkerPermissionGrants holds the value of the worker_permission_grants edge.
+	WorkerPermissionGrants []*ServicePrincipalWorkerPermission `json:"worker_permission_grants,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [4]bool
 }
 
 // RolesOrErr returns the Roles value or an error if the edge
@@ -55,13 +59,31 @@ func (e ServicePrincipalEdges) RolesOrErr() ([]*Role, error) {
 	return nil, &NotLoadedError{edge: "roles"}
 }
 
+// WorkerPermissionsOrErr returns the WorkerPermissions value or an error if the edge
+// was not loaded in eager-loading.
+func (e ServicePrincipalEdges) WorkerPermissionsOrErr() ([]*Permission, error) {
+	if e.loadedTypes[1] {
+		return e.WorkerPermissions, nil
+	}
+	return nil, &NotLoadedError{edge: "worker_permissions"}
+}
+
 // ServicePrincipalRolesOrErr returns the ServicePrincipalRoles value or an error if the edge
 // was not loaded in eager-loading.
 func (e ServicePrincipalEdges) ServicePrincipalRolesOrErr() ([]*ServicePrincipalRole, error) {
-	if e.loadedTypes[1] {
+	if e.loadedTypes[2] {
 		return e.ServicePrincipalRoles, nil
 	}
 	return nil, &NotLoadedError{edge: "service_principal_roles"}
+}
+
+// WorkerPermissionGrantsOrErr returns the WorkerPermissionGrants value or an error if the edge
+// was not loaded in eager-loading.
+func (e ServicePrincipalEdges) WorkerPermissionGrantsOrErr() ([]*ServicePrincipalWorkerPermission, error) {
+	if e.loadedTypes[3] {
+		return e.WorkerPermissionGrants, nil
+	}
+	return nil, &NotLoadedError{edge: "worker_permission_grants"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -150,9 +172,19 @@ func (_m *ServicePrincipal) QueryRoles() *RoleQuery {
 	return NewServicePrincipalClient(_m.config).QueryRoles(_m)
 }
 
+// QueryWorkerPermissions queries the "worker_permissions" edge of the ServicePrincipal entity.
+func (_m *ServicePrincipal) QueryWorkerPermissions() *PermissionQuery {
+	return NewServicePrincipalClient(_m.config).QueryWorkerPermissions(_m)
+}
+
 // QueryServicePrincipalRoles queries the "service_principal_roles" edge of the ServicePrincipal entity.
 func (_m *ServicePrincipal) QueryServicePrincipalRoles() *ServicePrincipalRoleQuery {
 	return NewServicePrincipalClient(_m.config).QueryServicePrincipalRoles(_m)
+}
+
+// QueryWorkerPermissionGrants queries the "worker_permission_grants" edge of the ServicePrincipal entity.
+func (_m *ServicePrincipal) QueryWorkerPermissionGrants() *ServicePrincipalWorkerPermissionQuery {
+	return NewServicePrincipalClient(_m.config).QueryWorkerPermissionGrants(_m)
 }
 
 // Update returns a builder for updating this ServicePrincipal.

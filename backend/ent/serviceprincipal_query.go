@@ -13,22 +13,26 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Wei-Shaw/sub2api/ent/permission"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/role"
 	"github.com/Wei-Shaw/sub2api/ent/serviceprincipal"
 	"github.com/Wei-Shaw/sub2api/ent/serviceprincipalrole"
+	"github.com/Wei-Shaw/sub2api/ent/serviceprincipalworkerpermission"
 )
 
 // ServicePrincipalQuery is the builder for querying ServicePrincipal entities.
 type ServicePrincipalQuery struct {
 	config
-	ctx                       *QueryContext
-	order                     []serviceprincipal.OrderOption
-	inters                    []Interceptor
-	predicates                []predicate.ServicePrincipal
-	withRoles                 *RoleQuery
-	withServicePrincipalRoles *ServicePrincipalRoleQuery
-	modifiers                 []func(*sql.Selector)
+	ctx                        *QueryContext
+	order                      []serviceprincipal.OrderOption
+	inters                     []Interceptor
+	predicates                 []predicate.ServicePrincipal
+	withRoles                  *RoleQuery
+	withWorkerPermissions      *PermissionQuery
+	withServicePrincipalRoles  *ServicePrincipalRoleQuery
+	withWorkerPermissionGrants *ServicePrincipalWorkerPermissionQuery
+	modifiers                  []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -87,6 +91,28 @@ func (_q *ServicePrincipalQuery) QueryRoles() *RoleQuery {
 	return query
 }
 
+// QueryWorkerPermissions chains the current query on the "worker_permissions" edge.
+func (_q *ServicePrincipalQuery) QueryWorkerPermissions() *PermissionQuery {
+	query := (&PermissionClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(serviceprincipal.Table, serviceprincipal.FieldID, selector),
+			sqlgraph.To(permission.Table, permission.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, false, serviceprincipal.WorkerPermissionsTable, serviceprincipal.WorkerPermissionsPrimaryKey...),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
 // QueryServicePrincipalRoles chains the current query on the "service_principal_roles" edge.
 func (_q *ServicePrincipalQuery) QueryServicePrincipalRoles() *ServicePrincipalRoleQuery {
 	query := (&ServicePrincipalRoleClient{config: _q.config}).Query()
@@ -102,6 +128,28 @@ func (_q *ServicePrincipalQuery) QueryServicePrincipalRoles() *ServicePrincipalR
 			sqlgraph.From(serviceprincipal.Table, serviceprincipal.FieldID, selector),
 			sqlgraph.To(serviceprincipalrole.Table, serviceprincipalrole.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, true, serviceprincipal.ServicePrincipalRolesTable, serviceprincipal.ServicePrincipalRolesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryWorkerPermissionGrants chains the current query on the "worker_permission_grants" edge.
+func (_q *ServicePrincipalQuery) QueryWorkerPermissionGrants() *ServicePrincipalWorkerPermissionQuery {
+	query := (&ServicePrincipalWorkerPermissionClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(serviceprincipal.Table, serviceprincipal.FieldID, selector),
+			sqlgraph.To(serviceprincipalworkerpermission.Table, serviceprincipalworkerpermission.ServicePrincipalColumn),
+			sqlgraph.Edge(sqlgraph.O2M, true, serviceprincipal.WorkerPermissionGrantsTable, serviceprincipal.WorkerPermissionGrantsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -296,13 +344,15 @@ func (_q *ServicePrincipalQuery) Clone() *ServicePrincipalQuery {
 		return nil
 	}
 	return &ServicePrincipalQuery{
-		config:                    _q.config,
-		ctx:                       _q.ctx.Clone(),
-		order:                     append([]serviceprincipal.OrderOption{}, _q.order...),
-		inters:                    append([]Interceptor{}, _q.inters...),
-		predicates:                append([]predicate.ServicePrincipal{}, _q.predicates...),
-		withRoles:                 _q.withRoles.Clone(),
-		withServicePrincipalRoles: _q.withServicePrincipalRoles.Clone(),
+		config:                     _q.config,
+		ctx:                        _q.ctx.Clone(),
+		order:                      append([]serviceprincipal.OrderOption{}, _q.order...),
+		inters:                     append([]Interceptor{}, _q.inters...),
+		predicates:                 append([]predicate.ServicePrincipal{}, _q.predicates...),
+		withRoles:                  _q.withRoles.Clone(),
+		withWorkerPermissions:      _q.withWorkerPermissions.Clone(),
+		withServicePrincipalRoles:  _q.withServicePrincipalRoles.Clone(),
+		withWorkerPermissionGrants: _q.withWorkerPermissionGrants.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -320,6 +370,17 @@ func (_q *ServicePrincipalQuery) WithRoles(opts ...func(*RoleQuery)) *ServicePri
 	return _q
 }
 
+// WithWorkerPermissions tells the query-builder to eager-load the nodes that are connected to
+// the "worker_permissions" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *ServicePrincipalQuery) WithWorkerPermissions(opts ...func(*PermissionQuery)) *ServicePrincipalQuery {
+	query := (&PermissionClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withWorkerPermissions = query
+	return _q
+}
+
 // WithServicePrincipalRoles tells the query-builder to eager-load the nodes that are connected to
 // the "service_principal_roles" edge. The optional arguments are used to configure the query builder of the edge.
 func (_q *ServicePrincipalQuery) WithServicePrincipalRoles(opts ...func(*ServicePrincipalRoleQuery)) *ServicePrincipalQuery {
@@ -328,6 +389,17 @@ func (_q *ServicePrincipalQuery) WithServicePrincipalRoles(opts ...func(*Service
 		opt(query)
 	}
 	_q.withServicePrincipalRoles = query
+	return _q
+}
+
+// WithWorkerPermissionGrants tells the query-builder to eager-load the nodes that are connected to
+// the "worker_permission_grants" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *ServicePrincipalQuery) WithWorkerPermissionGrants(opts ...func(*ServicePrincipalWorkerPermissionQuery)) *ServicePrincipalQuery {
+	query := (&ServicePrincipalWorkerPermissionClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withWorkerPermissionGrants = query
 	return _q
 }
 
@@ -409,9 +481,11 @@ func (_q *ServicePrincipalQuery) sqlAll(ctx context.Context, hooks ...queryHook)
 	var (
 		nodes       = []*ServicePrincipal{}
 		_spec       = _q.querySpec()
-		loadedTypes = [2]bool{
+		loadedTypes = [4]bool{
 			_q.withRoles != nil,
+			_q.withWorkerPermissions != nil,
 			_q.withServicePrincipalRoles != nil,
+			_q.withWorkerPermissionGrants != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -442,11 +516,29 @@ func (_q *ServicePrincipalQuery) sqlAll(ctx context.Context, hooks ...queryHook)
 			return nil, err
 		}
 	}
+	if query := _q.withWorkerPermissions; query != nil {
+		if err := _q.loadWorkerPermissions(ctx, query, nodes,
+			func(n *ServicePrincipal) { n.Edges.WorkerPermissions = []*Permission{} },
+			func(n *ServicePrincipal, e *Permission) {
+				n.Edges.WorkerPermissions = append(n.Edges.WorkerPermissions, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
 	if query := _q.withServicePrincipalRoles; query != nil {
 		if err := _q.loadServicePrincipalRoles(ctx, query, nodes,
 			func(n *ServicePrincipal) { n.Edges.ServicePrincipalRoles = []*ServicePrincipalRole{} },
 			func(n *ServicePrincipal, e *ServicePrincipalRole) {
 				n.Edges.ServicePrincipalRoles = append(n.Edges.ServicePrincipalRoles, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withWorkerPermissionGrants; query != nil {
+		if err := _q.loadWorkerPermissionGrants(ctx, query, nodes,
+			func(n *ServicePrincipal) { n.Edges.WorkerPermissionGrants = []*ServicePrincipalWorkerPermission{} },
+			func(n *ServicePrincipal, e *ServicePrincipalWorkerPermission) {
+				n.Edges.WorkerPermissionGrants = append(n.Edges.WorkerPermissionGrants, e)
 			}); err != nil {
 			return nil, err
 		}
@@ -515,6 +607,67 @@ func (_q *ServicePrincipalQuery) loadRoles(ctx context.Context, query *RoleQuery
 	}
 	return nil
 }
+func (_q *ServicePrincipalQuery) loadWorkerPermissions(ctx context.Context, query *PermissionQuery, nodes []*ServicePrincipal, init func(*ServicePrincipal), assign func(*ServicePrincipal, *Permission)) error {
+	edgeIDs := make([]driver.Value, len(nodes))
+	byID := make(map[int64]*ServicePrincipal)
+	nids := make(map[int64]map[*ServicePrincipal]struct{})
+	for i, node := range nodes {
+		edgeIDs[i] = node.ID
+		byID[node.ID] = node
+		if init != nil {
+			init(node)
+		}
+	}
+	query.Where(func(s *sql.Selector) {
+		joinT := sql.Table(serviceprincipal.WorkerPermissionsTable)
+		s.Join(joinT).On(s.C(permission.FieldID), joinT.C(serviceprincipal.WorkerPermissionsPrimaryKey[1]))
+		s.Where(sql.InValues(joinT.C(serviceprincipal.WorkerPermissionsPrimaryKey[0]), edgeIDs...))
+		columns := s.SelectedColumns()
+		s.Select(joinT.C(serviceprincipal.WorkerPermissionsPrimaryKey[0]))
+		s.AppendSelect(columns...)
+		s.SetDistinct(false)
+	})
+	if err := query.prepareQuery(ctx); err != nil {
+		return err
+	}
+	qr := QuerierFunc(func(ctx context.Context, q Query) (Value, error) {
+		return query.sqlAll(ctx, func(_ context.Context, spec *sqlgraph.QuerySpec) {
+			assign := spec.Assign
+			values := spec.ScanValues
+			spec.ScanValues = func(columns []string) ([]any, error) {
+				values, err := values(columns[1:])
+				if err != nil {
+					return nil, err
+				}
+				return append([]any{new(sql.NullInt64)}, values...), nil
+			}
+			spec.Assign = func(columns []string, values []any) error {
+				outValue := values[0].(*sql.NullInt64).Int64
+				inValue := values[1].(*sql.NullInt64).Int64
+				if nids[inValue] == nil {
+					nids[inValue] = map[*ServicePrincipal]struct{}{byID[outValue]: {}}
+					return assign(columns[1:], values[1:])
+				}
+				nids[inValue][byID[outValue]] = struct{}{}
+				return nil
+			}
+		})
+	})
+	neighbors, err := withInterceptors[[]*Permission](ctx, query, qr, query.inters)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected "worker_permissions" node returned %v`, n.ID)
+		}
+		for kn := range nodes {
+			assign(kn, n)
+		}
+	}
+	return nil
+}
 func (_q *ServicePrincipalQuery) loadServicePrincipalRoles(ctx context.Context, query *ServicePrincipalRoleQuery, nodes []*ServicePrincipal, init func(*ServicePrincipal), assign func(*ServicePrincipal, *ServicePrincipalRole)) error {
 	fks := make([]driver.Value, 0, len(nodes))
 	nodeids := make(map[int64]*ServicePrincipal)
@@ -540,6 +693,36 @@ func (_q *ServicePrincipalQuery) loadServicePrincipalRoles(ctx context.Context, 
 		node, ok := nodeids[fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "service_principal_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *ServicePrincipalQuery) loadWorkerPermissionGrants(ctx context.Context, query *ServicePrincipalWorkerPermissionQuery, nodes []*ServicePrincipal, init func(*ServicePrincipal), assign func(*ServicePrincipal, *ServicePrincipalWorkerPermission)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*ServicePrincipal)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(serviceprincipalworkerpermission.FieldServicePrincipalID)
+	}
+	query.Where(predicate.ServicePrincipalWorkerPermission(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(serviceprincipal.WorkerPermissionGrantsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.ServicePrincipalID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "service_principal_id" returned %v for node %v`, fk, n)
 		}
 		assign(node, n)
 	}

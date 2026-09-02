@@ -86,6 +86,8 @@ type Tx struct {
 	ServicePrincipal *ServicePrincipalClient
 	// ServicePrincipalRole is the client for interacting with the ServicePrincipalRole builders.
 	ServicePrincipalRole *ServicePrincipalRoleClient
+	// ServicePrincipalWorkerPermission is the client for interacting with the ServicePrincipalWorkerPermission builders.
+	ServicePrincipalWorkerPermission *ServicePrincipalWorkerPermissionClient
 	// Setting is the client for interacting with the Setting builders.
 	Setting *SettingClient
 	// SubscriptionPlan is the client for interacting with the SubscriptionPlan builders.
@@ -277,6 +279,7 @@ func (tx *Tx) init() {
 	tx.SecuritySecret = NewSecuritySecretClient(tx.config)
 	tx.ServicePrincipal = NewServicePrincipalClient(tx.config)
 	tx.ServicePrincipalRole = NewServicePrincipalRoleClient(tx.config)
+	tx.ServicePrincipalWorkerPermission = NewServicePrincipalWorkerPermissionClient(tx.config)
 	tx.Setting = NewSettingClient(tx.config)
 	tx.SubscriptionPlan = NewSubscriptionPlanClient(tx.config)
 	tx.TLSFingerprintProfile = NewTLSFingerprintProfileClient(tx.config)

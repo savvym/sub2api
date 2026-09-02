@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/Wei-Shaw/sub2api/ent/permission"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/role"
 	"github.com/Wei-Shaw/sub2api/ent/serviceprincipal"
@@ -114,6 +115,21 @@ func (_u *ServicePrincipalUpdate) AddRoles(v ...*Role) *ServicePrincipalUpdate {
 	return _u.AddRoleIDs(ids...)
 }
 
+// AddWorkerPermissionIDs adds the "worker_permissions" edge to the Permission entity by IDs.
+func (_u *ServicePrincipalUpdate) AddWorkerPermissionIDs(ids ...int64) *ServicePrincipalUpdate {
+	_u.mutation.AddWorkerPermissionIDs(ids...)
+	return _u
+}
+
+// AddWorkerPermissions adds the "worker_permissions" edges to the Permission entity.
+func (_u *ServicePrincipalUpdate) AddWorkerPermissions(v ...*Permission) *ServicePrincipalUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddWorkerPermissionIDs(ids...)
+}
+
 // AddServicePrincipalRoleIDs adds the "service_principal_roles" edge to the ServicePrincipalRole entity by IDs.
 func (_u *ServicePrincipalUpdate) AddServicePrincipalRoleIDs(ids ...int64) *ServicePrincipalUpdate {
 	_u.mutation.AddServicePrincipalRoleIDs(ids...)
@@ -153,6 +169,27 @@ func (_u *ServicePrincipalUpdate) RemoveRoles(v ...*Role) *ServicePrincipalUpdat
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveRoleIDs(ids...)
+}
+
+// ClearWorkerPermissions clears all "worker_permissions" edges to the Permission entity.
+func (_u *ServicePrincipalUpdate) ClearWorkerPermissions() *ServicePrincipalUpdate {
+	_u.mutation.ClearWorkerPermissions()
+	return _u
+}
+
+// RemoveWorkerPermissionIDs removes the "worker_permissions" edge to Permission entities by IDs.
+func (_u *ServicePrincipalUpdate) RemoveWorkerPermissionIDs(ids ...int64) *ServicePrincipalUpdate {
+	_u.mutation.RemoveWorkerPermissionIDs(ids...)
+	return _u
+}
+
+// RemoveWorkerPermissions removes "worker_permissions" edges to Permission entities.
+func (_u *ServicePrincipalUpdate) RemoveWorkerPermissions(v ...*Permission) *ServicePrincipalUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveWorkerPermissionIDs(ids...)
 }
 
 // ClearServicePrincipalRoles clears all "service_principal_roles" edges to the ServicePrincipalRole entity.
@@ -319,6 +356,63 @@ func (_u *ServicePrincipalUpdate) sqlSave(ctx context.Context) (_node int, err e
 		edge.Target.Fields = specE.Fields
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.WorkerPermissionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   serviceprincipal.WorkerPermissionsTable,
+			Columns: serviceprincipal.WorkerPermissionsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(permission.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &ServicePrincipalWorkerPermissionCreate{config: _u.config, mutation: newServicePrincipalWorkerPermissionMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedWorkerPermissionsIDs(); len(nodes) > 0 && !_u.mutation.WorkerPermissionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   serviceprincipal.WorkerPermissionsTable,
+			Columns: serviceprincipal.WorkerPermissionsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(permission.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &ServicePrincipalWorkerPermissionCreate{config: _u.config, mutation: newServicePrincipalWorkerPermissionMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.WorkerPermissionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   serviceprincipal.WorkerPermissionsTable,
+			Columns: serviceprincipal.WorkerPermissionsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(permission.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &ServicePrincipalWorkerPermissionCreate{config: _u.config, mutation: newServicePrincipalWorkerPermissionMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _u.mutation.ServicePrincipalRolesCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -468,6 +562,21 @@ func (_u *ServicePrincipalUpdateOne) AddRoles(v ...*Role) *ServicePrincipalUpdat
 	return _u.AddRoleIDs(ids...)
 }
 
+// AddWorkerPermissionIDs adds the "worker_permissions" edge to the Permission entity by IDs.
+func (_u *ServicePrincipalUpdateOne) AddWorkerPermissionIDs(ids ...int64) *ServicePrincipalUpdateOne {
+	_u.mutation.AddWorkerPermissionIDs(ids...)
+	return _u
+}
+
+// AddWorkerPermissions adds the "worker_permissions" edges to the Permission entity.
+func (_u *ServicePrincipalUpdateOne) AddWorkerPermissions(v ...*Permission) *ServicePrincipalUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddWorkerPermissionIDs(ids...)
+}
+
 // AddServicePrincipalRoleIDs adds the "service_principal_roles" edge to the ServicePrincipalRole entity by IDs.
 func (_u *ServicePrincipalUpdateOne) AddServicePrincipalRoleIDs(ids ...int64) *ServicePrincipalUpdateOne {
 	_u.mutation.AddServicePrincipalRoleIDs(ids...)
@@ -507,6 +616,27 @@ func (_u *ServicePrincipalUpdateOne) RemoveRoles(v ...*Role) *ServicePrincipalUp
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveRoleIDs(ids...)
+}
+
+// ClearWorkerPermissions clears all "worker_permissions" edges to the Permission entity.
+func (_u *ServicePrincipalUpdateOne) ClearWorkerPermissions() *ServicePrincipalUpdateOne {
+	_u.mutation.ClearWorkerPermissions()
+	return _u
+}
+
+// RemoveWorkerPermissionIDs removes the "worker_permissions" edge to Permission entities by IDs.
+func (_u *ServicePrincipalUpdateOne) RemoveWorkerPermissionIDs(ids ...int64) *ServicePrincipalUpdateOne {
+	_u.mutation.RemoveWorkerPermissionIDs(ids...)
+	return _u
+}
+
+// RemoveWorkerPermissions removes "worker_permissions" edges to Permission entities.
+func (_u *ServicePrincipalUpdateOne) RemoveWorkerPermissions(v ...*Permission) *ServicePrincipalUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveWorkerPermissionIDs(ids...)
 }
 
 // ClearServicePrincipalRoles clears all "service_principal_roles" edges to the ServicePrincipalRole entity.
@@ -698,6 +828,63 @@ func (_u *ServicePrincipalUpdateOne) sqlSave(ctx context.Context) (_node *Servic
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		createE := &ServicePrincipalRoleCreate{config: _u.config, mutation: newServicePrincipalRoleMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.WorkerPermissionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   serviceprincipal.WorkerPermissionsTable,
+			Columns: serviceprincipal.WorkerPermissionsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(permission.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &ServicePrincipalWorkerPermissionCreate{config: _u.config, mutation: newServicePrincipalWorkerPermissionMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedWorkerPermissionsIDs(); len(nodes) > 0 && !_u.mutation.WorkerPermissionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   serviceprincipal.WorkerPermissionsTable,
+			Columns: serviceprincipal.WorkerPermissionsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(permission.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &ServicePrincipalWorkerPermissionCreate{config: _u.config, mutation: newServicePrincipalWorkerPermissionMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.WorkerPermissionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   serviceprincipal.WorkerPermissionsTable,
+			Columns: serviceprincipal.WorkerPermissionsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(permission.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &ServicePrincipalWorkerPermissionCreate{config: _u.config, mutation: newServicePrincipalWorkerPermissionMutation(_u.config, OpCreate)}
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields

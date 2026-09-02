@@ -17,18 +17,22 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/role"
 	"github.com/Wei-Shaw/sub2api/ent/rolepermission"
+	"github.com/Wei-Shaw/sub2api/ent/serviceprincipal"
+	"github.com/Wei-Shaw/sub2api/ent/serviceprincipalworkerpermission"
 )
 
 // PermissionQuery is the builder for querying Permission entities.
 type PermissionQuery struct {
 	config
-	ctx                 *QueryContext
-	order               []permission.OrderOption
-	inters              []Interceptor
-	predicates          []predicate.Permission
-	withRoles           *RoleQuery
-	withRolePermissions *RolePermissionQuery
-	modifiers           []func(*sql.Selector)
+	ctx                         *QueryContext
+	order                       []permission.OrderOption
+	inters                      []Interceptor
+	predicates                  []predicate.Permission
+	withRoles                   *RoleQuery
+	withWorkerServicePrincipals *ServicePrincipalQuery
+	withRolePermissions         *RolePermissionQuery
+	withWorkerPermissionGrants  *ServicePrincipalWorkerPermissionQuery
+	modifiers                   []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -87,6 +91,28 @@ func (_q *PermissionQuery) QueryRoles() *RoleQuery {
 	return query
 }
 
+// QueryWorkerServicePrincipals chains the current query on the "worker_service_principals" edge.
+func (_q *PermissionQuery) QueryWorkerServicePrincipals() *ServicePrincipalQuery {
+	query := (&ServicePrincipalClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(permission.Table, permission.FieldID, selector),
+			sqlgraph.To(serviceprincipal.Table, serviceprincipal.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, permission.WorkerServicePrincipalsTable, permission.WorkerServicePrincipalsPrimaryKey...),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
 // QueryRolePermissions chains the current query on the "role_permissions" edge.
 func (_q *PermissionQuery) QueryRolePermissions() *RolePermissionQuery {
 	query := (&RolePermissionClient{config: _q.config}).Query()
@@ -102,6 +128,28 @@ func (_q *PermissionQuery) QueryRolePermissions() *RolePermissionQuery {
 			sqlgraph.From(permission.Table, permission.FieldID, selector),
 			sqlgraph.To(rolepermission.Table, rolepermission.PermissionColumn),
 			sqlgraph.Edge(sqlgraph.O2M, true, permission.RolePermissionsTable, permission.RolePermissionsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryWorkerPermissionGrants chains the current query on the "worker_permission_grants" edge.
+func (_q *PermissionQuery) QueryWorkerPermissionGrants() *ServicePrincipalWorkerPermissionQuery {
+	query := (&ServicePrincipalWorkerPermissionClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(permission.Table, permission.FieldID, selector),
+			sqlgraph.To(serviceprincipalworkerpermission.Table, serviceprincipalworkerpermission.PermissionColumn),
+			sqlgraph.Edge(sqlgraph.O2M, true, permission.WorkerPermissionGrantsTable, permission.WorkerPermissionGrantsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -296,13 +344,15 @@ func (_q *PermissionQuery) Clone() *PermissionQuery {
 		return nil
 	}
 	return &PermissionQuery{
-		config:              _q.config,
-		ctx:                 _q.ctx.Clone(),
-		order:               append([]permission.OrderOption{}, _q.order...),
-		inters:              append([]Interceptor{}, _q.inters...),
-		predicates:          append([]predicate.Permission{}, _q.predicates...),
-		withRoles:           _q.withRoles.Clone(),
-		withRolePermissions: _q.withRolePermissions.Clone(),
+		config:                      _q.config,
+		ctx:                         _q.ctx.Clone(),
+		order:                       append([]permission.OrderOption{}, _q.order...),
+		inters:                      append([]Interceptor{}, _q.inters...),
+		predicates:                  append([]predicate.Permission{}, _q.predicates...),
+		withRoles:                   _q.withRoles.Clone(),
+		withWorkerServicePrincipals: _q.withWorkerServicePrincipals.Clone(),
+		withRolePermissions:         _q.withRolePermissions.Clone(),
+		withWorkerPermissionGrants:  _q.withWorkerPermissionGrants.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -320,6 +370,17 @@ func (_q *PermissionQuery) WithRoles(opts ...func(*RoleQuery)) *PermissionQuery 
 	return _q
 }
 
+// WithWorkerServicePrincipals tells the query-builder to eager-load the nodes that are connected to
+// the "worker_service_principals" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *PermissionQuery) WithWorkerServicePrincipals(opts ...func(*ServicePrincipalQuery)) *PermissionQuery {
+	query := (&ServicePrincipalClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withWorkerServicePrincipals = query
+	return _q
+}
+
 // WithRolePermissions tells the query-builder to eager-load the nodes that are connected to
 // the "role_permissions" edge. The optional arguments are used to configure the query builder of the edge.
 func (_q *PermissionQuery) WithRolePermissions(opts ...func(*RolePermissionQuery)) *PermissionQuery {
@@ -328,6 +389,17 @@ func (_q *PermissionQuery) WithRolePermissions(opts ...func(*RolePermissionQuery
 		opt(query)
 	}
 	_q.withRolePermissions = query
+	return _q
+}
+
+// WithWorkerPermissionGrants tells the query-builder to eager-load the nodes that are connected to
+// the "worker_permission_grants" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *PermissionQuery) WithWorkerPermissionGrants(opts ...func(*ServicePrincipalWorkerPermissionQuery)) *PermissionQuery {
+	query := (&ServicePrincipalWorkerPermissionClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withWorkerPermissionGrants = query
 	return _q
 }
 
@@ -409,9 +481,11 @@ func (_q *PermissionQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*P
 	var (
 		nodes       = []*Permission{}
 		_spec       = _q.querySpec()
-		loadedTypes = [2]bool{
+		loadedTypes = [4]bool{
 			_q.withRoles != nil,
+			_q.withWorkerServicePrincipals != nil,
 			_q.withRolePermissions != nil,
+			_q.withWorkerPermissionGrants != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -442,10 +516,28 @@ func (_q *PermissionQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*P
 			return nil, err
 		}
 	}
+	if query := _q.withWorkerServicePrincipals; query != nil {
+		if err := _q.loadWorkerServicePrincipals(ctx, query, nodes,
+			func(n *Permission) { n.Edges.WorkerServicePrincipals = []*ServicePrincipal{} },
+			func(n *Permission, e *ServicePrincipal) {
+				n.Edges.WorkerServicePrincipals = append(n.Edges.WorkerServicePrincipals, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
 	if query := _q.withRolePermissions; query != nil {
 		if err := _q.loadRolePermissions(ctx, query, nodes,
 			func(n *Permission) { n.Edges.RolePermissions = []*RolePermission{} },
 			func(n *Permission, e *RolePermission) { n.Edges.RolePermissions = append(n.Edges.RolePermissions, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withWorkerPermissionGrants; query != nil {
+		if err := _q.loadWorkerPermissionGrants(ctx, query, nodes,
+			func(n *Permission) { n.Edges.WorkerPermissionGrants = []*ServicePrincipalWorkerPermission{} },
+			func(n *Permission, e *ServicePrincipalWorkerPermission) {
+				n.Edges.WorkerPermissionGrants = append(n.Edges.WorkerPermissionGrants, e)
+			}); err != nil {
 			return nil, err
 		}
 	}
@@ -513,6 +605,67 @@ func (_q *PermissionQuery) loadRoles(ctx context.Context, query *RoleQuery, node
 	}
 	return nil
 }
+func (_q *PermissionQuery) loadWorkerServicePrincipals(ctx context.Context, query *ServicePrincipalQuery, nodes []*Permission, init func(*Permission), assign func(*Permission, *ServicePrincipal)) error {
+	edgeIDs := make([]driver.Value, len(nodes))
+	byID := make(map[int64]*Permission)
+	nids := make(map[int64]map[*Permission]struct{})
+	for i, node := range nodes {
+		edgeIDs[i] = node.ID
+		byID[node.ID] = node
+		if init != nil {
+			init(node)
+		}
+	}
+	query.Where(func(s *sql.Selector) {
+		joinT := sql.Table(permission.WorkerServicePrincipalsTable)
+		s.Join(joinT).On(s.C(serviceprincipal.FieldID), joinT.C(permission.WorkerServicePrincipalsPrimaryKey[0]))
+		s.Where(sql.InValues(joinT.C(permission.WorkerServicePrincipalsPrimaryKey[1]), edgeIDs...))
+		columns := s.SelectedColumns()
+		s.Select(joinT.C(permission.WorkerServicePrincipalsPrimaryKey[1]))
+		s.AppendSelect(columns...)
+		s.SetDistinct(false)
+	})
+	if err := query.prepareQuery(ctx); err != nil {
+		return err
+	}
+	qr := QuerierFunc(func(ctx context.Context, q Query) (Value, error) {
+		return query.sqlAll(ctx, func(_ context.Context, spec *sqlgraph.QuerySpec) {
+			assign := spec.Assign
+			values := spec.ScanValues
+			spec.ScanValues = func(columns []string) ([]any, error) {
+				values, err := values(columns[1:])
+				if err != nil {
+					return nil, err
+				}
+				return append([]any{new(sql.NullInt64)}, values...), nil
+			}
+			spec.Assign = func(columns []string, values []any) error {
+				outValue := values[0].(*sql.NullInt64).Int64
+				inValue := values[1].(*sql.NullInt64).Int64
+				if nids[inValue] == nil {
+					nids[inValue] = map[*Permission]struct{}{byID[outValue]: {}}
+					return assign(columns[1:], values[1:])
+				}
+				nids[inValue][byID[outValue]] = struct{}{}
+				return nil
+			}
+		})
+	})
+	neighbors, err := withInterceptors[[]*ServicePrincipal](ctx, query, qr, query.inters)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected "worker_service_principals" node returned %v`, n.ID)
+		}
+		for kn := range nodes {
+			assign(kn, n)
+		}
+	}
+	return nil
+}
 func (_q *PermissionQuery) loadRolePermissions(ctx context.Context, query *RolePermissionQuery, nodes []*Permission, init func(*Permission), assign func(*Permission, *RolePermission)) error {
 	fks := make([]driver.Value, 0, len(nodes))
 	nodeids := make(map[int64]*Permission)
@@ -528,6 +681,36 @@ func (_q *PermissionQuery) loadRolePermissions(ctx context.Context, query *RoleP
 	}
 	query.Where(predicate.RolePermission(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(permission.RolePermissionsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.PermissionID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "permission_id" returned %v for node %v`, fk, n)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *PermissionQuery) loadWorkerPermissionGrants(ctx context.Context, query *ServicePrincipalWorkerPermissionQuery, nodes []*Permission, init func(*Permission), assign func(*Permission, *ServicePrincipalWorkerPermission)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*Permission)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(serviceprincipalworkerpermission.FieldPermissionID)
+	}
+	query.Where(predicate.ServicePrincipalWorkerPermission(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(permission.WorkerPermissionGrantsColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {

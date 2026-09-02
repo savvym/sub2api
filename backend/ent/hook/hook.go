@@ -441,6 +441,18 @@ func (f ServicePrincipalRoleFunc) Mutate(ctx context.Context, m ent.Mutation) (e
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ServicePrincipalRoleMutation", m)
 }
 
+// The ServicePrincipalWorkerPermissionFunc type is an adapter to allow the use of ordinary
+// function as ServicePrincipalWorkerPermission mutator.
+type ServicePrincipalWorkerPermissionFunc func(context.Context, *ent.ServicePrincipalWorkerPermissionMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ServicePrincipalWorkerPermissionFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ServicePrincipalWorkerPermissionMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ServicePrincipalWorkerPermissionMutation", m)
+}
+
 // The SettingFunc type is an adapter to allow the use of ordinary
 // function as Setting mutator.
 type SettingFunc func(context.Context, *ent.SettingMutation) (ent.Value, error)

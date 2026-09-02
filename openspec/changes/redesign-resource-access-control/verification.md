@@ -1,6 +1,6 @@
 # Verification
 
-状态词：`待实现`、`通过`、`失败`、`豁免（必须有批准链接）`。
+验证状态词：`待实现`、`通过`、`失败`、`豁免（必须有批准链接）`。安全清单阶段状态使用 `Review Ready`、`Decision Accepted`、`Release Accepted`；`Decision Accepted` 只批准设计，`Release Accepted` 才批准实施/发布，两者不得简写为 `Accepted`。
 
 ## Requirement → Evidence
 
@@ -41,7 +41,7 @@
 | 门禁 | 证据 | 状态 |
 | --- | --- | --- |
 | User、Service Principal 互斥且 System Actor 不可由 HTTP/业务包构造 | `internal/authz` Actor 构造边界与 JSON 伪造测试 | 通过 |
-| 11 个 capability 与 migration 229 seed 完全一致 | `TestCapabilitiesMatchMigrationSeed` | 通过 |
+| 12 个 capability 与 migration 229 + 243 seed 完全一致 | `TestCapabilitiesMatchMigrationSeed` | 通过 |
 | 13 个动作与四级访问映射准确，未知值 fail closed | action/access level table tests | 通过 |
 | manager 不含 delete/transfer，public 仅 viewer/consumer | access level boundary tests | 通过 |
 | legacy admin、capability、Owner、public、用户/角色 Grant 来源可审计 | typed provenance tests | 通过 |
@@ -131,6 +131,22 @@
 | 完整 `account_groups` 授权来源、验证版本和撤权/到期/角色变化关系重算 | 任务 4.2/4.4；1.11 只产生 durable Scheduler 事件 | 待实现 |
 | CI/Testcontainers 1.11 repository dynamic suite | GitHub Actions push Run `32711471080` 完整 integration suite；`make test-integration` → `go test -tags=integration ./...` | 通过；test job `97383587468`，SHA `2d203b601c5d5b6578e91020bdbfbff4eb5bae6b` |
 
+## Phase 0 Exit Review（0.8）
+
+Phase 0 退出是设计治理门禁，不是 Phase 2 发布验收。它确认安全边界、责任和验证计划已经冻结；不要求 `credential-inventory.md` 第 8.2 节、`outbound-security.md` 第 6/7/8.2 节的代码/目标环境证据已经完成，也不要求生产预检或 shadow 观察已经执行。这些证据仍由 Phase 1/2 发布门禁约束，不能因勾选 0.8 被豁免。
+
+| 门禁 | 必需证据 | 批准角色 | 当前状态 |
+| --- | --- | --- | --- |
+| 0.1-0.3 产品与权限基线 | `design.md` Accepted 决策、写入口/引用 ID 覆盖清单及对应 commit/PR | 平台、认证、安全阶段评审人确认范围完整 | 待实现（基础任务已勾选，尚未纳入退出批准记录） |
+| 0.4 凭据设计决策 | `credential-inventory.md` 第 8.1 节全部关闭，状态为 `Decision Accepted`，附所批准文档版本和逐角色链接 | 平台基础设施、安全、相关平台/认证类型负责人；涉及明文导出时另需产品与安全 | 待实现（当前 Review Ready） |
+| 0.5 出站设计决策 | `outbound-security.md` 第 8.1 节全部关闭，状态为 `Decision Accepted`，附首批组合、精确目标、限频、OAuth 决策和逐角色链接 | 平台、安全、每个候选组合的认证类型负责人 | 待实现（当前 Review Ready） |
+| 0.6 数据预检设计 | `data-preflight.sql` 的 `REPEATABLE READ READ ONLY`、输出最小化、异常分类、回填规模口径，以及 auto-reset provenance/terminal-recovery 两份 inventory 的分类与处理路由评审链接；生产执行结果留在 1.12 发布门禁 | 平台与安全 | 待实现（脚本及两份 inventory 的 PostgreSQL 定向回归已通过，尚无平台/安全评审链接） |
+| 0.7 兼容矩阵 | `compatibility-matrix.md` 文档版本及 Feature Flag x Backend/SIMPLE/authorization mode 评审链接 | 平台、认证、安全 | 待实现（矩阵已完成，尚未纳入退出批准记录） |
+| 未决实施项有 owner | 两份安全清单的所有 `Release Accepted` 待办均登记 owner、目标任务/版本、验证方法；例外附范围、补偿控制、风险 owner 和到期时间 | 对应平台/认证/安全 owner | 待实现（尚无统一追踪链接） |
+| Phase 0 退出记录 | 单一不可变记录包含 change/commit、评审日期、0.1-0.7 证据、未决项清单、明确的“无未决设计级安全阻塞”结论，并分别附平台、认证、安全批准链接 | 平台、认证、安全三方分别批准；涉及明文导出时另附产品/安全批准 | 待实现（尚无批准链接） |
+
+只有上表全部为 `通过` 或带有效批准链接的 `豁免` 时，才能勾选 0.8。批准链接必须能追溯批准人身份、角色、日期、结论和所批准的文档/commit；仅有姓名、口头确认、PR 存在或 CI 通过均不足。生产数据异常、目标环境差异或新发现的设计级安全阻塞会重新打开 0.8，直至风险完成处置或取得有期限的三方风险接受。
+
 ## Phase 1 Exit Review（1.12）
 
 本表区分本地 dark-foundation 工程验证与正式阶段批准。任何一项外部门禁仍为待实现时，1.12 都不得勾选，也不得开始 Phase 2 发布。
@@ -142,19 +158,21 @@
 | SIMPLE Mode 发布护栏与模式组合 | SettingService、生产 PolicyStore、Scope 三层 fail closed；Standard/SIMPLE x 5 个 Feature Flag 的 64 组测试，并验证数据库 raw flags 仍可为 true | 通过 |
 | SQL Scope 生产规模查询计划 | PostgreSQL 18.6、20,000 行 Account/Group 与大规模无关 Grant fixture；Owner、public、direct-user、role Grant 稀疏索引均命中，主表无 Seq Scan；Account/Group 的 legacy admin/platform capability 全局计划只访问资源关系一次 | 通过 |
 | migration 242 在线 public scope 索引 | SQL contract、`_notx` runner invalid-index retry 与本机 PostgreSQL 索引有效性/查询计划测试 | 通过 |
-| main/authz 同编号 migration 双线收敛 | `TestSharedMigrationNumberLineagesConverge` 覆盖 main-first、authz-first、完整文件名记账、两次完整 apply 与双方 schema/data 保留；最终 SHA 的 push/PR CI 均无 `-run` 过滤地非缓存执行 integration-tag repository 包 | 通过；Run `32812029206`/`32812033899` 的 repository 分别运行 `55.422s`/`48.026s` |
+| main/authz 同编号 migration 双线收敛 | `TestSharedMigrationNumberLineagesConverge` 覆盖 main-first、authz-first、完整文件名记账、两次完整 apply 与双方 schema/data 保留；历史 main-integration SHA `d47ca4bea` 的 push/PR CI 均无 `-run` 过滤地非缓存执行 integration-tag repository 包 | 通过；Run `32812029206`/`32812033899` 的 repository 分别运行 `55.422s`/`48.026s`；该历史证据不覆盖 migration 243 |
 | main quota handler trusted Actor 合并 | OpenAI 手动 reset 的 quota/recover/load adapters 保留同一 User/SP Actor；Grok reset/reconcile 使用 `Admin*` facade；聚焦 handler/service 测试 | 通过 |
-| OpenAI quota auto-reset 后台 Actor | 需要受限 durable Service Principal、missing/disabled/capability fail-closed、Actor-scoped idempotency 与 SP durable audit | 待实现；当前 default-off dark integration 有条件保留，ACL/RBAC enforcement 前阻断 |
+| OpenAI quota auto-reset 后台 Actor | 固定 roleless Service Principal/direct worker permission；missing/disabled/角色或权限形态错误时零副作用。普通执行先做三次 mutable eligibility reload，第四次在每个 POST 前的 proxy/account 锁内同时复核 eligibility 与完整 upstream identity；独立 recovery keyset pager 不依赖 enabled/status/schedulable，malformed candidate 也可靠、可取消地阻塞入队。managed state strict 拒绝未知字段/类型/状态、非 canonical hash 对和超界 count。evaluate 前半程持 advisory-only lease，POST 前才按 proxy `FOR SHARE` → account `FOR UPDATE` 升级，POST 返回立即释放 advisory+row transaction，agent retry 取得新 lease。新操作逐次重授权、Actor-qualified idempotency 与稳定 redeem request ID；上游效果后撤权时仅允许不重新授权的原子 finalizer 提交 `recovery_deferred` SP audit + succeeded 事实，恢复仍拒绝且恢复授权后不二次 reset | focused service/repository、race与本机 PostgreSQL finalizer 已有通过记录；当前最终 SHA 的 CI/Testcontainers/Security Scan 仍待完成 |
+| migration 243 protected attempt 升级与协调 | 五列 marker 固化无 account FK 的正 `account_id`；一次性 `completed=TRUE` sentinel；account scope 解析与 raw/旧 SP 稳定 key 唯一映射，0/多匹配 fail migration；全部 account replay 与 protected raw/旧 SP → reserved SP；success/no-effect 两个非 PUBLIC、SECURITY INVOKER owner 函数均校验 marker provenance 与 SP audit，分别强制 `reconcile-success:<record_id>` / `reconcile-no-effect:<record_id>` decision ID，不复用 redeem request ID。success 原子 audit+tombstone+succeeded，数据库固定 8 天 retention，到期后若同 stable-key 的 `resetting|failed` managed state 仍在则继续保留；no-effect 的 drained 参数只是调用方断言，批准前必须归档 fleet shutdown/drain 与 upstream no-effect 证据，audit extra 带不含凭据的 evidence ref/decision owner，原子 409 audit+删除 marker/parent并支持 exact retry；仅 stable-key 精确匹配时清当前 managed state，更新/不同 state 保留；unknown 禁止猜；迟到旧 UPDATE、未协调 cleanup、RESTRICT 后备、raw fence/malformed/post-snapshot current retryable 与旧 account scope 写围栏 | 当前 `go test ./migrations -count=1` 与本机 PostgreSQL 18.6 完整 `go test -tags=integration ./migrations -count=1`（23.704s）通过，定向 actor migration 与两份 data-preflight 也通过。生产迁移前五列 provenance inventory 必须全为 `resolved`、三列 terminal inventory 必须零行；迁移后 unresolved=0 和维护窗排空证据仍待完成，不能计为 1.12 正式通过 |
+| migration 243 协调输入/签名加固 | 两函数 SQL 强制 audit extra 精确绑定 account/record/fingerprint，必须含 trim 后长度合法的 string `evidence_ref`/`decision_owner`，缺失或错配整事务回滚；confirmed-success 唯一入口为八参数 `reconcile_openai_quota_auto_reset_protected_attempt(bigint,text,text,bigint,timestamptz,text,integer,jsonb)`，raw reapply 显式删除两个废弃 overload | 当前 actor migration 定向 PG 与完整 integration-tag migrations 包均通过，覆盖 reapply 后废弃签名不再存在；生产/当前 SHA CI 证据仍待归档 |
 | 当前 Phase 1 管理员写面 TOCTOU | 本机 PostgreSQL 18.6 两个不同管理员 Actor 双事务同版本并发；恰一提交/一冲突，SERIALIZABLE mutation closure 可执行 1 或 2 次且 loser 尝试完整回滚，最终业务状态、版本、durable event 与 Scheduler Outbox 恰好一次；真实 `AdminService.ClearAccountError` 测试证明 production after-commit callback 仅在提交后执行且恰好一次，通用语义另由 coordinator 单测覆盖 | 通过 |
-| 228 到当前版本持久升级、重复 apply | 最终 SHA 的 GitHub Actions push/PR CI 均运行无 `-run` 过滤的完整 integration suite；包含 `TestResourceAccessControlUpgradeFrom228ThroughCurrent` | 通过；PostgreSQL `18.1-alpine3.23` Testcontainers 动态升级/reapply 成功 |
-| 完整 backend unit、聚焦 race/vet、默认与 integration 标签编译、build | main integration 后本地最终代码验证 | 通过 |
-| CI repository Testcontainers 动态套件 | [push Run 32812029206](https://github.com/savvym/sub2api/actions/runs/32812029206) / [test job 97693053049](https://github.com/savvym/sub2api/actions/runs/32812029206/job/97693053049) 与 [PR Run 32812033899](https://github.com/savvym/sub2api/actions/runs/32812033899) / [test job 97693066526](https://github.com/savvym/sub2api/actions/runs/32812033899/job/97693066526)：`make test-integration` → `go test -tags=integration ./...`；Ubuntu、Go 1.27.0、PostgreSQL `18.1-alpine3.23`、Redis `8.4-alpine` | 通过；attempt 1、SHA `d47ca4bea567f778c6356a761344f376ca471ea4`，repository 分别非缓存运行 `55.422s`/`48.026s` |
+| 228 到历史 main-integration 版本持久升级、重复 apply | SHA `d47ca4bea` 的 GitHub Actions push/PR CI 均运行无 `-run` 过滤的完整 integration suite；包含 `TestResourceAccessControlUpgradeFrom228ThroughCurrent` | 通过至 migration 242；PostgreSQL `18.1-alpine3.23` Testcontainers 动态升级/reapply 成功。migration 243 必须由新的当前最终 SHA 重新验证 |
+| 完整 backend unit、聚焦 race/vet、默认与 integration 标签编译、build | 历史 main-integration 与当前工作树的本地验证 | 通过；当前工作树命令结果见 `implementation-evidence.md` 最新小节，integration 标签编译不等于 Testcontainers 动态执行 |
+| CI repository Testcontainers 动态套件（历史 main-integration） | [push Run 32812029206](https://github.com/savvym/sub2api/actions/runs/32812029206) / [test job 97693053049](https://github.com/savvym/sub2api/actions/runs/32812029206/job/97693053049) 与 [PR Run 32812033899](https://github.com/savvym/sub2api/actions/runs/32812033899) / [test job 97693066526](https://github.com/savvym/sub2api/actions/runs/32812033899/job/97693066526)：`make test-integration` → `go test -tags=integration ./...`；Ubuntu、Go 1.27.0、PostgreSQL `18.1-alpine3.23`、Redis `8.4-alpine` | 通过；attempt 1、SHA `d47ca4bea567f778c6356a761344f376ca471ea4`，repository 分别非缓存运行 `55.422s`/`48.026s`；不覆盖当前工作树的 migration 243/auto-reset hardening |
 | production role shadow 差异记录能力 | `PolicyService` 四个入口并行计算 legacy/RBAC 且保持 legacy 响应；管理员 JWT/Admin API Key 生产入口接线；低基数、无 ID 的结构化 INFO/WARN 日志与 observer panic 隔离测试 | 通过（日志可由外部系统聚合；未新增独立进程内指标） |
-| Phase 0 安全决策与退出批准 | 0.4 credentials/extra、0.5 allowlist/SSRF/限频、0.8 Phase 0 exit | 待实现（Review Ready，尚无批准链接） |
-| 生产只读数据预检与凭据键名统计 | 对批准的只读副本运行 `data-preflight.sql` 与 `credential-key-preflight.sql`，归档异常/回填规模及只含文档名、软删除状态、帐号 status、平台/类型、键名、shape 和计数的受限结果 | 待实现；本机没有生产连接配置，两份脚本均未对真实数据执行 |
+| Phase 0 安全决策与退出批准 | 0.4/0.5 分别达到 `Decision Accepted`，0.8 按上表取得平台、认证、安全三方可追溯批准链接 | 待实现（两份清单仍为 Review Ready，0.8 尚无批准链接） |
+| 生产只读数据预检与凭据键名统计 | 对批准的只读副本运行 `data-preflight.sql` 与 `credential-key-preflight.sql`，归档异常/回填规模及受限结果。五列 provenance inventory 只含 `idempotency_record_id/status/scope_kind/account_ids/provenance_state`，每行必须 `resolved`；三列 terminal-recovery inventory 只含 `idempotency_record_id/account_id/response_state`，任意输出都阻断；两者均不含 key hash、fingerprint、response body、attempt hash 或凭据。credentials/extra 结果只含文档名、软删除状态、帐号 status、平台/类型、键名、shape 和计数 | 待实现；真实数据尚未执行。provenance 的 `malformed_identity`、`unmatched`、`ambiguous`、`recovery_fingerprint_mismatch`、`target_scope_collision` 或其他非 `resolved` 均阻断；terminal 的 `malformed_pending_state`、`unreachable_account`、`missing_attempt_record`、`unreachable_scope`、`fingerprint_mismatch`、`legacy_redacted_result`、`invalid_terminal_response` 任一行均阻断，须按 `implementation-evidence.md` 路由处置后重跑 |
 | 目标环境 shadow readiness 与观察 | 专用 role-mode readiness、legacy→shadow 执行、具体差异指标、日志量与 sink `dropped_count`、观察窗口和回滚证据 | 待实现（当前部署仍为 legacy） |
-| PR URL | 采证快照（2026-08-25）：[Draft PR #1](https://github.com/savvym/sub2api/pull/1) 的 base 为 `main`、head 为 `codex/resource-access-control-foundation`、head OID 为最终代码 SHA `d47ca4bea567f778c6356a761344f376ca471ea4` | 通过；当时 GitHub 报告 `MERGEABLE/CLEAN`，退出门禁完成前不得转 Ready 或合并 |
-| GitHub Security Scan | [push Run 32812029208](https://github.com/savvym/sub2api/actions/runs/32812029208) 与 [PR Run 32812033933](https://github.com/savvym/sub2api/actions/runs/32812033933)，均覆盖 backend `govulncheck` 与 frontend production audit exception check | 通过；SHA `d47ca4bea567f778c6356a761344f376ca471ea4`，两个 event 中共四个 security jobs 均成功 |
+| PR URL（历史 main-integration 快照） | 采证快照（2026-08-25）：[Draft PR #1](https://github.com/savvym/sub2api/pull/1) 的 base 为 `main`、head 为 `codex/resource-access-control-foundation`、head OID 为当时的 main-integration 代码 SHA `d47ca4bea567f778c6356a761344f376ca471ea4` | 通过；当时 GitHub 报告 `MERGEABLE/CLEAN`，但当前工作树形成最终 SHA 后必须刷新 head/mergeability；退出门禁完成前不得转 Ready 或合并 |
+| GitHub Security Scan（历史 main-integration） | [push Run 32812029208](https://github.com/savvym/sub2api/actions/runs/32812029208) 与 [PR Run 32812033933](https://github.com/savvym/sub2api/actions/runs/32812033933)，均覆盖 backend `govulncheck` 与 frontend production audit exception check | 通过；SHA `d47ca4bea567f778c6356a761344f376ca471ea4`，两个 event 中共四个 security jobs 均成功；当前工作树须重新运行 |
 | 平台/认证/安全批准人 | 三方最终批准必须有可追溯链接 | 待实现；尚无批准链接 |
 | Phase 1 正式退出结论 | 所有上述门禁完成后才能批准 | 待实现；1.12 保持未勾选，进度保持 20/49 |
 

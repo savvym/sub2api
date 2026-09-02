@@ -22,8 +22,12 @@ const (
 	FieldCreatedAt = "created_at"
 	// EdgeRoles holds the string denoting the roles edge name in mutations.
 	EdgeRoles = "roles"
+	// EdgeWorkerServicePrincipals holds the string denoting the worker_service_principals edge name in mutations.
+	EdgeWorkerServicePrincipals = "worker_service_principals"
 	// EdgeRolePermissions holds the string denoting the role_permissions edge name in mutations.
 	EdgeRolePermissions = "role_permissions"
+	// EdgeWorkerPermissionGrants holds the string denoting the worker_permission_grants edge name in mutations.
+	EdgeWorkerPermissionGrants = "worker_permission_grants"
 	// Table holds the table name of the permission in the database.
 	Table = "permissions"
 	// RolesTable is the table that holds the roles relation/edge. The primary key declared below.
@@ -31,6 +35,11 @@ const (
 	// RolesInverseTable is the table name for the Role entity.
 	// It exists in this package in order to avoid circular dependency with the "role" package.
 	RolesInverseTable = "roles"
+	// WorkerServicePrincipalsTable is the table that holds the worker_service_principals relation/edge. The primary key declared below.
+	WorkerServicePrincipalsTable = "service_principal_worker_permissions"
+	// WorkerServicePrincipalsInverseTable is the table name for the ServicePrincipal entity.
+	// It exists in this package in order to avoid circular dependency with the "serviceprincipal" package.
+	WorkerServicePrincipalsInverseTable = "service_principals"
 	// RolePermissionsTable is the table that holds the role_permissions relation/edge.
 	RolePermissionsTable = "role_permissions"
 	// RolePermissionsInverseTable is the table name for the RolePermission entity.
@@ -38,6 +47,13 @@ const (
 	RolePermissionsInverseTable = "role_permissions"
 	// RolePermissionsColumn is the table column denoting the role_permissions relation/edge.
 	RolePermissionsColumn = "permission_id"
+	// WorkerPermissionGrantsTable is the table that holds the worker_permission_grants relation/edge.
+	WorkerPermissionGrantsTable = "service_principal_worker_permissions"
+	// WorkerPermissionGrantsInverseTable is the table name for the ServicePrincipalWorkerPermission entity.
+	// It exists in this package in order to avoid circular dependency with the "serviceprincipalworkerpermission" package.
+	WorkerPermissionGrantsInverseTable = "service_principal_worker_permissions"
+	// WorkerPermissionGrantsColumn is the table column denoting the worker_permission_grants relation/edge.
+	WorkerPermissionGrantsColumn = "permission_id"
 )
 
 // Columns holds all SQL columns for permission fields.
@@ -52,6 +68,9 @@ var (
 	// RolesPrimaryKey and RolesColumn2 are the table columns denoting the
 	// primary key for the roles relation (M2M).
 	RolesPrimaryKey = []string{"role_id", "permission_id"}
+	// WorkerServicePrincipalsPrimaryKey and WorkerServicePrincipalsColumn2 are the table columns denoting the
+	// primary key for the worker_service_principals relation (M2M).
+	WorkerServicePrincipalsPrimaryKey = []string{"service_principal_id", "permission_id"}
 )
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -110,6 +129,20 @@ func ByRoles(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByWorkerServicePrincipalsCount orders the results by worker_service_principals count.
+func ByWorkerServicePrincipalsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newWorkerServicePrincipalsStep(), opts...)
+	}
+}
+
+// ByWorkerServicePrincipals orders the results by worker_service_principals terms.
+func ByWorkerServicePrincipals(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newWorkerServicePrincipalsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByRolePermissionsCount orders the results by role_permissions count.
 func ByRolePermissionsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -123,6 +156,20 @@ func ByRolePermissions(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newRolePermissionsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByWorkerPermissionGrantsCount orders the results by worker_permission_grants count.
+func ByWorkerPermissionGrantsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newWorkerPermissionGrantsStep(), opts...)
+	}
+}
+
+// ByWorkerPermissionGrants orders the results by worker_permission_grants terms.
+func ByWorkerPermissionGrants(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newWorkerPermissionGrantsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newRolesStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -130,10 +177,24 @@ func newRolesStep() *sqlgraph.Step {
 		sqlgraph.Edge(sqlgraph.M2M, true, RolesTable, RolesPrimaryKey...),
 	)
 }
+func newWorkerServicePrincipalsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(WorkerServicePrincipalsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2M, true, WorkerServicePrincipalsTable, WorkerServicePrincipalsPrimaryKey...),
+	)
+}
 func newRolePermissionsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(RolePermissionsInverseTable, RolePermissionsColumn),
 		sqlgraph.Edge(sqlgraph.O2M, true, RolePermissionsTable, RolePermissionsColumn),
+	)
+}
+func newWorkerPermissionGrantsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(WorkerPermissionGrantsInverseTable, WorkerPermissionGrantsColumn),
+		sqlgraph.Edge(sqlgraph.O2M, true, WorkerPermissionGrantsTable, WorkerPermissionGrantsColumn),
 	)
 }

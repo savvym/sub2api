@@ -2023,6 +2023,32 @@ var (
 			},
 		},
 	}
+	// ServicePrincipalWorkerPermissionsColumns holds the columns for the "service_principal_worker_permissions" table.
+	ServicePrincipalWorkerPermissionsColumns = []*schema.Column{
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "service_principal_id", Type: field.TypeInt64},
+		{Name: "permission_id", Type: field.TypeInt64},
+	}
+	// ServicePrincipalWorkerPermissionsTable holds the schema information for the "service_principal_worker_permissions" table.
+	ServicePrincipalWorkerPermissionsTable = &schema.Table{
+		Name:       "service_principal_worker_permissions",
+		Columns:    ServicePrincipalWorkerPermissionsColumns,
+		PrimaryKey: []*schema.Column{ServicePrincipalWorkerPermissionsColumns[1], ServicePrincipalWorkerPermissionsColumns[2]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "sp_worker_permissions_principal_id_fkey",
+				Columns:    []*schema.Column{ServicePrincipalWorkerPermissionsColumns[1]},
+				RefColumns: []*schema.Column{ServicePrincipalsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "sp_worker_permissions_permission_id_fkey",
+				Columns:    []*schema.Column{ServicePrincipalWorkerPermissionsColumns[2]},
+				RefColumns: []*schema.Column{PermissionsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
 	// SettingsColumns holds the columns for the "settings" table.
 	SettingsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2688,6 +2714,7 @@ var (
 		SecuritySecretsTable,
 		ServicePrincipalsTable,
 		ServicePrincipalRolesTable,
+		ServicePrincipalWorkerPermissionsTable,
 		SettingsTable,
 		SubscriptionPlansTable,
 		TLSFingerprintProfilesTable,
@@ -2891,6 +2918,11 @@ func init() {
 	ServicePrincipalRolesTable.ForeignKeys[2].RefTable = UsersTable
 	ServicePrincipalRolesTable.Annotation = &entsql.Annotation{
 		Table: "service_principal_roles",
+	}
+	ServicePrincipalWorkerPermissionsTable.ForeignKeys[0].RefTable = ServicePrincipalsTable
+	ServicePrincipalWorkerPermissionsTable.ForeignKeys[1].RefTable = PermissionsTable
+	ServicePrincipalWorkerPermissionsTable.Annotation = &entsql.Annotation{
+		Table: "service_principal_worker_permissions",
 	}
 	SettingsTable.Annotation = &entsql.Annotation{
 		Table: "settings",
