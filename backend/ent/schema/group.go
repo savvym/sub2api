@@ -40,8 +40,9 @@ func (Group) Mixin() []ent.Mixin {
 
 func (Group) Fields() []ent.Field {
 	return []ent.Field{
-		// 唯一约束通过部分索引实现（WHERE deleted_at IS NULL），支持软删除后重用
-		// 见迁移文件 016_soft_delete_partial_unique_indexes.sql
+		// Active platform groups are unique by folded name, while tenant groups
+		// are unique by owner and folded name. The expression indexes live in
+		// migration 245 and permit different owners to reuse the same name.
 		field.String("name").
 			MaxLen(100).
 			NotEmpty(),
@@ -344,7 +345,7 @@ func (Group) Edges() []ent.Edge {
 
 func (Group) Indexes() []ent.Index {
 	return []ent.Index{
-		// name 字段已在 Fields() 中声明 Unique()，无需重复索引
+		// Folded-name uniqueness uses SQL expression indexes from migration 245.
 		index.Fields("status"),
 		index.Fields("platform"),
 		index.Fields("subscription_type"),

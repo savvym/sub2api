@@ -95,8 +95,14 @@ func RegisterUserRoutes(
 		// 用户可用分组（非管理员接口）
 		groups := authenticated.Group("/groups")
 		{
+			groups.GET("", h.Group.List)
+			groups.POST("", h.Group.Create)
+			groups.GET("/platforms", h.Group.Platforms)
 			groups.GET("/available", h.APIKey.GetAvailableGroups)
 			groups.GET("/rates", h.APIKey.GetUserGroupRates)
+			groups.GET("/:id", h.Group.Get)
+			groups.PATCH("/:id", h.Group.Update)
+			groups.DELETE("/:id", h.Group.Delete)
 		}
 
 		// 用户可用渠道（非管理员接口）

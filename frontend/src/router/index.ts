@@ -229,6 +229,19 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/groups',
+    name: 'SelfServiceGroups',
+    component: () => import('@/views/user/SelfServiceGroupsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      requiresSelfServiceHosting: true,
+      title: 'My Groups',
+      titleKey: 'selfServiceGroups.title',
+      descriptionKey: 'selfServiceGroups.description'
+    }
+  },
+  {
     path: '/batch-image',
     name: 'BatchImageGuide',
     alias: '/docs/batch-image',
@@ -972,7 +985,8 @@ router.beforeEach(async (to, _from, next) => {
       '/admin/redeem',
       '/subscriptions',
       '/redeem',
-      '/accounts'
+      '/accounts',
+      '/groups'
     ]
 
     if (restrictedPaths.some((path) => to.path.startsWith(path))) {

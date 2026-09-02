@@ -176,19 +176,22 @@ describe('feature route guard', () => {
     expect(next).toHaveBeenCalledWith(target)
   })
 
-  it('allows self-service accounts only when the effective flag is explicitly enabled', async () => {
-    appStore.cachedPublicSettings = { self_service_hosting_enabled: true }
-    appStore.publicSettingsLoaded = true
+  it.each(['/accounts', '/groups'])(
+    'allows self-service resource route %s only when the effective flag is explicitly enabled',
+    async (path) => {
+      appStore.cachedPublicSettings = { self_service_hosting_enabled: true }
+      appStore.publicSettingsLoaded = true
 
-    const { navigation, next } = runGuard(
-      { requiresSelfServiceHosting: true },
-      '/accounts'
-    )
-    await navigation
+      const { navigation, next } = runGuard(
+        { requiresSelfServiceHosting: true },
+        path
+      )
+      await navigation
 
-    expect(next).toHaveBeenCalledOnce()
-    expect(next).toHaveBeenCalledWith()
-  })
+      expect(next).toHaveBeenCalledOnce()
+      expect(next).toHaveBeenCalledWith()
+    }
+  )
 
   it.each([
     ['disabled', { self_service_hosting_enabled: false }],
@@ -221,18 +224,21 @@ describe('feature route guard', () => {
     expect(next).toHaveBeenCalledWith('/dashboard')
   })
 
-  it('blocks self-service accounts in simple mode even when enabled', async () => {
-    authStore.isSimpleMode = true
-    appStore.cachedPublicSettings = { self_service_hosting_enabled: true }
-    appStore.publicSettingsLoaded = true
+  it.each(['/accounts', '/groups'])(
+    'blocks self-service resource route %s in simple mode even when enabled',
+    async (path) => {
+      authStore.isSimpleMode = true
+      appStore.cachedPublicSettings = { self_service_hosting_enabled: true }
+      appStore.publicSettingsLoaded = true
 
-    const { navigation, next } = runGuard(
-      { requiresSelfServiceHosting: true },
-      '/accounts'
-    )
-    await navigation
+      const { navigation, next } = runGuard(
+        { requiresSelfServiceHosting: true },
+        path
+      )
+      await navigation
 
-    expect(next).toHaveBeenCalledOnce()
-    expect(next).toHaveBeenCalledWith('/dashboard')
-  })
+      expect(next).toHaveBeenCalledOnce()
+      expect(next).toHaveBeenCalledWith('/dashboard')
+    }
+  )
 })

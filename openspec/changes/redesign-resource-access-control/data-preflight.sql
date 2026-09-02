@@ -13,13 +13,15 @@ SELECT COUNT(*) AS users_with_unexpected_role
 FROM users
 WHERE role IS NULL OR role NOT IN ('admin', 'user');
 
-SELECT lower(name) AS folded_name, COUNT(*) AS active_group_count,
+-- Mirror migration 245: platform groups are globally unique, while tenant
+-- groups are unique only within one owner.
+SELECT owner_user_id, lower(name) AS folded_name, COUNT(*) AS active_group_count,
        array_agg(id ORDER BY id) AS group_ids
 FROM groups
 WHERE deleted_at IS NULL
-GROUP BY lower(name)
+GROUP BY owner_user_id, lower(name)
 HAVING COUNT(*) > 1
-ORDER BY active_group_count DESC, folded_name;
+ORDER BY active_group_count DESC, owner_user_id NULLS FIRST, folded_name;
 
 SELECT lower(name) AS folded_name, COUNT(*) AS active_account_count,
        array_agg(id ORDER BY id) AS account_ids
@@ -43,14 +45,14 @@ LEFT JOIN groups AS g ON g.id = ag.group_id
 WHERE a.id IS NULL OR g.id IS NULL OR a.deleted_at IS NOT NULL OR g.deleted_at IS NOT NULL
 ORDER BY ag.account_id, ag.group_id;
 
-SELECT lower(name) AS default_name, COUNT(*) AS active_group_count,
+SELECT owner_user_id, lower(name) AS default_name, COUNT(*) AS active_group_count,
        array_agg(id ORDER BY id) AS group_ids
 FROM groups
 WHERE deleted_at IS NULL
   AND lower(name) LIKE '%-default'
-GROUP BY lower(name)
+GROUP BY owner_user_id, lower(name)
 HAVING COUNT(*) > 1
-ORDER BY default_name;
+ORDER BY owner_user_id NULLS FIRST, default_name;
 
 SELECT
   (SELECT COUNT(*) FROM users) AS users_total,

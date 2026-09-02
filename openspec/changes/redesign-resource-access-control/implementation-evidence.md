@@ -765,3 +765,42 @@ Draft PR #1 继续保持 Draft，不因本次阶段退出自动转 Ready 或合�
 - 生产 self-service 产品目录保持空数组，OAuth 与全部候选产品保持禁止；Feature Flag 仍默认关闭，`role_authorization_mode` 仍为 `legacy`。公共设置只暴露有效值，因此前端路由/侧栏与后端 Policy/Scope 在当前配置下都不会开放该能力。
 - 新建租户 Account 固定 private、ungrouped、`schedulable=false`。在 2.5/2.6 完成 Owner 私有默认组绑定和 group `0`/平台默认组隔离前，它不会进入调度；这些规则不属于 2.2，不能通过临时前端或配置绕过。
 - 当前没有 production/staging、真实数据或旧 Worker。本次提交的远端无过滤 Testcontainers、lint 与 Security Scan 结果需在推送后补录；在此之前不得把动态 CI 门禁标记为通过，也不得把 2.2 完成解释为 self-service `Release Accepted`。
+
+## 2026-09-02 - Private Self-Service Group CRUD（2.3）
+
+### 实现范围
+
+- 新增普通 JWT 用户 `GET/POST /api/v1/groups`、`GET /api/v1/groups/platforms`、`GET/PATCH/DELETE /api/v1/groups/:id`。Handler 要求可信 JWT User Actor 与认证中间件 `AuthSubject` 一致；查询、path 和 body 使用白名单、单值校验、`DisallowUnknownFields` 与尾随 JSON 拒绝，Admin API Key、主体不一致和未知字段均 fail closed。
+- list/get 复用既有 `ResourceReadService`、Policy `AccessibleScope` 与 PostgreSQL scoped Group reader。Scope 先于筛选、Count、排序和分页执行；详情不可见与不存在统一返回 not found。普通用户投影只包含 ID、名称、描述、平台、状态、`owned_by_me`、公开级别和时间戳，不查询或序列化 Owner ID、帐号拓扑/计数、价格、订阅、路由、利润或其他平台治理字段。
+- 创建只接受 `name`、`description` 和服务端 `platform_id`。平台只能来自不可变 `SelfServiceGroupCatalog`，客户端不能直接提交 platform、定价、订阅、路由、fallback 或治理字段；生产目录为空。测试候选也只允许已知平台。新 Group 强制相同 Owner/creator、private、active、exclusive、access version 1 和 legacy authorization mode，其余管理员策略保持数据库安全默认值。
+- Group 创建在单一 `SERIALIZABLE` 事务内调用 `HostingCapacityGuard`，锁持续到 Group insert、Scheduler Outbox 和 `group.created` durable authorization event 一并提交。update/delete 在事务内锁定 Actor 授权行与 Group，重新解析当前 JWT User、比较授权快照、校验 Owner、重跑 edit/delete Policy，并以锁内 `access_version` 执行 CAS；非 Owner conceal 为 not found，冲突或 audit/outbox 故障整体回滚。
+- update 只允许名称和描述。delete 软删除前检查仍在运行或可重新启用的引用：帐号绑定、API Key、订阅、用户资格/倍率、渠道、组合路由、Grant、fallback、兑换码/套餐、Channel Monitor、帐号统计定价、Content Moderation/Prompt Audit、默认订阅、未归档公告和待履约订阅订单。历史用量、监控聚合、审计事实、durable event、归档公告和完成订单不阻止软删除。
+- migration 245 以 `_notx` 在线迁移建立两个 active 部分唯一索引：平台组按 `lower(name)` 全局唯一，租户组按 `(owner_user_id, lower(name))` 唯一，并在两个新索引有效后删除旧全局索引。`data-preflight.sql` 的普通名称和 `%-default` 清单同步输出 `owner_user_id` 并按相同范围聚合，避免把不同 Owner 的合法同名误报为冲突。
+- 前端新增 `/groups` opt-in 路由、侧栏项、API/types、中英文文案和完整管理页，覆盖列表、检索、排序、分页、详情、创建、编辑、删除、空平台目录、错误重试和响应式布局。公共有效 `self_service_hosting_enabled`、Backend Mode 与 SIMPLE Mode 继续共同 fail closed；生产 Account/Group 目录都保持空。
+
+### 本地自动化验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| Group service/repository/handler/routes、migration 245 与 scoped reader 聚焦测试 | 通过；覆盖可信 Actor、Owner conceal、strict DTO、安全默认值、CAS、Policy 重检、事务 rollback、Outbox/event 和路由接线 |
+| `cd backend && go test -tags=integration ./internal/repository -run 'TestSelfServiceGroupBlockingReferences' -count=1` | 通过；真实 PostgreSQL 验证数组、JSON 配置、公告和订单引用矩阵，归档公告/完成订单不阻止删除 |
+| `cd backend && go test -tags=integration ./migrations -run 'TestGroupNameDataPreflightUsesOwnerScopePostgres' -count=1` | 通过；真实 PostgreSQL 验证平台与同 Owner 冲突会报告，不同 Owner 合法同名不报告，普通名称与 `%-default` 两份清单一致 |
+| `make -C backend test-unit` | 通过；完整 unit-tag backend tree 成功 |
+| `cd backend && go vet ./...` | 通过；全仓静态检查成功 |
+| `make -C backend build` | 通过；生产 server 与 Wire 构建成功 |
+| `cd backend && go test -tags=integration ./... -run '^$' -count=1` | 通过；全 integration 标签树编译成功，不代表远端无过滤 Testcontainers 动态执行 |
+| 9 个 2.3 前端聚焦 Vitest 文件 | 通过；82 tests，覆盖 Group API/view、feature flag、router/sidebar 和共享 guard |
+| `cd frontend && npm run test:run` | 通过；254 files、1818 tests |
+| `cd frontend && npm run typecheck` | 通过 |
+| `cd frontend && npm run lint:check` | 通过，0 errors |
+| `cd frontend && npm run build` | 通过；Vite production build 完成，仅有仓库既有分块告警 |
+| `npm exec --yes --package=pnpm@9.15.9 -- make build` | 通过；根目录前后端构建成功，使用仓库兼容的 pnpm 9，未产生 lockfile churn |
+| `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
+| `git diff --check` 与 `git diff --quiet -- frontend/pnpm-lock.yaml` | 通过；无 whitespace 错误，锁文件无差异 |
+
+### 剩余发布边界
+
+- 生产 `SelfServiceAccountCatalog` 与 `SelfServiceGroupCatalog` 均为空，OAuth、导入、复制、批量、自定义 endpoint 和全部候选产品继续禁止；Feature Flag 默认关闭，`role_authorization_mode=legacy`。2.3 完成不启用任何自助资源，也不构成 `Release Accepted`。
+- 新建 Account 仍固定 private、ungrouped、`schedulable=false`。2.5 的 Owner 私有默认组同事务绑定与 2.6 的 group `0`/平台默认组/SIMPLE Mode 租户隔离尚未实现，不能通过创建 Group 规避这些门禁。
+- 当前没有 production/staging、真实数据或旧 Worker。2.3 当前提交的远端无过滤 Testcontainers、lint 与 Security Scan 需在推送后按实际 SHA 补录；结果成功前不得标记为远端通过。
+- 下一切片为 2.4 的 OAuth、导入、复制、批量和 callback 可信 Owner 绑定。即使实现完成，空 allowlist、出站安全清单与首次启用 `Release Accepted` 门禁仍必须保持。

@@ -330,6 +330,10 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	selfServiceAccountCatalog := service.NewSelfServiceAccountCatalog()
 	selfServiceAccountService := service.NewSelfServiceAccountService(selfServiceAccountRepository, resolver, resourcePolicy, hostingEntitlementService, resourceReadService, selfServiceAccountCatalog)
 	selfServiceAccountHandler := handler.NewSelfServiceAccountHandler(selfServiceAccountService)
+	selfServiceGroupRepository := repository.NewSelfServiceGroupRepository(client)
+	selfServiceGroupCatalog := service.NewSelfServiceGroupCatalog()
+	selfServiceGroupService := service.NewSelfServiceGroupService(selfServiceGroupRepository, resolver, resourcePolicy, hostingEntitlementService, resourceReadService, selfServiceGroupCatalog)
+	selfServiceGroupHandler := handler.NewSelfServiceGroupHandler(selfServiceGroupService)
 	modelPlazaService := service.NewModelPlazaService(channelRepository, groupRepository, pricingService, billingService, modelPricingResolver)
 	modelPlazaHandler := handler.NewModelPlazaHandler(modelPlazaService, apiKeyService, settingService)
 	imageTaskStore := repository.NewImageTaskStore(redisClient)
@@ -353,7 +357,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	if err != nil {
 		return nil, err
 	}
-	handlers := handler.ProvideHandlers(authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, channelMonitorV2Handler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, passkeyHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, selfServiceAccountHandler, modelPlazaHandler, asyncImageHandler, batchImageHandler, idempotencyCoordinator, idempotencyCleanupService, openAIQuotaAutoResetService)
+	handlers := handler.ProvideHandlers(authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, channelMonitorV2Handler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, passkeyHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, selfServiceAccountHandler, selfServiceGroupHandler, modelPlazaHandler, asyncImageHandler, batchImageHandler, idempotencyCoordinator, idempotencyCleanupService, openAIQuotaAutoResetService)
 	jwtAuthMiddleware := middleware.NewJWTAuthMiddleware(authService, userService, settingService, auditLogService, resolver)
 	optionalJWTAuthMiddleware := middleware.NewOptionalJWTAuthMiddleware(authService, userService, settingService, auditLogService, resolver)
 	adminAuthMiddleware := middleware.NewAdminAuthMiddleware(authService, userService, settingService, auditLogService, resolver, resourcePolicy)

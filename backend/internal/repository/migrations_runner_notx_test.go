@@ -517,6 +517,52 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_groups_public_access_level
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestApplyMigrationsFS_GroupOwnerScopedNameIndexesDropInvalidIndexesBeforeRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(groupOwnerScopedNameUniqueMigration).
+		WillReturnError(sql.ErrNoRows)
+	for _, indexName := range groupOwnerScopedNameUniqueIndexes {
+		mock.ExpectQuery("SELECT EXISTS \\(").
+			WithArgs(indexName).
+			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+		mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS " + indexName).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	for _, indexName := range groupOwnerScopedNameUniqueIndexes {
+		mock.ExpectExec("CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS " + indexName).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS groups_name_unique_active").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(groupOwnerScopedNameUniqueMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		groupOwnerScopedNameUniqueMigration: &fstest.MapFile{Data: []byte(`
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_groups_platform_name_unique_active
+    ON groups (lower(name))
+    WHERE owner_user_id IS NULL AND deleted_at IS NULL;
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_groups_owner_name_unique_active
+    ON groups (owner_user_id, lower(name))
+    WHERE owner_user_id IS NOT NULL AND deleted_at IS NULL;
+DROP INDEX CONCURRENTLY IF EXISTS groups_name_unique_active;
+`)},
+	}
+
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestApplyMigrationsFS_TransactionalMigration(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

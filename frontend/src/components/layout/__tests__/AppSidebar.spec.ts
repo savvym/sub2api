@@ -64,3 +64,14 @@ describe('AppSidebar self-service account entry', () => {
     )
   })
 })
+
+describe('AppSidebar self-service group entry', () => {
+  it('uses the opt-in feature registry and remains hidden in simple mode', () => {
+    expect(componentSource).toContain(
+      'makeSidebarFlag(FeatureFlags.selfServiceGroups)'
+    )
+    expect(componentSource).toContain(
+      "{ path: '/groups', label: t('nav.myGroups'), icon: FolderIcon, hideInSimpleMode: true, featureFlag: flagSelfServiceGroups }"
+    )
+  })
+})

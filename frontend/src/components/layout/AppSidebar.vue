@@ -692,6 +692,7 @@ const flagAffiliate = makeSidebarFlag(FeatureFlags.affiliate)
 const flagRiskControl = makeSidebarFlag(FeatureFlags.riskControl)
 const flagPluginManagement = makeSidebarFlag(FeatureFlags.pluginManagement)
 const flagSelfServiceAccounts = makeSidebarFlag(FeatureFlags.selfServiceAccounts)
+const flagSelfServiceGroups = makeSidebarFlag(FeatureFlags.selfServiceGroups)
 const flagOpsMonitoring = () => adminSettingsStore.opsMonitoringEnabled
 const flagAdminPayment = () => adminSettingsStore.paymentEnabled
 const flagBatchImageAccess = () => canUseBatchImage.value
@@ -709,6 +710,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
     { path: '/accounts', label: t('nav.myAccounts'), icon: GlobeIcon, hideInSimpleMode: true, featureFlag: flagSelfServiceAccounts },
+    { path: '/groups', label: t('nav.myGroups'), icon: FolderIcon, hideInSimpleMode: true, featureFlag: flagSelfServiceGroups },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },

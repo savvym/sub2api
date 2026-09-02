@@ -164,6 +164,7 @@ export default {
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     myAccounts: 'My Accounts',
+    myGroups: 'My Groups',
     batchImage: 'Batch Images',
     usage: 'Usage',
     redeem: 'Redeem',

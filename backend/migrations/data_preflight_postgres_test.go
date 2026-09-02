@@ -16,6 +16,111 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGroupNameDataPreflightUsesOwnerScopePostgres(t *testing.T) {
+	db := newRoleCachePostgresTestDatabase(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	require.NoError(t, repository.ApplyMigrations(ctx, db))
+
+	preflight, err := os.ReadFile(filepath.Join(
+		"..", "..", "openspec", "changes",
+		"redesign-resource-access-control", "data-preflight.sql",
+	))
+	require.NoError(t, err)
+	groupInventory := extractGroupNameInventoryQuery(t, string(preflight))
+	defaultInventory := extractDefaultGroupNameInventoryQuery(t, string(preflight))
+
+	_, err = db.ExecContext(ctx, `
+DROP INDEX idx_groups_platform_name_unique_active;
+DROP INDEX idx_groups_owner_name_unique_active`)
+	require.NoError(t, err)
+
+	base := "group-name-preflight-" + time.Now().Format("20060102150405.000000000")
+	ownerOne := insertGroupNameOwnerTestUser(t, ctx, db, base+"-owner-one@example.com")
+	ownerTwo := insertGroupNameOwnerTestUser(t, ctx, db, base+"-owner-two@example.com")
+	insertGroup := func(name string, ownerID *int64) int64 {
+		t.Helper()
+		var groupID int64
+		if ownerID == nil {
+			require.NoError(t, db.QueryRowContext(ctx, `
+INSERT INTO groups (name, platform, status)
+VALUES ($1, 'openai', 'active')
+RETURNING id`, name).Scan(&groupID))
+			return groupID
+		}
+		require.NoError(t, db.QueryRowContext(ctx, `
+INSERT INTO groups (
+    name, platform, status, owner_user_id, created_by_user_id
+)
+VALUES ($1, 'openai', 'active', $2, $2)
+RETURNING id`, name, *ownerID).Scan(&groupID))
+		return groupID
+	}
+
+	platformName := base + "-platform-default"
+	platformIDs := []int64{
+		insertGroup(platformName, nil),
+		insertGroup(strings.ToUpper(platformName), nil),
+	}
+	tenantName := base + "-tenant-default"
+	tenantIDs := []int64{
+		insertGroup(tenantName, &ownerOne),
+		insertGroup(strings.ToUpper(tenantName), &ownerOne),
+	}
+	insertGroup(tenantName, &ownerTwo)
+
+	crossScopeName := base + "-cross-default"
+	insertGroup(crossScopeName, nil)
+	insertGroup(crossScopeName, &ownerOne)
+	insertGroup(crossScopeName, &ownerTwo)
+
+	type conflictKey struct {
+		ownerID int64
+		owned   bool
+		name    string
+	}
+	type conflictValue struct {
+		count int
+		ids   []int64
+	}
+	expected := map[conflictKey]conflictValue{
+		{name: strings.ToLower(platformName)}: {
+			count: 2,
+			ids:   platformIDs,
+		},
+		{ownerID: ownerOne, owned: true, name: strings.ToLower(tenantName)}: {
+			count: 2,
+			ids:   tenantIDs,
+		},
+	}
+	collect := func(query string) map[conflictKey]conflictValue {
+		t.Helper()
+		rows, queryErr := db.QueryContext(ctx, query)
+		require.NoError(t, queryErr)
+		defer rows.Close()
+		actual := make(map[conflictKey]conflictValue)
+		for rows.Next() {
+			var (
+				owner sql.NullInt64
+				name  string
+				count int
+				ids   pq.Int64Array
+			)
+			require.NoError(t, rows.Scan(&owner, &name, &count, &ids))
+			actual[conflictKey{
+				ownerID: owner.Int64,
+				owned:   owner.Valid,
+				name:    name,
+			}] = conflictValue{count: count, ids: append([]int64{}, ids...)}
+		}
+		require.NoError(t, rows.Err())
+		return actual
+	}
+
+	require.Equal(t, expected, collect(groupInventory))
+	require.Equal(t, expected, collect(defaultInventory))
+}
+
 func TestOpenAIQuotaAutoResetDataPreflightPostgres(t *testing.T) {
 	db := newRoleCachePostgresTestDatabase(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -636,6 +741,28 @@ func extractOpenAIAutoResetInventoryQuery(t *testing.T, script string) string {
 	require.NotEqual(t, -1, start, "preflight inventory query start marker")
 	endOffset := strings.Index(script[start:], endMarker)
 	require.NotEqual(t, -1, endOffset, "preflight inventory query end marker")
+	return strings.TrimSpace(script[start : start+endOffset])
+}
+
+func extractGroupNameInventoryQuery(t *testing.T, script string) string {
+	t.Helper()
+	const startMarker = "SELECT owner_user_id, lower(name) AS folded_name"
+	const endMarker = "\n\nSELECT lower(name) AS folded_name, COUNT(*) AS active_account_count"
+	start := strings.Index(script, startMarker)
+	require.NotEqual(t, -1, start, "group-name inventory query start marker")
+	endOffset := strings.Index(script[start:], endMarker)
+	require.NotEqual(t, -1, endOffset, "group-name inventory query end marker")
+	return strings.TrimSpace(script[start : start+endOffset])
+}
+
+func extractDefaultGroupNameInventoryQuery(t *testing.T, script string) string {
+	t.Helper()
+	const startMarker = "SELECT owner_user_id, lower(name) AS default_name"
+	const endMarker = "\n\nSELECT\n  (SELECT COUNT(*) FROM users) AS users_total"
+	start := strings.Index(script, startMarker)
+	require.NotEqual(t, -1, start, "default group-name inventory query start marker")
+	endOffset := strings.Index(script[start:], endMarker)
+	require.NotEqual(t, -1, endOffset, "default group-name inventory query end marker")
 	return strings.TrimSpace(script[start : start+endOffset])
 }
 

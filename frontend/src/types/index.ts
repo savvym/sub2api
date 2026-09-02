@@ -935,6 +935,45 @@ export interface RenameSelfServiceAccountRequest {
   name: string
 }
 
+export interface SelfServiceGroup {
+  id: number
+  name: string
+  description: string
+  platform: AccountPlatform
+  status: string
+  owned_by_me: boolean
+  public_access_level: ResourceAccessLevel | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SelfServiceGroupPlatform {
+  id: string
+  name: string
+  platform: AccountPlatform
+}
+
+export interface SelfServiceGroupListParams {
+  page?: number
+  page_size?: number
+  platform?: AccountPlatform | ''
+  status?: string
+  search?: string
+  sort_by?: 'id' | 'name' | 'platform' | 'status' | 'created_at' | 'updated_at'
+  sort_order?: 'asc' | 'desc'
+}
+
+export interface CreateSelfServiceGroupRequest {
+  name: string
+  description?: string
+  platform_id: string
+}
+
+export interface UpdateSelfServiceGroupRequest {
+  name?: string
+  description?: string
+}
+
 // Claude Model type (returned by /v1/models and account models API)
 export interface ClaudeModel {
   id: string

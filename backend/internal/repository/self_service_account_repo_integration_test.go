@@ -124,7 +124,7 @@ WHERE id = $1`, created.ID).Scan(
 	require.Equal(t, service.PlatformOpenAI, platform)
 	require.Equal(t, service.AccountTypeAPIKey, accountType)
 	require.JSONEq(t, fmt.Sprintf(`{"api_key":%q}`, apiKey), credentialsJSON)
-	require.JSONEq(t, `{}`, extraJSON)
+	require.JSONEq(t, `{"openai_long_context_billing_enabled":false}`, extraJSON)
 	require.False(t, proxyID.Valid)
 	require.Equal(t, selfServiceAccountDefaultConcurrency, concurrency)
 	require.Equal(t, selfServiceAccountDefaultPriority, priority)

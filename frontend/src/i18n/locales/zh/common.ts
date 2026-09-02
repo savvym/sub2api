@@ -164,6 +164,7 @@ export default {
     announcements: '公告',
     apiKeys: 'API 密钥',
     myAccounts: '我的账号',
+    myGroups: '我的分组',
     batchImage: '批量生图',
     usage: '使用记录',
     redeem: '兑换',
