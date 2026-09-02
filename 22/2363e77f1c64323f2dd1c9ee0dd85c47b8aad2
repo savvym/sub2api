@@ -1,0 +1,23 @@
+openspec/changes/redesign-resource-access-control/verification.md
+  s_f888de8e3912e8::t_0d01b51b2edec2 178,184
+openspec/changes/redesign-resource-access-control/implementation-evidence.md
+  s_f888de8e3912e8::t_0d01b51b2edec2 800-802,808
+openspec/changes/redesign-resource-access-control/progress.md
+  s_f888de8e3912e8::t_0d01b51b2edec2 26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "222363e77f1c64323f2dd1c9ee0dd85c47b8aad2",
+  "prompts": {},
+  "sessions": {
+    "s_f888de8e3912e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06103-92d4-72a1-8af8-9cc9355e6050",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Savin Zhang <savi@base.ctripsmartdns.com>"
+    }
+  }
+}
