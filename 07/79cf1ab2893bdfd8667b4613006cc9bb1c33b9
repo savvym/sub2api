@@ -1,0 +1,13 @@
+openspec/changes/redesign-resource-access-control/tasks.md
+  ai_agent 6-7,10,29
+openspec/changes/redesign-resource-access-control/design.md
+  ai_agent 94-103
+openspec/changes/redesign-resource-access-control/credential-inventory.md
+  ai_agent 5,166,172,174-179,181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "0779cf1ab2893bdfd8667b4613006cc9bb1c33b9",
+  "prompts": {}
+}
