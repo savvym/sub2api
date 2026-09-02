@@ -1,0 +1,115 @@
+frontend/src/i18n/locales/zh/index.ts
+  s_f888de8e3912e8::t_a55db9ce55e341 6,16
+backend/internal/repository/self_service_account_repo_integration_test.go
+  s_f888de8e3912e8::t_b6aca55986792a 126
+  s_f888de8e3912e8::t_bbe6bc70fe71b6 1-125,127-508
+backend/internal/service/self_service_account_test.go
+  s_f888de8e3912e8::t_a55db9ce55e341 1-637
+backend/internal/service/setting_service_public_test.go
+  s_f888de8e3912e8::t_a55db9ce55e341 168-237
+frontend/src/api/index.ts
+  s_f888de8e3912e8::t_a55db9ce55e341 20
+frontend/src/utils/featureFlags.ts
+  s_f888de8e3912e8::t_a55db9ce55e341 132-136
+backend/internal/service/wire.go
+  s_f888de8e3912e8::t_a55db9ce55e341 860-863
+backend/internal/service/resource_read.go
+  s_f888de8e3912e8::t_a55db9ce55e341 41-50
+backend/internal/repository/wire.go
+  s_f888de8e3912e8::t_a55db9ce55e341 71,100-102
+backend/internal/handler/setting_handler.go
+  s_f888de8e3912e8::t_a55db9ce55e341 97
+frontend/src/i18n/locales/en/index.ts
+  s_f888de8e3912e8::t_a55db9ce55e341 6,16
+frontend/src/types/index.ts
+  s_f888de8e3912e8::t_a55db9ce55e341 257-258,895-936
+frontend/src/views/user/SelfServiceAccountsView.vue
+  s_f888de8e3912e8::t_a55db9ce55e341 322
+frontend/src/components/common/Pagination.vue
+  s_f888de8e3912e8::t_a55db9ce55e341 152
+backend/internal/handler/self_service_account_handler_test.go
+  s_f888de8e3912e8::t_04632d52f29261 271-279
+  s_f888de8e3912e8::t_660210a2b4e6a7 1-270,280-352
+frontend/src/router/__tests__/feature-access.spec.ts
+  s_f888de8e3912e8::t_a55db9ce55e341 28,178-236
+backend/internal/repository/scoped_resource_reader_test.go
+  s_f888de8e3912e8::t_a55db9ce55e341 91-93,110,112,198,333,335,340,359,368-397
+openspec/changes/redesign-resource-access-control/implementation-evidence.md
+  s_f888de8e3912e8::t_a55db9ce55e341 733-767
+backend/internal/repository/authz_policy_store_postgres_test.go
+  s_f888de8e3912e8::t_a55db9ce55e341 59,68,71,86,89,153,169,238-239
+openspec/changes/redesign-resource-access-control/verification.md
+  s_f888de8e3912e8::t_a55db9ce55e341 13,151-166
+frontend/src/i18n/locales/en/common.ts
+  s_f888de8e3912e8::t_a55db9ce55e341 18,47-48,166
+backend/internal/repository/resource_mutation_repo.go
+  s_f888de8e3912e8::t_a55db9ce55e341 216-226
+backend/internal/service/settings_view.go
+  s_f888de8e3912e8::t_a55db9ce55e341 377-385
+backend/internal/repository/scoped_resource_reader.go
+  s_f888de8e3912e8::t_6e09e461d24c06 276-277
+  s_f888de8e3912e8::t_a55db9ce55e341 34-41,94,134,266-275,279-288,327-336
+frontend/src/components/layout/__tests__/AppSidebar.spec.ts
+  s_f888de8e3912e8::t_a55db9ce55e341 56-66
+backend/internal/repository/authz_policy_store_test.go
+  s_f888de8e3912e8::t_a55db9ce55e341 816-836
+backend/internal/server/routes/self_service_account_routes_test.go
+  s_f888de8e3912e8::t_dcf57e1cd594c7 1-162
+backend/internal/service/setting_public.go
+  s_f888de8e3912e8::t_a55db9ce55e341 217-218,279-283,352-353,608,698
+openspec/changes/redesign-resource-access-control/progress.md
+  s_f888de8e3912e8::t_a55db9ce55e341 7,26-27,117-121,125-126,137-138,144
+frontend/src/components/common/BaseDialog.vue
+  s_f888de8e3912e8::t_a55db9ce55e341 46,49
+frontend/src/router/index.ts
+  s_f888de8e3912e8::t_a55db9ce55e341 219-230,923-928,956-966,974-975
+backend/internal/handler/self_service_account_handler.go
+  s_f888de8e3912e8::t_04632d52f29261 224
+  s_f888de8e3912e8::t_e4b8d8d2be3ae6 1-223,225-297
+backend/internal/server/routes/user.go
+  s_f888de8e3912e8::t_a55db9ce55e341 85-94
+backend/internal/handler/dto/resource_read.go
+  s_f888de8e3912e8::t_a55db9ce55e341 14-23,45-54
+frontend/src/router/meta.d.ts
+  s_f888de8e3912e8::t_a55db9ce55e341 59-64
+backend/cmd/server/wire_gen.go
+  s_f888de8e3912e8::t_a55db9ce55e341 325-332,356
+backend/internal/handler/setting_handler_public_test.go
+  s_f888de8e3912e8::t_a55db9ce55e341 120-148
+backend/internal/handler/wire.go
+  s_f888de8e3912e8::t_a55db9ce55e341 198,225,252
+openspec/changes/redesign-resource-access-control/tasks.md
+  s_f888de8e3912e8::t_a55db9ce55e341 34
+backend/internal/handler/dto/resource_read_test.go
+  s_f888de8e3912e8::t_a55db9ce55e341 24-33,37-46,50,134
+backend/internal/repository/self_service_account_repo.go
+  s_f888de8e3912e8::t_4471b59793326a 1-459
+frontend/src/i18n/locales/zh/common.ts
+  s_f888de8e3912e8::t_a55db9ce55e341 18,47-48,166
+backend/internal/repository/authz_policy_store.go
+  s_f888de8e3912e8::t_a55db9ce55e341 529
+backend/internal/handler/handler.go
+  s_f888de8e3912e8::t_a55db9ce55e341 70
+frontend/src/components/common/__tests__/BaseDialog.spec.ts
+  s_f888de8e3912e8::t_a55db9ce55e341 3,37-61
+backend/internal/handler/dto/settings.go
+  s_f888de8e3912e8::t_a55db9ce55e341 411
+frontend/src/components/layout/AppSidebar.vue
+  s_f888de8e3912e8::t_a55db9ce55e341 694,711
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "9f783a0eb41f6d193752d02a1f8263e946fc1e79",
+  "prompts": {},
+  "sessions": {
+    "s_f888de8e3912e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06103-92d4-72a1-8af8-9cc9355e6050",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Savin Zhang <savi@base.ctripsmartdns.com>"
+    }
+  }
+}
