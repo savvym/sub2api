@@ -1,0 +1,33 @@
+backend/internal/service/self_service_account.go
+  ai_agent 145,156,163-171,325-328,330-334,343-355,364,372-390,402-405,415-453,638-663
+backend/internal/service/self_service_account_test.go
+  s_f888de8e3912e8::t_2bf67e33e86d8d 36-45,48-50,61,124-151,194-195,209-214,226-229,367-370,376-377,385,403-404,407-413,416,419-428,437-439,448-449,456,458-459,475-571,573,774-793,810-813
+openspec/changes/redesign-resource-access-control/verification.md
+  ai_agent 13-14,202-215
+backend/internal/handler/self_service_account_handler_test.go
+  s_f888de8e3912e8::t_57d026b89cb325 23-28,50-79,100,253,258
+openspec/changes/redesign-resource-access-control/implementation-evidence.md
+  ai_agent 811,855-887
+backend/internal/repository/self_service_account_repo.go
+  s_f888de8e3912e8::t_2b75970b9eff0b 109,139-208,232,238-268,275,292,298,358,422
+backend/internal/repository/self_service_account_repo_integration_test.go
+  s_f888de8e3912e8::t_829eaca0134c41 29-76,782-792
+  s_f888de8e3912e8::t_55eb415b3d2640 383-605,847-876
+  s_f888de8e3912e8::t_d135170e04dd5a 8,11,895-899,913-917,920
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "f532b2e5ecc0da16aa6d831d239f82a6633d1290",
+  "prompts": {},
+  "sessions": {
+    "s_f888de8e3912e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06103-92d4-72a1-8af8-9cc9355e6050",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Savin Zhang <savi@base.ctripsmartdns.com>"
+    }
+  }
+}
