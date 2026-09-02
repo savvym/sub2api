@@ -100,12 +100,12 @@ type GeminiAuthURLResult struct {
 	State     string `json:"state"`
 }
 
-func (s *GeminiOAuthService) generateAuthURL(ctx context.Context, binding oauthflow.Binding, proxyID *int64, redirectURI, projectID, oauthType, tierID string) (*GeminiAuthURLResult, error) {
+func (s *GeminiOAuthService) generateAuthURL(ctx context.Context, binding oauthflow.Binding, proxyID *int64, projectID, oauthType, tierID string) (*GeminiAuthURLResult, error) {
 	if !binding.Valid() {
 		return nil, fmt.Errorf("oauth flow binding is invalid")
 	}
 	if s == nil || s.cfg == nil {
-		return nil, fmt.Errorf("Gemini OAuth configuration is unavailable")
+		return nil, fmt.Errorf("gemini OAuth configuration is unavailable")
 	}
 	oauthType = strings.ToLower(strings.TrimSpace(oauthType))
 	if oauthType != "code_assist" && oauthType != "google_one" && oauthType != "ai_studio" {
@@ -163,10 +163,9 @@ func (s *GeminiOAuthService) generateAuthURL(ctx context.Context, binding oauthf
 	// Redirect URI strategy:
 	// - built-in Gemini CLI OAuth client: use upstream redirect URI (codeassist.google.com/authcode)
 	// - custom OAuth client: use localhost callback for manual copy/paste flow
+	redirectURI := geminicli.AIStudioOAuthRedirectURI
 	if isBuiltinClient {
 		redirectURI = geminicli.GeminiCLIRedirectURI
-	} else {
-		redirectURI = geminicli.AIStudioOAuthRedirectURI
 	}
 	projectID = strings.TrimSpace(projectID)
 	authURL, err := geminicli.BuildAuthorizationURL(effectiveCfg, state, codeChallenge, redirectURI, projectID, oauthType)
@@ -505,7 +504,7 @@ func (s *GeminiOAuthService) exchangeCode(ctx context.Context, binding oauthflow
 	// If the session was created for AI Studio OAuth, ensure a custom OAuth client is configured.
 	if oauthType == "ai_studio" {
 		if s.cfg == nil {
-			return nil, fmt.Errorf("Gemini OAuth configuration is unavailable")
+			return nil, fmt.Errorf("gemini OAuth configuration is unavailable")
 		}
 		effectiveCfg, err := geminicli.EffectiveOAuthConfig(geminicli.OAuthConfig{
 			ClientID:     s.cfg.Gemini.OAuth.ClientID,
@@ -526,13 +525,13 @@ func (s *GeminiOAuthService) exchangeCode(ctx context.Context, binding oauthflow
 		redirectURI = geminicli.GeminiCLIRedirectURI
 	}
 	if s.oauthClient == nil {
-		return nil, fmt.Errorf("Gemini OAuth client is not configured")
+		return nil, fmt.Errorf("gemini OAuth client is not configured")
 	}
 	if (oauthType == "code_assist" || oauthType == "google_one") && s.codeAssist == nil {
-		return nil, fmt.Errorf("Gemini Code Assist client is not configured")
+		return nil, fmt.Errorf("gemini Code Assist client is not configured")
 	}
 	if oauthType == "google_one" && s.driveClient == nil {
-		return nil, fmt.Errorf("Gemini Drive client is not configured")
+		return nil, fmt.Errorf("gemini Drive client is not configured")
 	}
 	if !s.sessionStore.TryConsumeSession(input.SessionID) {
 		return nil, oauthSessionAlreadyUsed("GEMINI_OAUTH")

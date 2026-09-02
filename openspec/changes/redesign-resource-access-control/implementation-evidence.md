@@ -835,7 +835,7 @@ Draft PR #1 继续保持 Draft，不因本次阶段退出自动转 Ready 或合�
 | `cd backend && go test -tags=integration ./... -run '^$' -count=1` | 通过；全 integration 标签树编译成功，不代表远端无过滤 Testcontainers 动态执行 |
 | `cd backend && CGO_ENABLED=0 go build ./cmd/server` | 通过；生产 server 构建成功 |
 | `openspec validate redesign-resource-access-control --type change --strict --no-interactive` 与 `git diff --check` | 通过 |
-| `golangci-lint run` | 本机不可执行：`golangci-lint: command not found`；固定版本 lint 必须由本次 push 的 GitHub Actions 补证据 |
+| `cd backend && GOBIN=/tmp/sub2api-tools go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 && /tmp/sub2api-tools/golangci-lint run --timeout=30m` | 通过，`0 issues`；与 GitHub Actions 的 v2.13 系列一致 |
 
 ### 剩余发布边界
 

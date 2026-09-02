@@ -12,7 +12,7 @@ func (s *GeminiOAuthService) AdminGenerateAuthURL(ctx context.Context, actor aut
 	if err != nil {
 		return nil, err
 	}
-	return s.generateAuthURL(ctx, authority.flowBinding(), proxyID, redirectURI, projectID, oauthType, tierID)
+	return s.generateAuthURL(ctx, authority.flowBinding(), proxyID, projectID, oauthType, tierID)
 }
 
 func (s *GeminiOAuthService) AdminExchangeCode(ctx context.Context, actor authz.Actor, input *GeminiExchangeCodeInput) (*GeminiTokenInfo, error) {
