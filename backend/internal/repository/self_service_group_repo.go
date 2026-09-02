@@ -144,7 +144,18 @@ func (r *selfServiceGroupRepository) CreateGroup(
 		!validSelfServiceGroupCreateRecord(input) {
 		return service.SelfServiceGroupState{}, service.ErrSelfServiceGroupUnavailable
 	}
-	client := clientFromContext(ctx, r.client)
+	return createSelfServiceGroupRecord(ctx, clientFromContext(ctx, r.client), input)
+}
+
+func createSelfServiceGroupRecord(
+	ctx context.Context,
+	client *dbent.Client,
+	input service.SelfServiceGroupCreateRecord,
+) (service.SelfServiceGroupState, error) {
+	if ctx == nil || client == nil || dbent.TxFromContext(ctx) == nil ||
+		!validSelfServiceGroupCreateRecord(input) {
+		return service.SelfServiceGroupState{}, service.ErrSelfServiceGroupUnavailable
+	}
 	rows, err := client.QueryContext(ctx, `
 INSERT INTO groups (
     name,

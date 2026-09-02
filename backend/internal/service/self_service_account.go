@@ -142,6 +142,7 @@ func (c *SelfServiceAccountCatalog) Resolve(id string) (SelfServiceAccountProduc
 type SelfServiceAccountState struct {
 	AccountListItem
 	AccessVersion int64
+	Schedulable   bool
 	Deleted       bool
 }
 
@@ -152,12 +153,22 @@ type SelfServiceAccountCreateRecord struct {
 	APIKey        string
 	OwnerUserID   int64
 	CreatorUserID int64
+	GroupID       int64
 }
 
 type SelfServiceAccountRepository interface {
 	WithSerializableTx(ctx context.Context, fn func(txCtx context.Context) error) error
 	LockActorAuthorization(ctx context.Context, userID int64) error
 	LockAccount(ctx context.Context, accountID int64) (SelfServiceAccountState, error)
+	FindDefaultGroup(
+		ctx context.Context,
+		ownerUserID int64,
+		platform string,
+	) (SelfServiceGroupState, bool, error)
+	CreateDefaultGroup(
+		ctx context.Context,
+		input SelfServiceGroupCreateRecord,
+	) (SelfServiceGroupState, error)
 	CreateAccount(ctx context.Context, input SelfServiceAccountCreateRecord) (SelfServiceAccountState, error)
 	RenameAccount(
 		ctx context.Context,
@@ -311,8 +322,16 @@ func (s *SelfServiceAccountService) CreateAccount(
 	if !ok {
 		return nil, ErrSelfServiceAccountProductUnavailable
 	}
+	defaultGroupName := SelfServiceDefaultGroupName(product.Platform)
+	if defaultGroupName == "" {
+		return nil, ErrSelfServiceAccountProductUnavailable
+	}
 
-	var created SelfServiceAccountState
+	var (
+		created             SelfServiceAccountState
+		defaultGroup        SelfServiceGroupState
+		defaultGroupCreated bool
+	)
 	err = s.repository.WithSerializableTx(ctx, func(txCtx context.Context) error {
 		if _, capacityErr := s.capacity.RequireCreateCapacity(
 			txCtx,
@@ -321,6 +340,19 @@ func (s *SelfServiceAccountService) CreateAccount(
 		); capacityErr != nil {
 			return capacityErr
 		}
+
+		var findErr error
+		defaultGroup, defaultGroupCreated, findErr = s.resolveDefaultGroup(
+			txCtx,
+			input.Actor,
+			userID,
+			product.Platform,
+			defaultGroupName,
+		)
+		if findErr != nil {
+			return findErr
+		}
+
 		var createErr error
 		created, createErr = s.repository.CreateAccount(txCtx, SelfServiceAccountCreateRecord{
 			Name:          name,
@@ -329,12 +361,32 @@ func (s *SelfServiceAccountService) CreateAccount(
 			APIKey:        apiKey,
 			OwnerUserID:   *ownerUserID,
 			CreatorUserID: *creatorUserID,
+			GroupID:       defaultGroup.ID,
 		})
 		if createErr != nil {
 			return createErr
 		}
 		if err := validateSelfServiceCreatedAccount(created, userID, product); err != nil {
 			return err
+		}
+		requestID := boundedSelfServiceRequestID(input.RequestID)
+		if defaultGroupCreated {
+			if err := s.repository.AppendAuthorizationEvent(txCtx, ResourceAuthorizationEventRecord{
+				Key: ResourceMutationKey{
+					ResourceType: authz.ResourceTypeGroup,
+					ResourceID:   defaultGroup.ID,
+				},
+				OwnerUserID:           int64Pointer(userID),
+				ActorKind:             authz.SubjectKindUser,
+				ActorID:               userID,
+				AuthMethod:            authz.AuthMethodJWT,
+				EventType:             "group.created",
+				ResourceAccessVersion: defaultGroup.AccessVersion,
+				RequestID:             requestID,
+				ChangedFields:         []string{"configuration", "ownership"},
+			}); err != nil {
+				return err
+			}
 		}
 		return s.repository.AppendAuthorizationEvent(txCtx, ResourceAuthorizationEventRecord{
 			Key: ResourceMutationKey{
@@ -347,8 +399,10 @@ func (s *SelfServiceAccountService) CreateAccount(
 			AuthMethod:            authz.AuthMethodJWT,
 			EventType:             "account.created",
 			ResourceAccessVersion: created.AccessVersion,
-			RequestID:             boundedSelfServiceRequestID(input.RequestID),
-			ChangedFields:         []string{"configuration", "credentials", "ownership"},
+			RequestID:             requestID,
+			ChangedFields: []string{
+				"configuration", "credentials", "ownership", "account_groups", "schedulable",
+			},
 		})
 	})
 	if err != nil {
@@ -356,6 +410,45 @@ func (s *SelfServiceAccountService) CreateAccount(
 	}
 	result := created.AccountListItem
 	return &result, nil
+}
+
+func (s *SelfServiceAccountService) resolveDefaultGroup(
+	ctx context.Context,
+	actor authz.Actor,
+	ownerUserID int64,
+	platform string,
+	defaultGroupName string,
+) (SelfServiceGroupState, bool, error) {
+	group, found, err := s.repository.FindDefaultGroup(ctx, ownerUserID, platform)
+	if err != nil {
+		return SelfServiceGroupState{}, false, err
+	}
+	if found {
+		if err := validateSelfServiceDefaultGroup(group, ownerUserID, platform, defaultGroupName); err != nil {
+			return SelfServiceGroupState{}, false, err
+		}
+		return group, false, nil
+	}
+
+	if _, err := s.capacity.RequireCreateCapacity(ctx, actor, authz.ResourceTypeGroup); err != nil {
+		return SelfServiceGroupState{}, false, err
+	}
+	group, err = s.repository.CreateDefaultGroup(ctx, SelfServiceGroupCreateRecord{
+		Name:          defaultGroupName,
+		Platform:      platform,
+		OwnerUserID:   ownerUserID,
+		CreatorUserID: ownerUserID,
+	})
+	if err != nil {
+		return SelfServiceGroupState{}, false, err
+	}
+	if err := validateSelfServiceDefaultGroup(group, ownerUserID, platform, defaultGroupName); err != nil {
+		return SelfServiceGroupState{}, false, err
+	}
+	if group.AccessVersion != 1 || group.CreatedByUserID == nil || *group.CreatedByUserID != ownerUserID {
+		return SelfServiceGroupState{}, false, ErrSelfServiceAccountUnavailable
+	}
+	return group, true, nil
 }
 
 func (s *SelfServiceAccountService) RenameAccount(
@@ -542,7 +635,32 @@ func validateSelfServiceCreatedAccount(
 	if state.ID <= 0 || state.Deleted || state.AccessVersion != 1 || state.OwnerUserID == nil ||
 		*state.OwnerUserID != ownerUserID || state.PublicAccessLevel != nil ||
 		state.Platform != product.Platform || state.Type != product.AccountType ||
-		!state.CredentialConfigured {
+		!state.CredentialConfigured || !state.Schedulable {
+		return ErrSelfServiceAccountUnavailable
+	}
+	return nil
+}
+
+// SelfServiceDefaultGroupName returns the reserved tenant default-group name
+// for an allowed self-service platform.
+func SelfServiceDefaultGroupName(platform string) string {
+	if !selfServiceCandidatePlatform(platform) {
+		return ""
+	}
+	return platform + "-default"
+}
+
+func validateSelfServiceDefaultGroup(
+	state SelfServiceGroupState,
+	ownerUserID int64,
+	platform string,
+	expectedName string,
+) error {
+	if state.ID <= 0 || state.Deleted || state.AccessVersion <= 0 ||
+		state.OwnerUserID == nil || *state.OwnerUserID != ownerUserID ||
+		state.PublicAccessLevel != nil || state.Platform != platform ||
+		!strings.EqualFold(state.Name, expectedName) || state.Status != StatusActive ||
+		!state.IsExclusive || state.AuthorizationMode != selfServiceGroupAuthorizationLegacy {
 		return ErrSelfServiceAccountUnavailable
 	}
 	return nil

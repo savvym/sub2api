@@ -106,6 +106,7 @@ SELECT
     owner_user_id,
     public_access_level,
     access_version,
+    schedulable,
     deleted_at IS NOT NULL,
     created_at,
     updated_at
@@ -135,6 +136,76 @@ FOR UPDATE`, accountID)
 	return state, nil
 }
 
+func (r *selfServiceAccountRepository) FindDefaultGroup(
+	ctx context.Context,
+	ownerUserID int64,
+	platform string,
+) (service.SelfServiceGroupState, bool, error) {
+	defaultGroupName := service.SelfServiceDefaultGroupName(platform)
+	if r == nil || r.client == nil || ctx == nil || dbent.TxFromContext(ctx) == nil ||
+		ownerUserID <= 0 || defaultGroupName == "" {
+		return service.SelfServiceGroupState{}, false, service.ErrSelfServiceAccountUnavailable
+	}
+	rows, err := clientFromContext(ctx, r.client).QueryContext(ctx, `
+SELECT
+    id,
+    name,
+    COALESCE(description, ''),
+    platform,
+    status,
+    owner_user_id,
+    created_by_user_id,
+    public_access_level,
+    access_version,
+    authorization_mode,
+    is_exclusive,
+    FALSE,
+    created_at,
+    updated_at
+FROM groups
+WHERE owner_user_id = $1
+  AND LOWER(name) = LOWER($2)
+  AND deleted_at IS NULL
+ORDER BY id
+FOR UPDATE`, ownerUserID, defaultGroupName)
+	if err != nil {
+		return service.SelfServiceGroupState{}, false, err
+	}
+	defer func() { _ = rows.Close() }()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return service.SelfServiceGroupState{}, false, err
+		}
+		return service.SelfServiceGroupState{}, false, nil
+	}
+	state, err := scanSelfServiceGroupState(rows)
+	if err != nil {
+		return service.SelfServiceGroupState{}, false, err
+	}
+	if rows.Next() {
+		return service.SelfServiceGroupState{}, false, fmt.Errorf("self-service default group lookup returned multiple rows")
+	}
+	if err := rows.Err(); err != nil {
+		return service.SelfServiceGroupState{}, false, err
+	}
+	return state, true, nil
+}
+
+func (r *selfServiceAccountRepository) CreateDefaultGroup(
+	ctx context.Context,
+	input service.SelfServiceGroupCreateRecord,
+) (service.SelfServiceGroupState, error) {
+	if r == nil || r.client == nil || ctx == nil || dbent.TxFromContext(ctx) == nil ||
+		input.Name != service.SelfServiceDefaultGroupName(input.Platform) {
+		return service.SelfServiceGroupState{}, service.ErrSelfServiceAccountUnavailable
+	}
+	state, err := createSelfServiceGroupRecord(ctx, clientFromContext(ctx, r.client), input)
+	if errors.Is(err, service.ErrGroupExists) {
+		return service.SelfServiceGroupState{}, service.ErrSelfServiceAccountConflict.WithCause(err)
+	}
+	return state, err
+}
+
 func (r *selfServiceAccountRepository) CreateAccount(
 	ctx context.Context,
 	input service.SelfServiceAccountCreateRecord,
@@ -158,11 +229,42 @@ func (r *selfServiceAccountRepository) CreateAccount(
 		OwnerUserID:        &ownerUserID,
 		CreatedByUserID:    &creatorUserID,
 		AccessVersion:      1,
-		Schedulable:        false,
+		Schedulable:        true,
 	}
 	client := clientFromContext(ctx, r.client)
 	if err := createAccountRecord(ctx, client, account); err != nil {
 		return service.SelfServiceAccountState{}, err
+	}
+	binding, err := client.ExecContext(ctx, `
+INSERT INTO account_groups (account_id, group_id, priority)
+SELECT $1, id, $3
+FROM groups
+WHERE id = $2
+  AND owner_user_id = $4
+  AND LOWER(name) = LOWER($5)
+  AND platform = $6
+  AND status = $7
+  AND public_access_level IS NULL
+  AND is_exclusive = TRUE
+  AND authorization_mode = 'legacy'
+  AND deleted_at IS NULL`,
+		account.ID,
+		input.GroupID,
+		selfServiceAccountDefaultPriority,
+		input.OwnerUserID,
+		service.SelfServiceDefaultGroupName(input.Platform),
+		input.Platform,
+		service.StatusActive,
+	)
+	if err != nil {
+		return service.SelfServiceAccountState{}, err
+	}
+	bound, err := binding.RowsAffected()
+	if err != nil {
+		return service.SelfServiceAccountState{}, err
+	}
+	if bound != 1 {
+		return service.SelfServiceAccountState{}, service.ErrSelfServiceAccountConflict
 	}
 	if err := enqueueSchedulerOutbox(
 		ctx,
@@ -170,7 +272,7 @@ func (r *selfServiceAccountRepository) CreateAccount(
 		service.SchedulerOutboxEventAccountChanged,
 		&account.ID,
 		nil,
-		nil,
+		buildSchedulerGroupPayload([]int64{input.GroupID}),
 	); err != nil {
 		return service.SelfServiceAccountState{}, err
 	}
@@ -187,11 +289,13 @@ func (r *selfServiceAccountRepository) CreateAccount(
 			UpdatedAt:            account.UpdatedAt,
 		},
 		AccessVersion: account.AccessVersion,
+		Schedulable:   account.Schedulable,
 	}, nil
 }
 
 func validSelfServiceAccountCreateRecord(input service.SelfServiceAccountCreateRecord) bool {
 	if input.OwnerUserID <= 0 || input.CreatorUserID != input.OwnerUserID ||
+		input.GroupID <= 0 ||
 		input.Name == "" || input.AccountType != service.AccountTypeAPIKey ||
 		input.APIKey == "" || !selfServiceAccountCandidatePlatform(input.Platform) ||
 		!utf8.ValidString(input.Name) || !utf8.ValidString(input.APIKey) ||
@@ -251,6 +355,7 @@ RETURNING
     owner_user_id,
     public_access_level,
     access_version,
+    schedulable,
     FALSE,
     created_at,
     updated_at`, name, accountID, ownerUserID, expectedAccessVersion)
@@ -314,6 +419,7 @@ RETURNING
     owner_user_id,
     public_access_level,
     access_version,
+    schedulable,
     TRUE,
     created_at,
     updated_at`, accountID, ownerUserID, expectedAccessVersion)
@@ -415,6 +521,7 @@ func scanSelfServiceAccountState(
 		&state.OwnerUserID,
 		&publicAccessLevel,
 		&state.AccessVersion,
+		&state.Schedulable,
 		&state.Deleted,
 		&state.CreatedAt,
 		&state.UpdatedAt,

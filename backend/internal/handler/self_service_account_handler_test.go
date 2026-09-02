@@ -20,11 +20,12 @@ import (
 )
 
 type selfServiceAccountHandlerRepositoryStub struct {
-	txCalls     int
-	createCalls int
-	createInput service.SelfServiceAccountCreateRecord
-	events      []service.ResourceAuthorizationEventRecord
-	createdAt   time.Time
+	txCalls        int
+	findGroupCalls int
+	createCalls    int
+	createInput    service.SelfServiceAccountCreateRecord
+	events         []service.ResourceAuthorizationEventRecord
+	createdAt      time.Time
 }
 
 func (r *selfServiceAccountHandlerRepositoryStub) WithSerializableTx(
@@ -44,6 +45,36 @@ func (r *selfServiceAccountHandlerRepositoryStub) LockAccount(
 	int64,
 ) (service.SelfServiceAccountState, error) {
 	return service.SelfServiceAccountState{}, errors.New("unexpected account lock")
+}
+
+func (r *selfServiceAccountHandlerRepositoryStub) FindDefaultGroup(
+	_ context.Context,
+	ownerUserID int64,
+	platform string,
+) (service.SelfServiceGroupState, bool, error) {
+	r.findGroupCalls++
+	ownerID := ownerUserID
+	creatorID := ownerUserID
+	return service.SelfServiceGroupState{
+		GroupListItem: service.GroupListItem{
+			ID:          ownerUserID + 1000,
+			Name:        service.SelfServiceDefaultGroupName(platform),
+			Platform:    platform,
+			Status:      service.StatusActive,
+			OwnerUserID: &ownerID,
+		},
+		CreatedByUserID:   &creatorID,
+		AccessVersion:     1,
+		AuthorizationMode: "legacy",
+		IsExclusive:       true,
+	}, true, nil
+}
+
+func (r *selfServiceAccountHandlerRepositoryStub) CreateDefaultGroup(
+	context.Context,
+	service.SelfServiceGroupCreateRecord,
+) (service.SelfServiceGroupState, error) {
+	return service.SelfServiceGroupState{}, errors.New("unexpected default group creation")
 }
 
 func (r *selfServiceAccountHandlerRepositoryStub) CreateAccount(
@@ -66,6 +97,7 @@ func (r *selfServiceAccountHandlerRepositoryStub) CreateAccount(
 			UpdatedAt:            r.createdAt,
 		},
 		AccessVersion: 1,
+		Schedulable:   true,
 	}, nil
 }
 
@@ -218,10 +250,12 @@ func TestSelfServiceAccountCreateResponseUsesStrictPublicProjection(t *testing.T
 
 	require.Equal(t, http.StatusCreated, recorder.Code)
 	require.Equal(t, 1, repo.txCalls)
+	require.Equal(t, 1, repo.findGroupCalls)
 	require.Equal(t, 1, repo.createCalls)
 	require.Equal(t, 1, capacity.calls)
 	require.Len(t, repo.events, 1)
 	require.Equal(t, apiKey, repo.createInput.APIKey)
+	require.Positive(t, repo.createInput.GroupID)
 
 	payload := decodeSelfServiceAccountHandlerResponse(t, recorder)
 	data, ok := payload["data"].(map[string]any)

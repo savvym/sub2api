@@ -10,8 +10,8 @@
 | resource-authorization | 平台能力与资源动作分离 | Actor/Policy 单测、创建/分享 API 测试 | 待实现 |
 | resource-authorization | SQL 范围过滤与不可枚举 | Repository integration、IDOR E2E、EXPLAIN | 待实现 |
 | resource-authorization | 凭证与字段投影 | DTO/序列化 canary、日志/错误泄漏扫描 | 待实现 |
-| self-service-resource-hosting | 有资格用户私有托管 | 2.1 已完成 hoster/配额/管理员 API 与容量并发契约；2.2/2.3 已完成普通用户私有 Account/Group CRUD、窄投影和 UI；2.4 已完成既有 OAuth/导入/复制/批量/callback 的可信 Owner 与一次性 session 绑定；默认组、出站发布证据与完整 E2E 仍待 2.5-2.7 | 待实现 |
-| self-service-resource-hosting | 私有默认组与 group 0 隔离 | Scheduler repository/integration 测试 | 待实现 |
+| self-service-resource-hosting | 有资格用户私有托管 | 2.1 已完成 hoster/配额/管理员 API 与容量并发契约；2.2/2.3 已完成普通用户私有 Account/Group CRUD、窄投影和 UI；2.4 已完成既有 OAuth/导入/复制/批量/callback 的可信 Owner 与一次性 session 绑定；2.5 已完成 Owner 私有默认组按需创建/复用及 Account 同事务绑定；出站发布证据与完整 E2E 仍待 2.7 | 待实现 |
+| self-service-resource-hosting | 私有默认组与 group 0 隔离 | 2.5 已覆盖 Owner 默认组、Account 绑定和原子回滚；2.6 仍需覆盖 group `0`、平台默认组与 SIMPLE Mode 查询隔离 | 待实现 |
 | self-service-resource-hosting | Backend/SIMPLE Mode 优先 | 模式组合测试 | 待实现 |
 | resource-sharing | 分级、多主体分享 | Grant schema/Policy/API/UI 测试 | 待实现 |
 | resource-sharing | 分享不级联 | DTO、关系查询、跨资源 E2E | 待实现 |
@@ -198,6 +198,21 @@
 | xAI Redis session 跨实例 round-trip binding/proxy 并原子消费；remote 成功写不降级为可双消费的本地副本，只有 remote write 失败才 fallback | `TestSessionStoreRedisRoundTripsBindingAndConsumesAcrossInstances`、`TestSessionStoreRedisFallbackIsLimitedToFailedWrites` | 通过 |
 | 完整 backend unit、默认测试、unit-tag vet、integration 标签编译、CGO-off server build、OpenSpec strict validate 与 diff check | `implementation-evidence.md` 2.4 小节 | 通过；本地结果已归档 |
 | 当前代码 SHA 的 push/PR CI、无过滤 Testcontainers、固定版本 golangci-lint 与 Security Scan | push CI `33659274194` / test `100345512840` / lint `100345512876`，PR CI `33659279649` / test `100345528974` / lint `100345528797`，Security Scan `33659274223` / `33659279961` | 通过；均为 SHA `bf4903ab92095acc4f11cc477cc7777c14d53d8f`。integration 分别为 3m40s / 3m10s，repository 分别非缓存运行 52.288s / 36.991s；不据此提前视为 `Release Accepted` |
+
+## Owner Private Default Group Binding 门禁（2.5）
+
+本节验收自助 Account 创建时的 Owner 私有默认组和同事务绑定。生产 Account/Group 目录仍为空，有效 self-service 开关仍关闭；本节不验收 2.6 的 group `0`、平台默认组和 SIMPLE Mode 查询隔离，也不验收 2.7 的出站发布证据或 Phase 2 E2E。
+
+| 门禁 | 证据 | 状态 |
+| --- | --- | --- |
+| 默认组按 Owner/平台使用保留名 `<platform>-default`，查找大小写不敏感并锁定 active 未删除记录；已有合法默认组直接复用 | service/repository contract 与 PostgreSQL integration 用例 | 通过；本地 unit 契约已通过，动态 PostgreSQL 待当前提交远端 CI 复核 |
+| 默认组缺失时先检查 Group 容量，再复用 2.3 的创建 helper 写 private、active、exclusive、legacy、相同 Owner/creator 和 group Scheduler Outbox；已有组不重复检查 Group 配额 | service 调用顺序、配额分支和 group helper tests | 通过 |
+| Account 容量始终先检查；Account 固定 private、`schedulable=true`，以优先级 50 绑定默认组；绑定 SQL重校验 Group ID、Owner、折叠名称、平台、active、private、exclusive、legacy 与未删除状态 | repository SQL、state validation、handler projection tests | 通过 |
+| 新建 Group、Account、`account_groups`、两类 Scheduler Outbox 和 Group/Account durable authorization event 在同一 `SERIALIZABLE` 事务提交 | service/repository contract 与 event/outbox integration 用例 | 通过；本地 unit/race 已通过，远端无过滤 Testcontainers 待 push 后补录 |
+| Group 配额不足、绑定、任一 Outbox、任一 durable event 或 commit 失败不留下 Group、Account、关系或事件半状态 | failure injection unit/integration 用例 | 通过；本地 unit 覆盖完成，动态 failure injection 待远端 CI 复核 |
+| 同 Owner/平台多 Account 只使用一个默认组；并发首次创建通过容量锁、Owner 名称唯一索引和 conflict retry 保持单组 | reuse/concurrent PostgreSQL integration 用例 | 待实现；用例已提交，本机无 Docker，等待当前 SHA 的远端动态结果 |
+| 普通用户 HTTP 响应继续使用窄 Account 投影，不暴露 Group ID、`schedulable`、Owner ID、凭据或关系；客户端不能提交 Group ID | handler strict projection、create DTO 与 catalog tests | 通过 |
+| 默认、unit-tag、聚焦 race、unit-tag vet、integration 标签编译、生产 build、gofmt、固定 v2.13 lint、OpenSpec strict validate 与 diff check | `implementation-evidence.md` 2.5 小节 | 通过；远端 CI/Security Scan 仍待当前提交推送后补录 |
 
 ## Phase 0 Exit Review（0.8）
 

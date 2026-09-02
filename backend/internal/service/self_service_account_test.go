@@ -30,16 +30,24 @@ type selfServiceAccountRepositoryStub struct {
 	createState SelfServiceAccountState
 	renameState SelfServiceAccountState
 	deleteState SelfServiceAccountState
+	groupState  SelfServiceGroupState
+	groupFound  bool
 
-	lockActorErr error
-	lockErr      error
-	createErr    error
-	renameErr    error
-	deleteErr    error
-	appendErr    error
-	commitErr    error
+	lockActorErr   error
+	lockErr        error
+	findGroupErr   error
+	createGroupErr error
+	createErr      error
+	renameErr      error
+	deleteErr      error
+	appendErr      error
+	appendErrAt    int
+	commitErr      error
 
 	createInput           SelfServiceAccountCreateRecord
+	findGroupOwnerUserID  int64
+	findGroupPlatform     string
+	createGroupInput      SelfServiceGroupCreateRecord
 	renameAccountID       int64
 	renameOwnerUserID     int64
 	renameExpectedVersion int64
@@ -50,6 +58,7 @@ type selfServiceAccountRepositoryStub struct {
 
 	stagedEvents    []ResourceAuthorizationEventRecord
 	committedEvents []ResourceAuthorizationEventRecord
+	appendCalls     int
 	txCalls         int
 	rolledBack      bool
 	committed       bool
@@ -112,6 +121,34 @@ func (r *selfServiceAccountRepositoryStub) CreateAccount(
 	return r.createState, nil
 }
 
+func (r *selfServiceAccountRepositoryStub) FindDefaultGroup(
+	ctx context.Context,
+	ownerUserID int64,
+	platform string,
+) (SelfServiceGroupState, bool, error) {
+	assertSelfServiceAccountTxContext(ctx)
+	r.log.add("group.find")
+	r.findGroupOwnerUserID = ownerUserID
+	r.findGroupPlatform = platform
+	if r.findGroupErr != nil {
+		return SelfServiceGroupState{}, false, r.findGroupErr
+	}
+	return r.groupState, r.groupFound, nil
+}
+
+func (r *selfServiceAccountRepositoryStub) CreateDefaultGroup(
+	ctx context.Context,
+	input SelfServiceGroupCreateRecord,
+) (SelfServiceGroupState, error) {
+	assertSelfServiceAccountTxContext(ctx)
+	r.log.add("group.create")
+	r.createGroupInput = input
+	if r.createGroupErr != nil {
+		return SelfServiceGroupState{}, r.createGroupErr
+	}
+	return r.groupState, nil
+}
+
 func (r *selfServiceAccountRepositoryStub) RenameAccount(
 	ctx context.Context,
 	accountID int64,
@@ -154,7 +191,8 @@ func (r *selfServiceAccountRepositoryStub) AppendAuthorizationEvent(
 ) error {
 	assertSelfServiceAccountTxContext(ctx)
 	r.log.add("event.append")
-	if r.appendErr != nil {
+	r.appendCalls++
+	if r.appendErr != nil && (r.appendErrAt == 0 || r.appendCalls == r.appendErrAt) {
 		return r.appendErr
 	}
 	r.stagedEvents = append(r.stagedEvents, event)
@@ -168,10 +206,12 @@ func assertSelfServiceAccountTxContext(ctx context.Context) {
 }
 
 type selfServiceAccountCapacityStub struct {
-	log          *selfServiceAccountCallLog
-	err          error
-	actor        authz.Actor
-	resourceType authz.ResourceType
+	log           *selfServiceAccountCallLog
+	err           error
+	errs          map[authz.ResourceType]error
+	actor         authz.Actor
+	resourceType  authz.ResourceType
+	resourceTypes []authz.ResourceType
 }
 
 func (s *selfServiceAccountCapacityStub) RequireCreateCapacity(
@@ -183,6 +223,10 @@ func (s *selfServiceAccountCapacityStub) RequireCreateCapacity(
 	s.log.add("capacity.require")
 	s.actor = actor
 	s.resourceType = resourceType
+	s.resourceTypes = append(s.resourceTypes, resourceType)
+	if err := s.errs[resourceType]; err != nil {
+		return HostingCapacity{}, err
+	}
 	if s.err != nil {
 		return HostingCapacity{}, s.err
 	}
@@ -320,13 +364,17 @@ func TestStaticSelfServiceAccountCatalogAcceptsOnlyReviewedAPIKeyProducts(t *tes
 }
 
 func TestSelfServiceAccountCreateUsesExactPrivateDefaultsAndTransactionOrder(t *testing.T) {
-	const userID int64 = 42
+	const (
+		userID  int64 = 42
+		groupID int64 = 61
+	)
 	actor, _ := selfServiceAccountActorFixture(t, userID, 3)
 	log := &selfServiceAccountCallLog{}
 	ownerID := userID
 	createdAt := time.Date(2026, 9, 2, 2, 3, 4, 0, time.UTC)
 	repo := &selfServiceAccountRepositoryStub{
-		log: log,
+		log:        log,
+		groupState: selfServiceAccountDefaultGroupState(userID, groupID, PlatformOpenAI, "openai-default", 1),
 		createState: SelfServiceAccountState{
 			AccountListItem: AccountListItem{
 				ID: 71, Name: "Personal OpenAI", Platform: PlatformOpenAI,
@@ -334,6 +382,7 @@ func TestSelfServiceAccountCreateUsesExactPrivateDefaultsAndTransactionOrder(t *
 				OwnerUserID: &ownerID, CreatedAt: createdAt, UpdatedAt: createdAt,
 			},
 			AccessVersion: 1,
+			Schedulable:   true,
 		},
 	}
 	capacity := &selfServiceAccountCapacityStub{log: log}
@@ -351,17 +400,32 @@ func TestSelfServiceAccountCreateUsesExactPrivateDefaultsAndTransactionOrder(t *
 	require.True(t, repo.committed)
 	require.False(t, repo.rolledBack)
 	require.Equal(t, []string{
-		"tx.begin", "capacity.require", "account.create", "event.append", "tx.commit",
+		"tx.begin", "capacity.require", "group.find", "capacity.require", "group.create",
+		"account.create", "event.append", "event.append", "tx.commit",
 	}, log.calls)
 	require.True(t, actor.SameAuthorizationState(capacity.actor))
-	require.Equal(t, authz.ResourceTypeAccount, capacity.resourceType)
+	require.Equal(t, []authz.ResourceType{authz.ResourceTypeAccount, authz.ResourceTypeGroup}, capacity.resourceTypes)
+	require.Equal(t, userID, repo.findGroupOwnerUserID)
+	require.Equal(t, PlatformOpenAI, repo.findGroupPlatform)
+	require.Equal(t, SelfServiceGroupCreateRecord{
+		Name: "openai-default", Platform: PlatformOpenAI,
+		OwnerUserID: userID, CreatorUserID: userID,
+	}, repo.createGroupInput)
 	require.Equal(t, SelfServiceAccountCreateRecord{
 		Name: "Personal OpenAI", Platform: PlatformOpenAI, AccountType: AccountTypeAPIKey,
-		APIKey: "sk-private", OwnerUserID: userID, CreatorUserID: userID,
+		APIKey: "sk-private", OwnerUserID: userID, CreatorUserID: userID, GroupID: groupID,
 	}, repo.createInput)
 
-	require.Len(t, repo.committedEvents, 1)
-	event := repo.committedEvents[0]
+	require.Len(t, repo.committedEvents, 2)
+	groupEvent := repo.committedEvents[0]
+	require.Equal(t, ResourceMutationKey{ResourceType: authz.ResourceTypeGroup, ResourceID: groupID}, groupEvent.Key)
+	require.Equal(t, &ownerID, groupEvent.OwnerUserID)
+	require.Equal(t, "group.created", groupEvent.EventType)
+	require.Equal(t, int64(1), groupEvent.ResourceAccessVersion)
+	require.Equal(t, "request-71", groupEvent.RequestID)
+	require.Equal(t, []string{"configuration", "ownership"}, groupEvent.ChangedFields)
+
+	event := repo.committedEvents[1]
 	require.Equal(t, ResourceMutationKey{ResourceType: authz.ResourceTypeAccount, ResourceID: 71}, event.Key)
 	require.Equal(t, &ownerID, event.OwnerUserID)
 	require.Equal(t, authz.SubjectKindUser, event.ActorKind)
@@ -370,7 +434,9 @@ func TestSelfServiceAccountCreateUsesExactPrivateDefaultsAndTransactionOrder(t *
 	require.Equal(t, "account.created", event.EventType)
 	require.Equal(t, int64(1), event.ResourceAccessVersion)
 	require.Equal(t, "request-71", event.RequestID)
-	require.Equal(t, []string{"configuration", "credentials", "ownership"}, event.ChangedFields)
+	require.Equal(t, []string{
+		"configuration", "credentials", "ownership", "account_groups", "schedulable",
+	}, event.ChangedFields)
 }
 
 func TestSelfServiceAccountCreateRollsBackWhenDurableEventFails(t *testing.T) {
@@ -379,15 +445,18 @@ func TestSelfServiceAccountCreateRollsBackWhenDurableEventFails(t *testing.T) {
 	eventErr := errors.New("authorization event unavailable")
 	log := &selfServiceAccountCallLog{}
 	repo := &selfServiceAccountRepositoryStub{
-		log: log,
+		log:        log,
+		groupState: selfServiceAccountDefaultGroupState(43, 62, PlatformOpenAI, "openai-default", 1),
 		createState: SelfServiceAccountState{
 			AccountListItem: AccountListItem{
 				ID: 72, Name: "Personal", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 				Status: StatusActive, CredentialConfigured: true, OwnerUserID: &ownerID,
 			},
 			AccessVersion: 1,
+			Schedulable:   true,
 		},
-		appendErr: eventErr,
+		appendErr:   eventErr,
+		appendErrAt: 2,
 	}
 	service := NewSelfServiceAccountService(
 		repo, nil, nil, &selfServiceAccountCapacityStub{log: log}, nil, mustSelfServiceAccountCatalog(t),
@@ -403,8 +472,105 @@ func TestSelfServiceAccountCreateRollsBackWhenDurableEventFails(t *testing.T) {
 	require.False(t, repo.committed)
 	require.Empty(t, repo.committedEvents)
 	require.Equal(t, []string{
-		"tx.begin", "capacity.require", "account.create", "event.append", "tx.rollback",
+		"tx.begin", "capacity.require", "group.find", "capacity.require", "group.create",
+		"account.create", "event.append", "event.append", "tx.rollback",
 	}, log.calls)
+}
+
+func TestSelfServiceAccountCreateReusesExistingDefaultGroupWithoutGroupCapacity(t *testing.T) {
+	const (
+		userID  int64 = 43
+		groupID int64 = 63
+	)
+	actor, _ := selfServiceAccountActorFixture(t, userID, 2)
+	ownerID := userID
+	log := &selfServiceAccountCallLog{}
+	repo := &selfServiceAccountRepositoryStub{
+		log:        log,
+		groupFound: true,
+		groupState: selfServiceAccountDefaultGroupState(userID, groupID, PlatformOpenAI, "OpenAI-Default", 4),
+		createState: SelfServiceAccountState{
+			AccountListItem: AccountListItem{
+				ID: 73, Name: "second", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Status: StatusActive, CredentialConfigured: true, OwnerUserID: &ownerID,
+			},
+			AccessVersion: 1,
+			Schedulable:   true,
+		},
+	}
+	capacity := &selfServiceAccountCapacityStub{log: log}
+	service := NewSelfServiceAccountService(
+		repo, nil, nil, capacity, nil, mustSelfServiceAccountCatalog(t),
+	)
+
+	item, err := service.CreateAccount(context.Background(), SelfServiceAccountCreateInput{
+		Actor: actor, Name: "second", ProductID: "openai-api-key", APIKey: "sk-second",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, int64(73), item.ID)
+	require.Equal(t, []string{
+		"tx.begin", "capacity.require", "group.find", "account.create", "event.append", "tx.commit",
+	}, log.calls)
+	require.Equal(t, []authz.ResourceType{authz.ResourceTypeAccount}, capacity.resourceTypes)
+	require.Equal(t, int64(0), repo.createGroupInput.OwnerUserID)
+	require.Equal(t, groupID, repo.createInput.GroupID)
+	require.Len(t, repo.committedEvents, 1)
+	require.Equal(t, authz.ResourceTypeAccount, repo.committedEvents[0].Key.ResourceType)
+}
+
+func TestSelfServiceAccountCreateRequiresGroupCapacityOnlyWhenDefaultGroupMissing(t *testing.T) {
+	actor, _ := selfServiceAccountActorFixture(t, 44, 1)
+	log := &selfServiceAccountCallLog{}
+	repo := &selfServiceAccountRepositoryStub{log: log}
+	capacity := &selfServiceAccountCapacityStub{
+		log:  log,
+		errs: map[authz.ResourceType]error{authz.ResourceTypeGroup: ErrHostingQuotaExceeded},
+	}
+	service := NewSelfServiceAccountService(
+		repo, nil, nil, capacity, nil, mustSelfServiceAccountCatalog(t),
+	)
+
+	item, err := service.CreateAccount(context.Background(), SelfServiceAccountCreateInput{
+		Actor: actor, Name: "blocked", ProductID: "openai-api-key", APIKey: "sk-blocked",
+	})
+
+	require.Nil(t, item)
+	require.ErrorIs(t, err, ErrHostingQuotaExceeded)
+	require.True(t, repo.rolledBack)
+	require.Equal(t, []string{
+		"tx.begin", "capacity.require", "group.find", "capacity.require", "tx.rollback",
+	}, log.calls)
+	require.Equal(t, []authz.ResourceType{authz.ResourceTypeAccount, authz.ResourceTypeGroup}, capacity.resourceTypes)
+	require.Zero(t, repo.createInput.OwnerUserID)
+	require.Empty(t, repo.committedEvents)
+}
+
+func TestSelfServiceAccountCreateRollsBackNewDefaultGroupWhenBindingFails(t *testing.T) {
+	actor, _ := selfServiceAccountActorFixture(t, 45, 1)
+	log := &selfServiceAccountCallLog{}
+	repo := &selfServiceAccountRepositoryStub{
+		log:        log,
+		groupState: selfServiceAccountDefaultGroupState(45, 64, PlatformOpenAI, "openai-default", 1),
+		createErr:  errors.New("bind default group"),
+	}
+	service := NewSelfServiceAccountService(
+		repo, nil, nil, &selfServiceAccountCapacityStub{log: log}, nil, mustSelfServiceAccountCatalog(t),
+	)
+
+	item, err := service.CreateAccount(context.Background(), SelfServiceAccountCreateInput{
+		Actor: actor, Name: "binding-failure", ProductID: "openai-api-key", APIKey: "sk-bind",
+	})
+
+	require.Nil(t, item)
+	require.ErrorIs(t, err, ErrSelfServiceAccountUnavailable)
+	require.True(t, repo.rolledBack)
+	require.False(t, repo.committed)
+	require.Equal(t, []string{
+		"tx.begin", "capacity.require", "group.find", "capacity.require", "group.create",
+		"account.create", "tx.rollback",
+	}, log.calls)
+	require.Empty(t, repo.committedEvents)
 }
 
 func TestSelfServiceAccountMutationRejectsStaleActorBeforePolicyOrWrite(t *testing.T) {
@@ -605,6 +771,26 @@ func mustSelfServiceAccountCatalog(t testing.TB) *SelfServiceAccountCatalog {
 	return catalog
 }
 
+func selfServiceAccountDefaultGroupState(
+	ownerUserID int64,
+	groupID int64,
+	platform string,
+	name string,
+	accessVersion int64,
+) SelfServiceGroupState {
+	ownerID := ownerUserID
+	creatorID := ownerUserID
+	return SelfServiceGroupState{
+		GroupListItem: GroupListItem{
+			ID: groupID, Name: name, Platform: platform, Status: StatusActive, OwnerUserID: &ownerID,
+		},
+		CreatedByUserID:   &creatorID,
+		AccessVersion:     accessVersion,
+		AuthorizationMode: selfServiceGroupAuthorizationLegacy,
+		IsExclusive:       true,
+	}
+}
+
 func selfServiceAccountActorFixture(
 	t testing.TB,
 	userID int64,
@@ -621,7 +807,10 @@ func selfServiceAccountActorFixture(
 	require.NoError(t, err)
 	snapshot, err := authz.NewSubjectSnapshot(authz.SubjectSnapshotInput{
 		Subject: subject, Exists: true, Active: true, AuthzVersion: authzVersion,
-		Capabilities:  []authz.Capability{authz.CapabilityAccountCreate},
+		Capabilities: []authz.Capability{
+			authz.CapabilityAccountCreate,
+			authz.CapabilityGroupCreate,
+		},
 		Configuration: configuration,
 	})
 	require.NoError(t, err)

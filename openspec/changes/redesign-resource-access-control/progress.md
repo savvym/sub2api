@@ -1,10 +1,10 @@
 # 当前进度
 
-更新时间：2026-09-03
+更新时间：2026-09-02
 
 ## 当前状态
 
-- 当前阶段：Phase 0 与 Phase 1 已按无部署、单维护者、默认关闭的 dark-foundation 范围完成；Phase 2 任务 2.1-2.4 已完成，下一切片为 2.5。2.2/2.3 已交付普通用户私有 Account/Group CRUD、窄字段投影和简化 UI，2.4 已把管理员创建、OAuth 后建号、导入、复制、批量、shadow 与 CRS 创建统一收敛到可信 Owner authority，并把 OAuth callback 绑定到发起 Actor 和服务端 session 状态；但生产产品目录仍为空、有效 self-service 开关仍关闭，新帐号仍固定不可调度且尚未绑定默认私有分组。该进展不构成 `Release Accepted`，不启用任何自助平台、OAuth、ACL/RBAC authority 或 Feature Flag。
+- 当前阶段：Phase 0 与 Phase 1 已按无部署、单维护者、默认关闭的 dark-foundation 范围完成；Phase 2 任务 2.1-2.5 已完成，下一切片为 2.6。2.2/2.3 已交付普通用户私有 Account/Group CRUD、窄字段投影和简化 UI，2.4 已把管理员创建与 OAuth/import/copy/batch/callback 收敛到可信 Owner/Actor，2.5 已让自助 Account 创建按需创建或复用 Owner 的 `<platform>-default` 私有分组，并把 Account、优先级 50 的绑定、可调度状态、Scheduler Outbox 与 durable event 放在同一事务提交。但生产产品目录仍为空、有效 self-service 开关仍关闭，2.6 的 group `0`、平台默认组和 SIMPLE Mode 租户隔离尚未完成。该进展不构成 `Release Accepted`，不启用任何自助平台、OAuth、ACL/RBAC authority 或 Feature Flag。
 - 当前分支：`codex/resource-access-control-foundation`。
 - 基线提交：`58de21e70`（总体设计文档）。
 - Foundation 提交：`215536582`，已推送 `origin/codex/resource-access-control-foundation`。
@@ -25,7 +25,8 @@
 - OpenAI Quota Auto-Reset Hardening 提交：`7acf5a0dd`；CI 收口提交：`aeb967ebe`。首次 push/PR CI 暴露 6 项 lint 与 shadow recovery fixture 的 `quota_dimension` 约束问题，修复后当前代码 SHA 的 push/PR CI、完整 Testcontainers、lint 与 Security Scan 均通过。
 - Private Self-Service Group CRUD 提交：`bf19faedf`，完整 SHA `bf19faedf2bf2b4920d61e7058ae95eabb5d487e`。GitHub Actions [PR CI Run 33649130206](https://github.com/savvym/sub2api/actions/runs/33649130206) 的 [test job 100311347354](https://github.com/savvym/sub2api/actions/runs/33649130206/job/100311347354) 与 [push CI Run 33649126676](https://github.com/savvym/sub2api/actions/runs/33649126676) 的 [test job 100311332689](https://github.com/savvym/sub2api/actions/runs/33649126676/job/100311332689) 均通过；无过滤 integration step 分别为 3m35s 和 3m33s。对应 [PR Security Scan 33649130214](https://github.com/savvym/sub2api/actions/runs/33649130214) 与 [push Security Scan 33649126817](https://github.com/savvym/sub2api/actions/runs/33649126817) 也成功。
 - Trusted Account Creation and OAuth Callback Binding 提交：`a875536cc`；lint 收口提交：`bf4903ab9`，完整 SHA `bf4903ab92095acc4f11cc477cc7777c14d53d8f`。首次 SHA 的 push/PR test、frontend、shell 与 Security Scan 均成功，但 CI 因 Gemini OAuth 的 SA4009/ST1005 lint 失败；修复后 [push CI Run 33659274194](https://github.com/savvym/sub2api/actions/runs/33659274194) / [test job 100345512840](https://github.com/savvym/sub2api/actions/runs/33659274194/job/100345512840) 与 [PR CI Run 33659279649](https://github.com/savvym/sub2api/actions/runs/33659279649) / [test job 100345528974](https://github.com/savvym/sub2api/actions/runs/33659279649/job/100345528974) 均成功；无过滤 integration step 分别为 3m40s 和 3m10s，repository 分别非缓存运行 52.288s 和 36.991s。对应 [push Security Scan 33659274223](https://github.com/savvym/sub2api/actions/runs/33659274223) 与 [PR Security Scan 33659279961](https://github.com/savvym/sub2api/actions/runs/33659279961) 也成功。
-- 任务进度：28/49。2.1 已新增 hoster 角色资格、Account/Group 配额、管理员分配入口和事务绑定容量锁；2.2 已新增普通 JWT 用户的私有 Account CRUD；2.3 已新增普通 JWT 用户的私有 Group CRUD 与 UI；2.4 已新增 server-owned Account creation authority、五类 OAuth session Actor/Owner/proxy 绑定、callback 一次性消费和管理员创建 sink 的平台 Owner 收敛。默认私有组绑定、group `0` 隔离、出站安全发布证据和 Phase 2 E2E 仍由 2.5-2.7 完成。当前没有 production/staging、真实数据或旧 Worker；2.4 的远端 Testcontainers、lint 与 Security Scan 工程证据已完成，但生产预检、maintenance/drain 和 shadow 观察仍不能视为已完成的 `Release Accepted`。
+- Owner Private Default Group Binding（2.5）当前工作区已完成：每个 Owner/平台只复用或创建一个大小写不敏感名称为 `<platform>-default` 的 active/private/exclusive/legacy Group；首次创建同时检查 Account 与 Group 容量，已有默认组只检查 Account 容量。Account 固定 `schedulable=true` 并以优先级 50 绑定该 Group，Group/Account、两类 Scheduler Outbox 和 durable event 任一失败整体回滚。本地默认/unit/race/vet/build/lint 与 integration 标签编译已通过；本机没有 Docker，当前提交的无过滤 Testcontainers 与 Security Scan 待推送后补录。
+- 任务进度：29/49。2.1 已新增 hoster 角色资格、Account/Group 配额、管理员分配入口和事务绑定容量锁；2.2 已新增普通 JWT 用户的私有 Account CRUD；2.3 已新增普通 JWT 用户的私有 Group CRUD 与 UI；2.4 已新增 server-owned Account creation authority、五类 OAuth session Actor/Owner/proxy 绑定、callback 一次性消费和管理员创建 sink 的平台 Owner 收敛；2.5 已完成 Owner 私有默认组按需创建/复用及 Account 同事务绑定。group `0`/平台默认组/SIMPLE Mode 租户隔离、出站安全发布证据和 Phase 2 E2E 仍由 2.6-2.7 完成。当前没有 production/staging、真实数据或旧 Worker；已有远端证据不替代未来生产预检、maintenance/drain、shadow 观察或 self-service `Release Accepted`。
 - 当前权威行为仍为旧 `users.role` 与旧分组资格，全部新增 Feature Flag 关闭且 `role_authorization_mode=legacy`。2.2/2.3 已注册普通用户 Account/Group 路由和 UI，2.4 只加固既有管理员创建/OAuth/import/callback 路径并保留自助 JWT Owner 契约；后端读取/产品/写入仍分别受可信 JWT Actor、Backend Mode、Policy/Scope 有效开关、hoster 资格和事务内配额约束，前端路由与侧栏也只读取后端暴露的有效 self-service 值。生产 Account/Group 产品目录均为空，因此当前部署配置不能创建任何自助资源，也不得解释为 ACL/RBAC 已启用。
 
 ## 已完成
@@ -118,8 +119,8 @@
 - 新增事务绑定的 `HostingCapacityGuard`。Account/Group 创建调用方必须在持有 `SERIALIZABLE` 数据库事务时完成资格、Policy、实时用量与配额检查，并保持 entitlement/user/role 锁直到资源写入结束；其他隔离级别 fail closed，并发创建不能共同越过同一容量。2.1 未注册普通用户资源路由，也未启用任何平台、OAuth 或 Feature Flag。
 - 新增普通 JWT 用户 `GET/POST /api/v1/accounts`、`GET /api/v1/accounts/products`、`GET/PATCH/DELETE /api/v1/accounts/:id`。Handler 在解析业务请求前要求可信 User Actor 与 `AuthSubject` 一致，查询和 JSON body 使用字段白名单、单值参数及 `DisallowUnknownFields`，Admin API Key、主体不一致、未知字段和尾随 JSON 均 fail closed。
 - list/get 复用 `ResourceReadService` 与数据库 `AccessibleScope`，Owner/private 可见性、主体/角色/开关版本重校验、筛选、total、排序和分页都在 SQL 范围内完成；不可见详情与非 Owner 写统一 conceal 为 not found。HTTP 窄投影仅包含标识、名称、平台、类型、状态、`credential_configured` 布尔值、`owned_by_me`、公开级别和时间戳，不返回凭据、Owner ID、extra、proxy、运行时状态或关系。
-- 创建只接受服务端产品 ID、名称和 API Key，客户端不能提交 platform、认证类型、endpoint 或 OAuth 参数。生产 `SelfServiceAccountCatalog` 为空；测试构造也只允许 OpenAI/Anthropic/Gemini 的 API Key 候选。创建在单一 `SERIALIZABLE` 事务内执行 `HostingCapacityGuard`、以 JWT User 绑定相同 Owner/creator、写 private/ungrouped/`schedulable=false` Account，并原子写 Scheduler Outbox 与 durable authorization event。
-- rename/delete 在同一事务内锁定 Actor 授权行与 Account，重新解析当前 JWT User、比较授权快照、重跑 Policy、校验 Owner 与 `access_version`；成功写业务状态、版本、Scheduler Outbox 和 durable event，冲突、越权或任一写失败整体回滚。删除同时清理既有关联并把受影响 group IDs 交给 Scheduler 事件，但不实现 2.5/2.6 的默认组绑定或 group `0` 规则。
+- 创建只接受服务端产品 ID、名称和 API Key，客户端不能提交 platform、认证类型、endpoint、OAuth 参数或 Group ID。生产 `SelfServiceAccountCatalog` 为空；测试构造也只允许 OpenAI/Anthropic/Gemini 的 API Key 候选。创建在单一 `SERIALIZABLE` 事务内先检查 Account 容量，再按 Owner/平台锁定并复用默认组；缺失时检查 Group 容量并以与 2.3 相同的安全默认值创建。Account 固定 private、`schedulable=true`，与默认组优先级 50 的 `account_groups` 关系、Group/Account Scheduler Outbox 和 durable authorization event 原子提交。
+- rename/delete 在同一事务内锁定 Actor 授权行与 Account，重新解析当前 JWT User、比较授权快照、重跑 Policy、校验 Owner 与 `access_version`；成功写业务状态、版本、Scheduler Outbox 和 durable event，冲突、越权或任一写失败整体回滚。删除同时清理既有关联并把受影响 group IDs 交给 Scheduler 事件；2.6 的 group `0`、平台默认组与 SIMPLE Mode 租户隔离仍未实现。
 - 公共设置新增后端计算的有效 `self_service_hosting_enabled`，SIMPLE/Backend/原始 flag 组合继续 fail closed；前端 `/accounts` 路由和侧栏使用 opt-in 门禁。页面完成检索、排序、分页、详情、重命名、删除、两步创建向导、空产品目录和错误/重试状态，并补齐中英文文案、响应式布局、Dialog 可访问标题 ID 与空结果分页回归。
 - 新增普通 JWT 用户 `GET/POST /api/v1/groups`、`GET /api/v1/groups/platforms`、`GET/PATCH/DELETE /api/v1/groups/:id`。list/get 继续复用同一 `AccessibleScope` 与 Group 窄投影；create 只接受服务端平台目录 ID、名称和描述，固定 private、active、exclusive、legacy authorization mode，并在同一 `SERIALIZABLE` 事务内执行 Group 容量检查、可信 Owner/creator 绑定、Scheduler Outbox 和 durable authorization event。
 - Group update 只允许名称与描述，事务内重锁 Actor/Group、重解析 JWT Actor、重跑 Policy 并以 `access_version` 做 CAS；delete 在相同边界内拒绝仍被帐号、授权、订阅、路由、fallback、渠道、监控/定价数组、审计/默认订阅配置、未归档公告或待履约订阅订单引用的分组，历史用量、监控事实、审计日志和已完成订单不阻止软删除。
@@ -130,8 +131,8 @@
 
 ## 下一步
 
-1. 实施任务 2.5：按需创建 Owner 私有默认分组，并让 Account 创建与默认组绑定在同一事务提交；当前空产品目录和 OAuth 禁止边界保持不变，未经安全清单 `Release Accepted` 不增加生产候选。
-2. 随后实施 2.6 的 group `0`、平台默认组和 SIMPLE Mode 租户隔离。
+1. 实施任务 2.6：让 group `0`、平台默认组和 SIMPLE Mode 查询显式排除 `owner_user_id IS NOT NULL` 的租户帐号；当前空产品目录和有效 self-service 关闭边界保持不变。
+2. 随后实施 2.7 的配额、SSRF、凭证、跨租户和存量兼容测试，并按当前无部署范围评审 Phase 2 退出；未经安全清单 `Release Accepted` 不增加生产候选。
 3. 首次创建 production/staging、导入真实数据或升级现有数据库时，先执行 `data-preflight.sql` 与 `credential-key-preflight.sql`。provenance inventory 必须全为 `resolved`，terminal inventory 必须零行；任何 blocker 都按 `implementation-evidence.md` 路由处置后重跑。
 4. 任一环境首次进入 `shadow` 前必须运行 role-mode readiness；切换后归档差异指标、日志量、sink `dropped_count`、观察窗口和回滚结果。任何自助、凭据导出、RBAC 或 ACL enforcement 启用前，分别完成两份安全清单的 `Release Accepted`。
 
@@ -150,6 +151,7 @@
 - 1.8 新增并发用例已通过定向 race；扩大到相关包的 race 命令仍会命中 `grok_import_probe_test.go` 和 `channel_monitor_checker_body_test.go` 两处不在本次 diff 的既有测试辅助代码竞态，不能宣称全量 race 已通过。
 - 1.10 只完成核心 Account/Group 管理写命令的事务内 Policy、版本、durable event 与适用 Outbox；读取、普通用户入口、ACL/RBAC 权威切换和旧分组资格 consumer 均未改变，不能把本切片解释为资源分享已开放。
 - 2.1 的容量检查有意拒绝无调用方 `SERIALIZABLE` 事务或其他隔离级别的使用；2.2 Account 与 2.3 Group 创建都让容量锁持续到资源、Scheduler Outbox 和 durable event 一并提交。2.4 已统一可信 Owner/creator 来源，但没有提前开放普通用户 OAuth/import/copy/batch，也没有改变这些未来自助入口必须在同一事务执行容量检查与创建的契约。2.4 SHA `bf4903ab92095acc4f11cc477cc7777c14d53d8f` 的 push/PR 无过滤 Testcontainers、lint 与 Security Scan 已通过；这些工程证据不替代未来入口的事务容量契约或首次真实环境发布门禁。
+- 2.5 在同一容量锁与 `SERIALIZABLE` 事务内创建/复用 Owner 默认组并绑定 Account；缺失默认组时 Group 也必须有剩余容量，已有默认组不会重复消耗 Group 配额。Account 只有随有效私有默认组关系同事务提交时才以 `schedulable=true` 落库，绑定、任一 Outbox、任一 durable event 或 commit 失败都会回滚全部新资源。2.6 完成前，有效 self-service 仍由 SIMPLE/Backend/Feature Flag 边界强制关闭，不能因帐号已可调度就提前启用。
 - OAuth/privacy/probe 等外部网络动作无法与 PostgreSQL 形成分布式原子事务；2.4 以首次上游请求前的一次性 session claim 阻止 callback 重放，但不能宣称上游副作用可因后续本地提交失败而回滚。Privacy 的本地持久化已作为独立 ResourceMutation 重新授权并写版本/事件，仍受相同外部副作用边界约束。
 - 1.11 的 5 秒是传播健康目标，30 秒是禁止扩大权限的安全线；它们不是对尚未迁移的数据面、WebSocket 或异步任务作出的端到端 SLA 承诺。权威 Policy/Scope 会按数据库时间同步拒绝到期来源；API Key 旧 allow snapshot 由 v22 拒绝 pre-v22 数据、首次写入 monotonic deadline、Redis 相对 TTL、rewrite 不续期和正向 L2 不提升 L1 共同约束在 30 秒内。
 - 1.11 对 Account/Group Grant 到期只递增资源版本、写 durable event 并产生 Scheduler 事件；完整 `account_groups` 授权来源/验证版本扩展及撤权、到期、角色变化后的关系闭包重算仍属于任务 4.2/4.4，不能把 Scheduler 事件等同于关系已重算。

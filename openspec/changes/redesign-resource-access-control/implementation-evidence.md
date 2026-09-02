@@ -808,7 +808,7 @@ Draft PR #1 继续保持 Draft，不因本次阶段退出自动转 Ready 或合�
 - 当前没有 production/staging、真实数据或旧 Worker。2.3 SHA `bf19faedf2bf2b4920d61e7058ae95eabb5d487e` 的 PR/push 无过滤 Testcontainers、lint 与 Security Scan 已按上述 Run 归档；这些代码级证据不替代首次真实数据预检、目标环境验证或 `Release Accepted`。
 - 下一切片为 2.4 的 OAuth、导入、复制、批量和 callback 可信 Owner 绑定。即使实现完成，空 allowlist、出站安全清单与首次启用 `Release Accepted` 门禁仍必须保持。
 
-## 2026-09-03 - Trusted Account Creation and OAuth Callback Binding（2.4）
+## 2026-09-02 - Trusted Account Creation and OAuth Callback Binding（2.4）
 
 ### 实现范围
 
@@ -852,3 +852,36 @@ Draft PR #1 继续保持 Draft，不因本次阶段退出自动转 Ready 或合�
 - Draft PR #1 的 push/PR CI、无过滤 Testcontainers、固定版本 golangci-lint 与 Security Scan 已在相同代码 SHA 上通过并补录。该结果只完成 2.4 的工程门禁；当前无 production/staging、真实数据或旧 Worker，且生产目录、OAuth allowlist 与全部新增 Feature Flag 仍关闭，不能据此标记 self-service `Release Accepted`。
 - OAuth session claim 解决 callback 重放与跨 Actor 使用，不提供跨上游与 PostgreSQL 的分布式事务。token exchange 已发生后若后续本地建号失败，不能通过重放 callback 自动补偿；需要沿既有受审计恢复流程处理。
 - 下一切片为 2.5 的 Owner 私有默认分组按需创建及 Account 同事务绑定。生产目录、OAuth allowlist、Feature Flag 和 authorization mode 继续保持当前关闭状态。
+
+## 2026-09-02 - Owner Private Default Group Binding（2.5）
+
+### 实现范围
+
+- 自助 Account 创建为每个 Owner/平台保留 `<platform>-default` 名称。Repository 在调用方 `SERIALIZABLE` 事务中按 `owner_user_id + lower(name)` 查找并锁定未删除 Group，Service 对 Owner、平台、名称、active、private、exclusive、legacy authorization mode 和正 `access_version` 再校验；已有合法默认组直接复用，不重复消耗 Group 配额。
+- 默认组缺失时，Account 创建先完成 Account 容量检查，再执行 Group 容量检查并调用与 2.3 普通私有 Group 创建共享的 `createSelfServiceGroupRecord`。自动 Group 因此固定相同 Owner/creator、private、active、exclusive、access version 1、legacy authorization mode，并在同一事务写 group Scheduler Outbox；唯一冲突映射为稳定 Account 409 conflict。
+- 自助 Account 仍只接受服务端 product ID、名称和 API Key，客户端不能指定平台、类型或 Group ID。Repository 固定 Account private、active、`schedulable=true`，随后以优先级 50 插入 `account_groups`；绑定 SQL同时重校验 Group ID、Owner、大小写折叠名称、平台、active、private、exclusive、legacy 和未删除状态，任何不一致均拒绝提交。
+- Account Scheduler Outbox payload 携带默认 group ID。新建默认组时，Service 依次写 `group.created` 与 `account.created` durable authorization event；Account event 的 changed fields 增加 `account_groups` 和 `schedulable`。Group/Account、关系、两类 Outbox 和两条 event 共用一次 commit，绑定、Outbox、event 或 commit 失败整体回滚。
+- Account 内部 mutation state 增加 `Schedulable`，lock/rename/delete 的 SQL 列与 scanner 同步更新，创建成功必须验证它为 true。公开 `AccountListItem` 和 Handler DTO 未增加该字段，响应继续不暴露 Group ID、调度状态、Owner ID、凭据或关系。
+- 新增 service 调用顺序、首次/复用容量分支、Group 配额拒绝、绑定失败、第二条 event 失败和 event 字段测试；PostgreSQL integration 用例覆盖完整提交、优先级/Outbox payload、多个 Account 复用、并发首次创建单组，以及 binding/Outbox/event 故障的零部分状态。Fixture cleanup 同时删除 Owner 的 Account 与 Group 产物。
+- 本切片不修改生产 Account/Group 目录、OAuth allowlist、Feature Flag、SIMPLE Mode 护栏或 `role_authorization_mode=legacy`。2.6 的 group `0`、平台默认组和 SIMPLE Mode `owner_user_id IS NULL` 查询隔离尚未实现，不能因 2.5 已使帐号可调度就提前开启 self-service。
+
+### 本地自动化验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| `cd backend && go test ./... -count=1` | 通过；默认标签全仓成功，`internal/service` 非缓存运行 116.853s |
+| `make -C backend test-unit` | 通过；完整 unit-tag backend tree 成功，`internal/service` 运行 166.239s |
+| `cd backend && go test -race -run 'TestSelfServiceAccount' -count=1 ./internal/service` | 通过，2.539s；覆盖默认组容量/复用、事务回滚和 Account mutation 并发契约 |
+| `cd backend && go test ./internal/handler -run 'TestSelfServiceAccountCreate' -count=1` | 通过，1.713s；Handler 测试替身同步默认组接口，公开投影仍不泄露 Group/调度字段 |
+| `cd backend && go vet -tags=unit ./...` | 通过 |
+| `cd backend && go test -tags=integration ./... -run '^$' -count=1` | 通过；全 integration 标签树编译成功，不代表 PostgreSQL/Testcontainers 动态执行 |
+| `make -C backend build` | 通过；版本 `0.1.183` 的 CGO-off 生产 server 构建成功 |
+| `cd backend && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.0 run --timeout=30m ./...` | 通过，`0 issues`；版本固定为 CI 的 v2.13 系列 |
+| changed Go files `gofmt -d` 与 `git diff --check` | 通过；无格式或 whitespace 差异 |
+| `openspec status --change redesign-resource-access-control` 与 strict validate | 通过；4/4 planning artifacts complete，change is valid |
+
+### PostgreSQL / 远端待补证据
+
+- `make -C backend test-integration` 在本机执行到 repository TestMain 后检测到 `docker command unavailable` 并显式跳过，退出码 0 不能作为动态通过证据。聚焦 `TestSelfServiceAccountRepository*` 重跑也明确输出 `docker is not available; skipping integration tests`；因此当前只记录 integration 标签编译与测试代码覆盖，不伪造本机 PostgreSQL/Testcontainers 结果。
+- 当前实现提交推送后，必须等待 Draft PR #1 与 push 两套无过滤 `make test-integration`、固定版本 lint 和 Security Scan 完成，并补录 run/job/SHA。并发首次创建单组、完整原子提交和 binding/Outbox/event failure injection 在远端动态通过前，验证表对应项保持待实现。
+- 生产目录、OAuth allowlist、Feature Flag 和 authorization mode 继续保持关闭；当前没有 production/staging、真实数据或旧 Worker。远端工程证据完成也不等于 self-service `Release Accepted`，下一切片仍为 2.6 的 group `0`、平台默认组和 SIMPLE Mode 租户隔离。
