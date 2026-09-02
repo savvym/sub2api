@@ -12,6 +12,7 @@
 6. `tasks.md`：Phase 0-5 的可执行任务清单。
 7. `verification.md`：Requirement 到自动化/人工证据的映射。
 8. `implementation-evidence.md`：命令、结果、提交和评审记录。
+9. `phase-0-exit-record.md`：无部署、单维护者范围的设计接受、风险边界和首次激活门禁。
 
 详细架构蓝图和设计理由见 `docs/resource-access-control-redesign.md`。若本文档包与总体设计出现冲突，以 `specs/*/spec.md` 的规范性要求和最新 Accepted 决策为准；冲突必须先记录并评审，不能静默选择实现。
 

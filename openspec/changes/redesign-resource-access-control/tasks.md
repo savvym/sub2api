@@ -3,11 +3,11 @@
 - [x] 0.1 冻结 V1 `owner_user_id`、访问预设、撤权、计费、停用、名称和传播窗口决策。
 - [x] 0.2 确认 Backend Mode、SIMPLE Mode、私有默认分组和 group `0` 隔离原则。
 - [x] 0.3 建立帐号/分组全部写入口与引用 ID 权限覆盖清单。
-- [ ] 0.4 建立 credentials/extra 敏感子键、查询依赖、缓存依赖和加密迁移清单。
-- [ ] 0.5 冻结自助平台/认证类型 allowlist、SSRF/出站限制和限频策略。
+- [x] 0.4 建立 credentials/extra 敏感子键、查询依赖、缓存依赖和加密迁移清单。
+- [x] 0.5 冻结自助平台/认证类型 allowlist、SSRF/出站限制和限频策略。
 - [x] 0.6 编写只读数据预检：角色异常、孤立授权、同 Owner 名称冲突、默认组重名和回填规模。
 - [x] 0.7 完成 Feature Flag × Backend Mode × SIMPLE Mode × authorization mode 兼容矩阵。
-- [ ] 0.8 评审 Phase 0 退出门槛，确认没有未决安全阻塞。
+- [x] 0.8 评审 Phase 0 退出门槛，确认没有未决安全阻塞。
 
 ## 1. 权限基础设施（默认关闭）
 
@@ -26,7 +26,7 @@
 - [x] 1.9 帐号/分组管理员入口显式传 Actor，保持响应和行为不变。
 - [x] 1.10 把安全关键资源写、durable audit、Auth Outbox、Scheduler Outbox 纳入同一事务。
 - [x] 1.11 实现授权/角色到期协调器、同步到期拒绝、5 秒/30 秒指标与降级门。
-- [ ] 1.12 完成跨租户、TOCTOU、SQL scope、模式组合和迁移测试；批准 Phase 1 退出。
+- [x] 1.12 完成跨租户、TOCTOU、SQL scope、模式组合和迁移测试；批准 Phase 1 退出。
 
 ## 2. 私有自助托管
 

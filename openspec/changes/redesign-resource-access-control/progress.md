@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- 当前阶段：Phase 0 安全评审 + Phase 1 权限基础设施。
+- 当前阶段：Phase 0 与 Phase 1 已按无部署、单维护者、默认关闭的 dark-foundation 范围完成；Phase 2 暂缓。
 - 当前分支：`codex/resource-access-control-foundation`。
 - 基线提交：`58de21e70`（总体设计文档）。
 - Foundation 提交：`215536582`，已推送 `origin/codex/resource-access-control-foundation`。
@@ -18,12 +18,12 @@
 - Transactional Resource Mutation Coordination 提交：`5b9060048`，已推送同一远程分支。
 - Bounded Authorization Propagation 提交：`1035f73a4`，已推送同一远程分支。
 - Phase 1 CI Stabilization 提交：`2d203b601`，已推送同一远程分支；GitHub Actions [CI Run 32711471080](https://github.com/savvym/sub2api/actions/runs/32711471080) 与 [test job 97383587468](https://github.com/savvym/sub2api/actions/runs/32711471080/job/97383587468) 在完整 SHA `2d203b601c5d5b6578e91020bdbfbff4eb5bae6b` 上通过。
-- Phase 1 CI Evidence 提交：`10e20f841`，已推送同一远程分支；[Draft PR #1](https://github.com/savvym/sub2api/pull/1) 已建立，base 为 `main`，保持 Draft 且不得在退出门禁完成前合并。
+- Phase 1 CI Evidence 提交：`10e20f841`，已推送同一远程分支；[Draft PR #1](https://github.com/savvym/sub2api/pull/1) 已建立，base 为 `main`。退出门禁完成前不得合并；当前门禁已按无部署范围收口，但 PR 仍按维护者决定保持 Draft，不自动转 Ready 或合并。
 - Main Integration 提交：`e63f0859c` 合并 `origin/main@027d442f9`。OpenAI/Grok 手动管理入口的 trusted Actor 传播与 upstream quota workflow/plugin/Wire 变更已同时保留；`origin/main` 现为当前分支祖先。
 - Main Integration Stabilization 提交：`fcdba5537` 修复 Grok typed-nil prober，`8db5da13d` 记录 main 集成与后台 Actor 缺口，`d47ca4bea` 使管理员路由 AST 门禁按 Go build constraints 解析。当时的 main-integration 代码 SHA 为 `d47ca4bea567f778c6356a761344f376ca471ea4`；该称谓不包含随后完成的 migration 243/auto-reset hardening。
 - Latest Main Rebase：2026-09-02 将 24 个分支提交线性 rebase 到 `origin/main@efb46db0a`。冲突收口保留主线的 upstream model catalog 与共享 OpenAI quota post-process，并继续通过 Actor-aware facade 传播管理员 User/Service Principal Actor；Ent/Wire 已重新生成。加入 hardening 与 CI 修复后，最终代码提交 `aeb967ebe` 相对该主线 ahead 26/behind 0。
 - OpenAI Quota Auto-Reset Hardening 提交：`7acf5a0dd`；CI 收口提交：`aeb967ebe`。首次 push/PR CI 暴露 6 项 lint 与 shadow recovery fixture 的 `quota_dimension` 约束问题，修复后当前代码 SHA 的 push/PR CI、完整 Testcontainers、lint 与 Security Scan 均通过。
-- 任务进度：20/49。1.12 当前已实现的工程验证项已通过：跨租户全链、当前管理员写面 TOCTOU、SQL Scope 生产规模 EXPLAIN、64 组 Standard/SIMPLE 配置、Admin API Key fail-closed、production role shadow 脱敏结构化日志，以及 migration 243/auto-reset hardening 的当前代码 SHA push/PR CI、完整 Testcontainers、lint 和 Security Scan。正式 Phase 1 退出仍未批准，因此 1.12 保持未勾选；Phase 0 的 0.4/0.5/0.8、生产预检与凭据键名统计、migration 维护窗和旧 Worker drain、目标环境 shadow 观察及批准人证据仍缺失。
+- 任务进度：24/49。0.4/0.5 已按空自助 allowlist、OAuth 关闭和保守凭据边界达到设计级 `Decision Accepted`；0.8 由 sole maintainer 以版本化记录接受无部署范围的治理风险；1.12 的跨租户全链、当前管理员写面 TOCTOU、SQL Scope 生产规模 EXPLAIN、64 组 Standard/SIMPLE 配置、Admin API Key fail-closed、production role shadow 脱敏结构化日志，以及 migration 243/auto-reset hardening 的 push/PR CI、完整 Testcontainers、lint 和 Security Scan 均通过。当前没有 production/staging、真实数据或旧 Worker，生产预检、maintenance/drain 和 shadow 观察转为首次部署/启用自动触发门禁，不视为 `Release Accepted`。
 - 当前权威行为仍为旧 `users.role` 与旧分组资格；核心管理员写虽已调用 Policy，但 legacy/shadow 下只保持现有 JWT Admin 与固定 Admin API Key Service Principal 行为，不得解释为 ACL/RBAC 已启用。
 
 ## 已完成
@@ -37,8 +37,8 @@
 - 已为帐号/分组增加 Owner、creator、public level、access version/mode，并新增 typed Grant 与 append-only authz event。
 - 已同步 9 个 Ent Schema 和生成代码；存量表索引通过独立 `_notx` migration 并发创建。
 - 已新增 5 个默认关闭开关和 `role_authorization_mode=legacy`；缺失、读取失败或非法值均 fail closed。
-- 已将 credentials/extra 与自助出站安全清单补全为 Phase 0 `Review Ready`；两份清单尚未取得 `Decision Accepted`。生产键名统计、实现证据与泄漏测试属于独立的 Phase 2 `Release Accepted` 门禁。
-- `data-preflight.sql` 以 `REPEATABLE READ READ ONLY` 事务运行，并包含两份相互独立的 auto-reset inventory：五列 provenance inventory 只输出 `idempotency_record_id/status/scope_kind/account_ids/provenance_state`，三列 terminal-recovery inventory 只输出 `idempotency_record_id/account_id/response_state`；两者均不输出 key hash、fingerprint、response body、attempt hash 或凭据。当前 PostgreSQL 定向回归已执行两份查询；真实服务器仍未执行或归档，不能用本地 fixture 结果替代生产预检。
+- credentials/extra 与自助出站安全清单已在 sole maintainer、无部署范围达到设计级 `Decision Accepted`：未知键和 `header_overrides` fail closed、管理员明文导出关闭、当前自助 allowlist 为空且 OAuth 禁止。生产键名统计、实现证据与泄漏测试仍属于独立的 Phase 2 `Release Accepted` 门禁。
+- `data-preflight.sql` 以 `REPEATABLE READ READ ONLY` 事务运行，并包含两份相互独立的 auto-reset inventory：五列 provenance inventory 只输出 `idempotency_record_id/status/scope_kind/account_ids/provenance_state`，三列 terminal-recovery inventory 只输出 `idempotency_record_id/account_id/response_state`；两者均不输出 key hash、fingerprint、response body、attempt hash 或凭据。当前 PostgreSQL 定向回归已执行两份查询；因不存在真实服务器或真实数据，首次导入/升级现有数据库前必须执行并归档，不能用本地 fixture 结果替代该未来门禁。
 - 已新增独立 `internal/authz` 领域契约：可信 Actor、12 个能力、13 个动作、四级访问映射、typed provenance 和稳定拒绝类别；第 12 个专用能力由 migration 243 只授予 roleless OpenAI quota auto-reset Worker。
 - fresh setup 现在于单一数据库事务内串行完成管理员创建、`system_bootstrap` 兼容角色写入与校验；失败整体回滚，重复或并发执行不会创建第二个管理员。
 - 新增 migration 232，为已经在 229 之后由旧 setup 创建的用户补齐/收敛兼容角色；只修改 `system_bootstrap` 拥有的 `admin/user` Grant，保留人工和其他 Service Principal Grant。
@@ -97,7 +97,7 @@
 - 新增 Testcontainers 持久升级回归，从 migration 228 分段推进至当前 migration 243 并重复 `ApplyMigrations`，覆盖存量数据、seed/backfill、触发器、在线索引和幂等；本机无 Docker，当前代码 SHA `aeb967ebe` 的 push/PR GitHub Actions 已以无过滤完整 integration suite 动态验证通过。
 - main 新增 `229_plugins.sql`/`230_plugin_artifacts.sql`，与 authz 的 229/230 migration 共用数字前缀。runner 以完整文件名和 checksum 记账，不能通过重编号规避；`TestSharedMigrationNumberLineagesConverge` 覆盖 main-first、authz-first 两条已部署历史在两次完整 `ApplyMigrations` 后收敛。当前代码 SHA 的 push/PR CI 均以无 `-run` 过滤的 integration suite 非缓存执行 repository 包并通过，动态证据覆盖 migration 243。
 - GitHub Actions push Run `32711471080`（attempt 1）在 SHA `2d203b601c5d5b6578e91020bdbfbff4eb5bae6b`、Ubuntu runner 与 Go 1.26.6 上执行 `make test-integration`，实际为 `go test -tags=integration ./...`；PostgreSQL `18.1-alpine3.23`、Redis `8.4-alpine` Testcontainers harness 成功，`internal/repository` 非缓存运行 `41.430s`。该命令没有 `-run` 过滤，因而包含 228→该 SHA 当时所含版本的持久升级/reapply 回归。
-- [Draft PR #1](https://github.com/savvym/sub2api/pull/1) 已提供统一评审入口；2026-09-02 采证时 base OID 为 `efb46db0a960fdad94502b1c3a982a0051cf5245`，head OID 为当前代码 SHA `aeb967ebe0d9ed9aa5b43f0f9e60dc030f3839e6`，GitHub 报告 `MERGEABLE/CLEAN`。PR 继续保持 Draft，退出门禁完成前不得转 Ready 或合并。
+- [Draft PR #1](https://github.com/savvym/sub2api/pull/1) 已提供统一评审入口；2026-09-02 代码采证时 base OID 为 `efb46db0a960fdad94502b1c3a982a0051cf5245`，代码证据 OID 为 `aeb967ebe0d9ed9aa5b43f0f9e60dc030f3839e6`，GitHub 报告 `MERGEABLE/CLEAN`。Phase 1 无部署范围退出后，PR 仍按维护者决定保持 Draft，不自动转 Ready 或合并。
 - 当前代码 SHA `aeb967ebe` 的 GitHub `Security Scan` [push Run 33608505242](https://github.com/savvym/sub2api/actions/runs/33608505242) 与 [PR Run 33608511032](https://github.com/savvym/sub2api/actions/runs/33608511032) 均通过。两个 backend `govulncheck ./...` 均报告代码受影响漏洞 0 个，两个 frontend production audit 例外校验均通过。
 - 当前代码 SHA `aeb967ebe` 的 GitHub `CI` [push Run 33608505225](https://github.com/savvym/sub2api/actions/runs/33608505225) 与 [PR Run 33608510880](https://github.com/savvym/sub2api/actions/runs/33608510880) 均通过；test job `100177927975`/`100177945050` 以 Go 1.27.0 运行完整 unit/integration，integration step 均为 `3m38s`，repository integration 分别非缓存运行 `50.632s`/`49.677s`。golangci-lint v2.13.2 两边均为 0 issues。
 - 新增只读 `credential-key-preflight.sql`，仅聚合 credentials/extra 的键名、平台/类型、软删除状态、帐号 status、JSON shape 和计数，不读取值或帐号 ID；当前没有生产连接配置，尚未执行或归档真实数据结果。
@@ -109,28 +109,28 @@
 - migration 243 以 `openai_quota_auto_reset_protected_attempts` 持久 marker 和 `openai_quota_auto_reset_protection_backfill(completed=TRUE)` 精确一次 sentinel 冻结 migration snapshot 中的历史 SP/account 及可识别 raw `processing|failed_retryable` 模糊结果。marker 固化正 `account_id` 且故意不引用 accounts FK：account scope 直接解析，raw/旧 SP scope 以帐号 `extra` 中持久 attempt credit/cycle hash 重算稳定 key；0 或多匹配会以 `check_violation` 使迁移整体回滚，不能猜审计归属。所有旧 account-qualified 记录（包括 succeeded replay）迁到保留 Worker SP scope，snapshot-protected valid raw/任意旧 SP attempt 也归一到同一保留 SP；raw fence、malformed raw 和 post-snapshot current retryable 不迁移、不标记。
 - protected attempt 只有两个 owner-only 协调结果，两个 `SECURITY INVOKER` 函数均撤销 `PUBLIC EXECUTE`，且调用方 account、marker provenance、audit path/extra 必须精确一致：confirmed-success 强制专用 deterministic decision ID `reconcile-success:<record_id>`，同事务写/核验 SP audit、把 marker 转为 reconciled tombstone并执行唯一 `processing -> succeeded`，由数据库将终态固定保留 8 天；即使过期，同一 stable-key 的帐号 managed state 仍为 `resetting|failed` 时 cleanup 也继续保留父记录/tombstone。confirmed-no-effect 强制 `reconcile-no-effect:<record_id>`，只在全部旧 Worker 已停止排空且已正面确认上游无效果时，原子写 409 SP audit（`reconciled_no_effect`、`windows_reset=0`）并删除 marker/父记录，exact retry 只核验既有 audit。两种 decision ID 都不得复用 redeem request ID。`p_old_fleet_drained=TRUE` 只是调用方断言，函数不能探测 fleet；no-effect 批准前必须归档 shutdown/drain 与 upstream no-effect 证据，并在 audit extra 记录不含凭据的 evidence ref 和 decision owner。discard 仅在帐号当前 managed state 的 stable-key hash 精确匹配父记录时清除该 state，不同或更新 state 保留。unknown 不得猜。迟到旧 status-only succeeded/failed 在 success 前后都拒绝；与 discard 并发等待的旧 UPDATE 在删除提交后影响 0 行。未协调 cleanup 跳过，可清理的已协调终态过期时 trigger 同步删除 tombstone/父记录；trigger 缺失/禁用时 `ON DELETE RESTRICT` fail closed。raw reapply 不改变 post-snapshot current retryable。旧 account scope 写围栏与上述两阶段帐号 lease 继续阻止重复消费。
 - 两个协调函数还由 SQL 强制 audit extra 的 account ID、record ID、request fingerprint 精确一致，`evidence_ref` 必须为 trim 后 1..256 字符的 string，`decision_owner` 必须为 trim 后 1..128 字符的 string；缺失或不匹配会使整条事务回滚。confirmed-success 当前唯一入口是八参数 `reconcile_openai_quota_auto_reset_protected_attempt(bigint,text,text,bigint,timestamptz,text,integer,jsonb)`；raw reapply 显式删除两个已废弃的 caller-controlled outcome/expiry overload，并校验它们不会被 reapply 复活。
-- 当前本机 PostgreSQL 18.6 已实际通过 `go test ./migrations -count=1`、完整 `go test -tags=integration ./migrations -count=1`（23.704s）、actor migration + 两份 data-preflight 定向 PG 测试，以及 finalizer 的 5 个 PG tests。该证据与当前代码 SHA 的远端 CI/Testcontainers/Security Scan 已共同完成工程采证，但不替代生产只读 preflight 或目标环境发布批准。
+- 当前本机 PostgreSQL 18.6 已实际通过 `go test ./migrations -count=1`、完整 `go test -tags=integration ./migrations -count=1`（23.704s）、actor migration + 两份 data-preflight 定向 PG 测试，以及 finalizer 的 5 个 PG tests。该证据与当前代码 SHA 的远端 CI/Testcontainers/Security Scan 已共同完成工程采证；当前没有可执行生产预检或 shadow 观察的环境，这些要求保留为首次导入/升级/启用触发门禁。
 
 ## 下一步
 
-1. 由平台/认证/安全负责人复核 0.4 credentials/extra 清单和 0.5 自助平台/出站 allowlist，分别留下可追溯批准链接并将 Phase 0 状态改为 `Decision Accepted`。
-2. 将 0.1-0.7 的文档版本、未决实施项 owner/目标任务/验收方法和逐角色批准链接汇总到 Phase 0 退出记录；平台、认证、安全三方明确确认无未决设计级安全阻塞后，才能勾选 0.8。
-3. 对批准的生产只读副本运行 `data-preflight.sql` 与 `credential-key-preflight.sql`，分别归档数据异常/回填规模、两份 auto-reset inventory 和 credentials/extra 键名统计。五列 provenance inventory 的每行 `provenance_state` 必须为 `resolved`；`malformed_identity`、`unmatched`、`ambiguous`、`recovery_fingerprint_mismatch`、`target_scope_collision` 或任何其他非 `resolved` 状态都阻断 migration 243。三列 terminal-recovery inventory 只输出 blocker，因而任意一行都阻断；类型包括 `malformed_pending_state`、`unreachable_account`、`missing_attempt_record`、`unreachable_scope`、`fingerprint_mismatch`、`legacy_redacted_result`、`invalid_terminal_response`。这些结果约束 1.12 与 Phase 2 发布，不反向阻塞 Phase 0 设计批准。
-4. migration 243 前必须按 `implementation-evidence.md` 的处理路由逐行关闭两份 inventory：身份/映射/碰撞类先用可信 provenance 消除冲突；malformed state 修复到 strict schema 或凭外部证据完成人工协调；不可达帐号先恢复为运行时可达结构或完成证据化收口；缺 record、不可达 scope、fingerprint 冲突及丢失/非法 terminal response 都不得猜测或直接放行。保持 auto-reset 关闭并在维护窗停掉、排空全部旧 Worker后才能应用 migration 243 和同版本切换。迁移后的 unresolved marker 必须逐条取得 confirmed-success 或 confirmed-no-effect 证据；no-effect 还必须归档 shutdown/drain 和 upstream no-effect 证据，把可追溯、不含凭据的 evidence ref/decision owner 写入 audit extra，不能只依赖 `p_old_fleet_drained=TRUE`。unknown 不得猜。当前代码 SHA 工程门禁已完成；仍须 unresolved=0、Worker identity/readiness、回滚演练和生产批准后才可重新启用。
-5. 在目标环境运行 role-mode readiness，按批准方案推进 legacy→shadow，聚合 production shadow 结构化日志并记录具体差异指标、日志量与 sink `dropped_count`、观察窗口和回滚结果；完成 Draft PR 评审及平台/认证/安全批准后，才能勾选 1.12 并进入 2.1。
+1. 验证并提交本次单维护者、无部署范围的退出记录；推送后继续保持 Draft PR，不自动转 Ready 或合并。
+2. Phase 2 暂缓：当前自助 allowlist 为空、OAuth 禁止、所有新增 Feature Flag 关闭，不开始普通用户帐号/分组入口开发，除非维护者明确重新开启范围。
+3. 首次创建 production/staging、导入真实数据或升级现有数据库时，先执行 `data-preflight.sql` 与 `credential-key-preflight.sql`。provenance inventory 必须全为 `resolved`，terminal inventory 必须零行；任何 blocker 都按 `implementation-evidence.md` 路由处置后重跑。
+4. 仅当未来环境运行过旧 auto-reset Worker 时，才进入 migration 243 maintenance/drain：保持 auto-reset 关闭、停止并排空旧 Worker、同版本切换、协调 unresolved marker、完成 Worker readiness 与回滚演练。fresh setup 空数据库不需要伪造旧 fleet drain 证据。
+5. 任一环境首次进入 `shadow` 前必须运行 role-mode readiness；切换后归档差异指标、日志量、sink `dropped_count`、观察窗口和回滚结果。任何自助、凭据导出、RBAC 或 ACL enforcement 启用前，分别完成两份安全清单的 `Release Accepted`。
 
 ## 阻塞与风险
 
-- 1.12 的当前代码 SHA push/PR CI、完整 Testcontainers、lint、Security Scan 和 Draft PR `MERGEABLE/CLEAN` 快照已经补齐；Phase 0 批准、生产预检与凭据键名统计、migration 维护窗和旧 Worker drain、目标环境 shadow 观测及最终批准人仍缺失，任务必须保持未勾选。
-- 本地 `sub2api` 只是空测试实例，仅有 1 个管理员和 1 个平台默认分组；本地预检不能替代真实服务器只读报告。
-- Phase 0 的 credentials/extra 与自助出站文档均为 `Review Ready`、尚未 `Decision Accepted`，因此 0.4/0.5/0.8 仍被阻塞；两份文档的 `Release Accepted` 是后续启用自助托管前的独立硬门禁，不能与设计批准合并。
+- 0.4、0.5、0.8 和 1.12 已按 [`phase-0-exit-record.md`](phase-0-exit-record.md) 的单维护者、无部署、空 allowlist 范围勾选。该决定不是独立三方评审，也不是 production/staging、自助托管、凭据导出、shadow/RBAC 或 ACL enforcement 的发布批准。
+- 本地 `sub2api` 只是空测试实例，仅有 1 个管理员和 1 个平台默认分组；当前不存在真实服务器。本地预检只证明脚本和空实例基线，首次导入或升级现有数据时仍必须运行真实只读报告。
+- credentials/extra 与自助出站文档仅达到设计级 `Decision Accepted`；两份文档的 `Release Accepted` 仍是后续启用自助托管前的独立硬门禁，不能与设计批准合并。
 - fresh setup 缺失兼容角色的问题已修复，本地管理员也已由 migration 232 补齐；真实服务器升级后仍必须通过专用 GET status/readiness 入口验证全量一致性。
 - 分组名称唯一索引本切片不修改，先完成大小写和 Owner 范围冲突预检。
 - 1.6 scoped reader 与 ActorResolver 已完成真实贯通测试，但尚无普通用户 Handler/路由；当前仍是 dark foundation，不能作为已开放的普通用户资源读取入口。
 - `role_authorization_mode` 当前仅由 production Policy shadow 比较链路消费，管理员认证响应在 shadow 下仍由 legacy 决定；部署环境必须先运行 readiness，并在正式观察窗口前保持 `legacy`。本地烟测已恢复为缺失 setting 的 legacy fallback。
 - 1.7b 没有解除 RBAC 硬拒绝；1.8 ActorResolver 和管理员认证 shadow consumer 已完成，但其余授权 consumer 与外部门禁仍未完成，不能把 legacy↔shadow 管理入口或本地 shadow 记录能力解释为 RBAC 已交付。
 - 通用管理员 settings PUT 仍跨多个服务，不是单一数据库事务；`role_authorization_mode` 已从该路径移除，其余新开关当前没有 consumer，因此不阻塞 dark launch，但启用任何授权 consumer 前仍需独立原子配置命令。
-- 通用幂等升级 fence 允许新实例对新业务记录使用 Actor-qualified scope，并使仍写 raw scope 的旧实例 fail closed；auto-reset 的旧版本写的是 account-qualified scope，migration 243 另以数据库 trigger 拒绝迁移后新增/改写该 scope。围栏不能撤销迁移开始前已经发出的上游请求，因此仍必须在维护窗先停掉并排空全部旧 Worker；不得宣称无感混合版本滚动，回滚旧 binary 时 auto-reset 必须保持关闭直至恢复兼容版本或完成记录协调。
+- 通用幂等升级 fence 允许新实例对新业务记录使用 Actor-qualified scope，并使仍写 raw scope 的旧实例 fail closed；auto-reset 的旧版本写的是 account-qualified scope，migration 243 另以数据库 trigger 拒绝迁移后新增/改写该 scope。当前没有旧 fleet；未来仅在升级运行过旧 Worker 的环境时，必须在维护窗先停掉并排空全部旧 Worker，不得宣称无感混合版本滚动，回滚旧 binary 时 auto-reset 必须保持关闭直至恢复兼容版本或完成记录协调。
 - 1.8 新增并发用例已通过定向 race；扩大到相关包的 race 命令仍会命中 `grok_import_probe_test.go` 和 `channel_monitor_checker_body_test.go` 两处不在本次 diff 的既有测试辅助代码竞态，不能宣称全量 race 已通过。
 - 1.10 只完成核心 Account/Group 管理写命令的事务内 Policy、版本、durable event 与适用 Outbox；读取、普通用户入口、ACL/RBAC 权威切换和旧分组资格 consumer 均未改变，不能把本切片解释为资源分享已开放。
 - OAuth/privacy/probe 等外部网络动作无法与 PostgreSQL 形成分布式原子事务；Privacy 的本地持久化已作为独立 ResourceMutation 重新授权并写版本/事件，但不能宣称上游副作用可因本地提交失败而回滚。

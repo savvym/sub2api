@@ -91,6 +91,16 @@
 - 在任务 2.6 完成 group `0` 与平台默认组的 `owner_user_id IS NULL` 隔离前，SIMPLE Mode 必须在 Setting、Policy 和 SQL Scope 边界把 self-service 及两类 sharing 的有效值强制为 false；数据库原始 true 值只保留配置意图，不能产生普通用户允许。解除该临时发布护栏必须重新评审兼容矩阵。
 - System Actor 默认不能通过通用 `CheckCapability`、`CanCreate` 或 `Authorize`。需要持久授权写入的 Worker 必须使用 Service Principal；未来只读 Worker 逐项评审并维护显式 allowlist，不提供全局系统旁路。
 
+### 10. 单维护者、无部署环境的阶段退出
+
+状态：Accepted（2026-09-02）。
+
+- 当前没有 production 或 staging 环境、真实数据、旧 Worker fleet 或目标日志系统，不能伪造生产预检、drain 或 shadow 观察证据。
+- 当前只有一名维护者。维护者可在明确记录角色合并和风险范围后接受无部署 dark-foundation 的设计与工程阶段退出，但不得将其描述为独立平台、认证和安全三方评审。
+- 当前自助启用 allowlist 为空，所有 API Key 组合暂缓，OAuth 和其他高风险认证类型继续禁止；全部新增 Feature Flag 关闭，角色权威保持 `legacy`。
+- 生产只读预检、credential key inventory、旧 Worker maintenance/drain、shadow 观察和两份 `Release Accepted` 不被豁免，而是由首次部署、现有数据导入、升级或能力启用自动触发。
+- Phase 1 退出不自动开始 Phase 2，不批准凭据导出、普通用户自助、资源分享、RBAC 或 ACL enforcement。完整范围和触发条件由 `phase-0-exit-record.md` 固定。
+
 ## Risks / Trade-offs
 
 - RBAC、ACL、旧分组资格并存期间容易形成多个允许源；任何阶段只能有一个权威允许判定源，shadow 只比较不放行。

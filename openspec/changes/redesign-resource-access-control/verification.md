@@ -133,23 +133,23 @@
 
 ## Phase 0 Exit Review（0.8）
 
-Phase 0 退出是设计治理门禁，不是 Phase 2 发布验收。它确认安全边界、责任和验证计划已经冻结；不要求 `credential-inventory.md` 第 8.2 节、`outbound-security.md` 第 6/7/8.2 节的代码/目标环境证据已经完成，也不要求生产预检或 shadow 观察已经执行。这些证据仍由 Phase 1/2 发布门禁约束，不能因勾选 0.8 被豁免。
+Phase 0 退出是设计治理门禁，不是 Phase 2 发布验收。它确认安全边界、责任和验证计划已经冻结；不要求 `credential-inventory.md` 第 8.2 节、`outbound-security.md` 第 6/7/8.2 节的代码/目标环境证据已经完成，也不要求尚不存在的生产预检或 shadow 观察已经执行。这些证据转为首次部署/首次启用触发门禁，不能因勾选 0.8 被豁免。当前项目的单维护者、无部署范围决定记录在 [`phase-0-exit-record.md`](phase-0-exit-record.md)，并明确不声称存在独立三方评审。
 
 | 门禁 | 必需证据 | 批准角色 | 当前状态 |
 | --- | --- | --- | --- |
-| 0.1-0.3 产品与权限基线 | `design.md` Accepted 决策、写入口/引用 ID 覆盖清单及对应 commit/PR | 平台、认证、安全阶段评审人确认范围完整 | 待实现（基础任务已勾选，尚未纳入退出批准记录） |
-| 0.4 凭据设计决策 | `credential-inventory.md` 第 8.1 节全部关闭，状态为 `Decision Accepted`，附所批准文档版本和逐角色链接 | 平台基础设施、安全、相关平台/认证类型负责人；涉及明文导出时另需产品与安全 | 待实现（当前 Review Ready） |
-| 0.5 出站设计决策 | `outbound-security.md` 第 8.1 节全部关闭，状态为 `Decision Accepted`，附首批组合、精确目标、限频、OAuth 决策和逐角色链接 | 平台、安全、每个候选组合的认证类型负责人 | 待实现（当前 Review Ready） |
-| 0.6 数据预检设计 | `data-preflight.sql` 的 `REPEATABLE READ READ ONLY`、输出最小化、异常分类、回填规模口径，以及 auto-reset provenance/terminal-recovery 两份 inventory 的分类与处理路由评审链接；生产执行结果留在 1.12 发布门禁 | 平台与安全 | 待实现（脚本及两份 inventory 的 PostgreSQL 定向回归已通过，尚无平台/安全评审链接） |
-| 0.7 兼容矩阵 | `compatibility-matrix.md` 文档版本及 Feature Flag x Backend/SIMPLE/authorization mode 评审链接 | 平台、认证、安全 | 待实现（矩阵已完成，尚未纳入退出批准记录） |
-| 未决实施项有 owner | 两份安全清单的所有 `Release Accepted` 待办均登记 owner、目标任务/版本、验证方法；例外附范围、补偿控制、风险 owner 和到期时间 | 对应平台/认证/安全 owner | 待实现（尚无统一追踪链接） |
-| Phase 0 退出记录 | 单一不可变记录包含 change/commit、评审日期、0.1-0.7 证据、未决项清单、明确的“无未决设计级安全阻塞”结论，并分别附平台、认证、安全批准链接 | 平台、认证、安全三方分别批准；涉及明文导出时另附产品/安全批准 | 待实现（尚无批准链接） |
+| 0.1-0.3 产品与权限基线 | `design.md` Accepted 决策、写入口/引用 ID 覆盖清单及对应 commit/PR | sole maintainer 在当前单人项目中承担范围 owner | 通过；已纳入版本化退出记录 |
+| 0.4 凭据设计决策 | `credential-inventory.md` 第 8.1 节全部关闭，状态为 `Decision Accepted`；未知键/`header_overrides` fail closed、明文导出关闭、迁移约束冻结 | sole maintainer；首次部署/启用时应优先增加独立安全 reviewer | 通过；仅为设计接受，`Release Accepted` 仍未完成 |
+| 0.5 出站设计决策 | `outbound-security.md` 第 8.1 节全部关闭；启用 allowlist 为空，全部 API Key 组合暂缓，OAuth 禁止 | sole maintainer；首次启用组合时重新评审 | 通过；仅为设计接受，`Release Accepted` 仍未完成 |
+| 0.6 数据预检设计 | `data-preflight.sql` 的 `REPEATABLE READ READ ONLY`、输出最小化、异常分类、回填规模口径，以及两份 auto-reset inventory 的分类与处理路由 | sole maintainer；真实数据 owner 在首次导入/升级时加入 | 通过；脚本与 PostgreSQL 定向回归已通过，真实执行转为首次现有数据导入/升级门禁 |
+| 0.7 兼容矩阵 | `compatibility-matrix.md` 的 Feature Flag x Backend/SIMPLE/authorization mode | sole maintainer | 通过；文档版本已纳入退出记录 |
+| 未决实施项有 owner | 两份安全清单的所有 `Release Accepted` 待办登记 owner、触发时点和验证方法 | sole maintainer / future operator；生产场景建议独立安全 reviewer | 通过；详见退出记录的激活门禁表 |
+| Phase 0 退出记录 | 版本化记录包含基线、日期、0.1-0.7 结论、空 allowlist、单维护者风险接受、未决项和自动重开条件 | sole maintainer；明确不声称独立三方批准 | 通过；仅适用于无部署、无真实数据、全部新能力默认关闭的范围 |
 
-只有上表全部为 `通过` 或带有效批准链接的 `豁免` 时，才能勾选 0.8。批准链接必须能追溯批准人身份、角色、日期、结论和所批准的文档/commit；仅有姓名、口头确认、PR 存在或 CI 通过均不足。生产数据异常、目标环境差异或新发现的设计级安全阻塞会重新打开 0.8，直至风险完成处置或取得有期限的三方风险接受。
+上表已由版本化单维护者记录关闭，因此可以勾选 0.8。该记录的限制和自动重开条件属于批准本身：创建部署环境、导入真实数据、启用任何自助/导出/shadow/RBAC/ACL 能力或发现新的设计级安全阻塞，都会重新打开 0.8。未来存在多角色团队或生产风险时，批准应升级为可追溯的独立平台、认证和安全评审。
 
 ## Phase 1 Exit Review（1.12）
 
-本表区分本地 dark-foundation 工程验证与正式阶段批准。任何一项外部门禁仍为待实现时，1.12 都不得勾选，也不得开始 Phase 2 发布。
+本表区分 dark-foundation 工程验证、当前适用的阶段批准和未来环境激活门禁。1.12 只能在所有当前适用项通过，且任何不适用项都有明确事实、owner、触发时点和自动重开条件时勾选；该勾选不自动开始 Phase 2，也不把未来激活门禁视为豁免。
 
 | 门禁 | 证据 | 状态 |
 | --- | --- | --- |
@@ -161,20 +161,20 @@ Phase 0 退出是设计治理门禁，不是 Phase 2 发布验收。它确认安
 | main/authz 同编号 migration 双线收敛 | `TestSharedMigrationNumberLineagesConverge` 覆盖 main-first、authz-first、完整文件名记账、两次完整 apply 与双方 schema/data 保留；当前代码 SHA `aeb967ebe` 的 push/PR CI 均无 `-run` 过滤地非缓存执行 integration-tag repository 包 | 通过；Run `33608505225`/`33608510880` 的 repository 分别运行 `50.632s`/`49.677s`，并覆盖 migration 243 |
 | main quota handler trusted Actor 合并 | OpenAI 手动 reset 的 quota/recover/load adapters 保留同一 User/SP Actor；Grok reset/reconcile 使用 `Admin*` facade；聚焦 handler/service 测试 | 通过 |
 | OpenAI quota auto-reset 后台 Actor | 固定 roleless Service Principal/direct worker permission；missing/disabled/角色或权限形态错误时零副作用。普通执行先做三次 mutable eligibility reload，第四次在每个 POST 前的 proxy/account 锁内同时复核 eligibility 与完整 upstream identity；独立 recovery keyset pager 不依赖 enabled/status/schedulable，malformed candidate 也可靠、可取消地阻塞入队。managed state strict 拒绝未知字段/类型/状态、非 canonical hash 对和超界 count。evaluate 前半程持 advisory-only lease，POST 前才按 proxy `FOR SHARE` → account `FOR UPDATE` 升级，POST 返回立即释放 advisory+row transaction，agent retry 取得新 lease。新操作逐次重授权、Actor-qualified idempotency 与稳定 redeem request ID；上游效果后撤权时仅允许不重新授权的原子 finalizer 提交 `recovery_deferred` SP audit + succeeded 事实，恢复仍拒绝且恢复授权后不二次 reset | 通过；focused service/repository、race、本机 PostgreSQL finalizer，以及当前代码 SHA 的 push/PR CI、完整 Testcontainers 与 Security Scan 均成功。生产启用门禁仍单独受阻 |
-| migration 243 protected attempt 升级与协调 | 五列 marker 固化无 account FK 的正 `account_id`；一次性 `completed=TRUE` sentinel；account scope 解析与 raw/旧 SP 稳定 key 唯一映射，0/多匹配 fail migration；全部 account replay 与 protected raw/旧 SP → reserved SP；success/no-effect 两个非 PUBLIC、SECURITY INVOKER owner 函数均校验 marker provenance 与 SP audit，分别强制 `reconcile-success:<record_id>` / `reconcile-no-effect:<record_id>` decision ID，不复用 redeem request ID。success 原子 audit+tombstone+succeeded，数据库固定 8 天 retention，到期后若同 stable-key 的 `resetting|failed` managed state 仍在则继续保留；no-effect 的 drained 参数只是调用方断言，批准前必须归档 fleet shutdown/drain 与 upstream no-effect 证据，audit extra 带不含凭据的 evidence ref/decision owner，原子 409 audit+删除 marker/parent并支持 exact retry；仅 stable-key 精确匹配时清当前 managed state，更新/不同 state 保留；unknown 禁止猜；迟到旧 UPDATE、未协调 cleanup、RESTRICT 后备、raw fence/malformed/post-snapshot current retryable 与旧 account scope 写围栏 | 当前 `go test ./migrations -count=1` 与本机 PostgreSQL 18.6 完整 `go test -tags=integration ./migrations -count=1`（23.704s）通过，定向 actor migration 与两份 data-preflight 也通过。生产迁移前五列 provenance inventory 必须全为 `resolved`、三列 terminal inventory 必须零行；迁移后 unresolved=0 和维护窗排空证据仍待完成，不能计为 1.12 正式通过 |
-| migration 243 协调输入/签名加固 | 两函数 SQL 强制 audit extra 精确绑定 account/record/fingerprint，必须含 trim 后长度合法的 string `evidence_ref`/`decision_owner`，缺失或错配整事务回滚；confirmed-success 唯一入口为八参数 `reconcile_openai_quota_auto_reset_protected_attempt(bigint,text,text,bigint,timestamptz,text,integer,jsonb)`，raw reapply 显式删除两个废弃 overload | 通过；actor migration 定向 PG、完整 integration-tag migrations 包，以及当前代码 SHA 的无过滤 push/PR Testcontainers suite 均成功；生产协调证据仍待归档 |
+| migration 243 protected attempt 升级与协调 | 五列 marker 固化无 account FK 的正 `account_id`；一次性 `completed=TRUE` sentinel；account scope 解析与 raw/旧 SP 稳定 key 唯一映射，0/多匹配 fail migration；全部 account replay 与 protected raw/旧 SP → reserved SP；success/no-effect 两个非 PUBLIC、SECURITY INVOKER owner 函数均校验 marker provenance 与 SP audit，分别强制 `reconcile-success:<record_id>` / `reconcile-no-effect:<record_id>` decision ID，不复用 redeem request ID。success 原子 audit+tombstone+succeeded，数据库固定 8 天 retention，到期后若同 stable-key 的 `resetting|failed` managed state 仍在则继续保留；no-effect 的 drained 参数只是调用方断言，批准前必须归档 fleet shutdown/drain 与 upstream no-effect 证据，audit extra 带不含凭据的 evidence ref/decision owner，原子 409 audit+删除 marker/parent并支持 exact retry；仅 stable-key 精确匹配时清当前 managed state，更新/不同 state 保留；unknown 禁止猜；迟到旧 UPDATE、未协调 cleanup、RESTRICT 后备、raw fence/malformed/post-snapshot current retryable 与旧 account scope 写围栏 | 通过；本地与 Testcontainers migration/fresh/upgrade/reapply 已验证。当前没有部署、旧 Worker 或历史数据，生产 inventory/drain 不适用；首次导入或升级现有数据库时自动恢复为硬门禁 |
+| migration 243 协调输入/签名加固 | 两函数 SQL 强制 audit extra 精确绑定 account/record/fingerprint，必须含 trim 后长度合法的 string `evidence_ref`/`decision_owner`，缺失或错配整事务回滚；confirmed-success 唯一入口为八参数 `reconcile_openai_quota_auto_reset_protected_attempt(bigint,text,text,bigint,timestamptz,text,integer,jsonb)`，raw reapply 显式删除两个废弃 overload | 通过；actor migration 定向 PG、完整 integration-tag migrations 包，以及当前代码 SHA 的无过滤 push/PR Testcontainers suite 均成功。生产协调证据仅在未来出现旧数据/marker 时触发 |
 | 当前 Phase 1 管理员写面 TOCTOU | 本机 PostgreSQL 18.6 两个不同管理员 Actor 双事务同版本并发；恰一提交/一冲突，SERIALIZABLE mutation closure 可执行 1 或 2 次且 loser 尝试完整回滚，最终业务状态、版本、durable event 与 Scheduler Outbox 恰好一次；真实 `AdminService.ClearAccountError` 测试证明 production after-commit callback 仅在提交后执行且恰好一次，通用语义另由 coordinator 单测覆盖 | 通过 |
 | 228 到当前 migration 243 持久升级、重复 apply | 当前代码 SHA `aeb967ebe` 的 GitHub Actions push/PR CI 均运行无 `-run` 过滤的完整 integration suite；包含 `TestResourceAccessControlUpgradeFrom228ThroughCurrent` | 通过；PostgreSQL `18.1-alpine3.23` Testcontainers 动态升级/reapply 成功，覆盖 migration 243 |
 | 完整 backend unit、聚焦 race/vet、默认与 integration 标签编译、build | 当前代码 SHA 的本地验证与 GitHub Actions | 通过；本地命令结果见 `implementation-evidence.md` 最新小节，远端完整 unit/integration、lint 亦成功 |
 | CI repository Testcontainers 动态套件（当前代码 SHA） | [push Run 33608505225](https://github.com/savvym/sub2api/actions/runs/33608505225) / [test job 100177927975](https://github.com/savvym/sub2api/actions/runs/33608505225/job/100177927975) 与 [PR Run 33608510880](https://github.com/savvym/sub2api/actions/runs/33608510880) / [test job 100177945050](https://github.com/savvym/sub2api/actions/runs/33608510880/job/100177945050)：`make test-integration` → `go test -tags=integration ./...`；Ubuntu、Go 1.27.0、PostgreSQL `18.1-alpine3.23`、Redis `8.4-alpine` | 通过；attempt 1、SHA `aeb967ebe0d9ed9aa5b43f0f9e60dc030f3839e6`，integration step 均为 `3m38s`，repository 分别非缓存运行 `50.632s`/`49.677s` |
 | production role shadow 差异记录能力 | `PolicyService` 四个入口并行计算 legacy/RBAC 且保持 legacy 响应；管理员 JWT/Admin API Key 生产入口接线；低基数、无 ID 的结构化 INFO/WARN 日志与 observer panic 隔离测试 | 通过（日志可由外部系统聚合；未新增独立进程内指标） |
-| Phase 0 安全决策与退出批准 | 0.4/0.5 分别达到 `Decision Accepted`，0.8 按上表取得平台、认证、安全三方可追溯批准链接 | 待实现（两份清单仍为 Review Ready，0.8 尚无批准链接） |
-| 生产只读数据预检与凭据键名统计 | 对批准的只读副本运行 `data-preflight.sql` 与 `credential-key-preflight.sql`，归档异常/回填规模及受限结果。五列 provenance inventory 只含 `idempotency_record_id/status/scope_kind/account_ids/provenance_state`，每行必须 `resolved`；三列 terminal-recovery inventory 只含 `idempotency_record_id/account_id/response_state`，任意输出都阻断；两者均不含 key hash、fingerprint、response body、attempt hash 或凭据。credentials/extra 结果只含文档名、软删除状态、帐号 status、平台/类型、键名、shape 和计数 | 待实现；真实数据尚未执行。provenance 的 `malformed_identity`、`unmatched`、`ambiguous`、`recovery_fingerprint_mismatch`、`target_scope_collision` 或其他非 `resolved` 均阻断；terminal 的 `malformed_pending_state`、`unreachable_account`、`missing_attempt_record`、`unreachable_scope`、`fingerprint_mismatch`、`legacy_redacted_result`、`invalid_terminal_response` 任一行均阻断，须按 `implementation-evidence.md` 路由处置后重跑 |
-| 目标环境 shadow readiness 与观察 | 专用 role-mode readiness、legacy→shadow 执行、具体差异指标、日志量与 sink `dropped_count`、观察窗口和回滚证据 | 待实现（当前部署仍为 legacy） |
-| PR URL（当前代码 SHA 快照） | 采证快照（2026-09-02）：[Draft PR #1](https://github.com/savvym/sub2api/pull/1) 的 base 为 `main`、head 为 `codex/resource-access-control-foundation`、base OID `efb46db0a960fdad94502b1c3a982a0051cf5245`、head OID `aeb967ebe0d9ed9aa5b43f0f9e60dc030f3839e6` | 通过；GitHub 报告 `MERGEABLE/CLEAN`，PR 仍为 Draft；退出门禁完成前不得转 Ready 或合并 |
+| Phase 0 安全决策与退出批准 | 0.4/0.5 达到设计级 `Decision Accepted`，0.8 记录责任、范围、未决项与自动重开条件 | 通过；由 sole maintainer 接受无部署、空 allowlist 范围，明确不声称独立三方评审 |
+| 生产只读数据预检与凭据键名统计 | 对批准的只读副本运行 `data-preflight.sql` 与 `credential-key-preflight.sql`，归档异常/回填规模及受限结果 | 当前不适用；不存在 production/staging 或真实数据。首次导入/升级现有数据库或处理真实帐号数据时自动成为阻塞门禁，异常分类和处理要求保持不变 |
+| 目标环境 shadow readiness 与观察 | 专用 role-mode readiness、legacy→shadow 执行、具体差异指标、日志量与 sink `dropped_count`、观察窗口和回滚证据 | 当前不适用；不存在目标环境且 mode 不切换。首次进入 `shadow` 前自动成为阻塞门禁 |
+| PR URL（当前代码 SHA 快照） | 采证快照（2026-09-02）：[Draft PR #1](https://github.com/savvym/sub2api/pull/1) 的 base 为 `main`、head 为 `codex/resource-access-control-foundation`、base OID `efb46db0a960fdad94502b1c3a982a0051cf5245`、代码证据 OID `aeb967ebe0d9ed9aa5b43f0f9e60dc030f3839e6` | 通过；代码 SHA 为 `MERGEABLE/CLEAN`。Phase 1 无部署范围退出后仍按维护者决定保持 Draft，不自动转 Ready 或合并 |
 | GitHub Security Scan（当前代码 SHA） | [push Run 33608505242](https://github.com/savvym/sub2api/actions/runs/33608505242) 与 [PR Run 33608511032](https://github.com/savvym/sub2api/actions/runs/33608511032)，均覆盖 backend `govulncheck` 与 frontend production audit exception check | 通过；SHA `aeb967ebe0d9ed9aa5b43f0f9e60dc030f3839e6`，两个 backend job 均报告代码受影响漏洞 0 个，两个 frontend audit exception check 均成功 |
-| 平台/认证/安全批准人 | 三方最终批准必须有可追溯链接 | 待实现；尚无批准链接 |
-| Phase 1 正式退出结论 | 所有上述门禁完成后才能批准 | 待实现；1.12 保持未勾选，进度保持 20/49 |
+| 平台/认证/安全批准人 | 多角色生产场景应有独立可追溯批准；当前单维护者项目必须透明记录角色合并和风险范围 | 通过；sole maintainer 接受当前 dark-foundation 范围，首次部署/启用时重新评审 |
+| Phase 1 正式退出结论 | 工程门禁完成，环境门禁对当前不存在的部署不适用但保留为自动触发条件 | 通过；1.12 已勾选，进度 24/49。该结论不批准部署、Phase 2、自助、shadow/RBAC 或 ACL enforcement |
 
 ## 标准命令
 

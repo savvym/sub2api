@@ -669,3 +669,30 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 - 回滚到旧 binary 时 auto-reset 必须继续关闭；数据库围栏会有意拒绝旧版本使用的 account-qualified scope，不能在旧 binary 上重新启用该功能。回滚演练和证据需要纳入目标环境 readiness 记录。
 - Phase 0 的 0.4/0.5 仍是 `Review Ready` 而非 `Decision Accepted`，0.8 尚无平台/认证/安全批准；生产 `data-preflight.sql` 与 `credential-key-preflight.sql` 也未执行归档。目标环境仍需完成 role-mode readiness、shadow 观察窗口、具体差异指标、日志量、sink `dropped_count` 和回滚证据。
 - 当前代码 SHA 的 CI/Testcontainers/lint/Security Scan 已完成，但不改变任务进度：仍为 20/49，0.4、0.5、0.8 和 1.12 保持未勾选；生产/目标环境证据及平台/认证/安全最终批准完成前，不得宣称 Phase 1 正式退出或开始 Phase 2。
+
+## 2026-09-02 - Single Maintainer No-Deployment Exit Decision
+
+本节是同日较早“等待外部批准/生产证据”记录之后的新范围决定；在当前无部署、空 allowlist 范围内，以本节和 `phase-0-exit-record.md` 为最新状态。较早记录继续保留为决策历史，不再代表当前任务勾选状态。
+
+### 事实与范围
+
+- 维护者确认当前不存在 production 或 staging 环境，因此没有真实数据库、运行中的旧 auto-reset Worker、目标环境日志系统或可执行的生产 shadow 窗口。
+- 项目当前只有唯一维护者 Savin Zhang（GitHub `savvym`）。本次记录透明合并产品、平台、认证、安全、迁移和风险 owner，不声称存在独立三方评审。
+- 维护者决定当前自助 allowlist 为空：OpenAI、Anthropic、Gemini API Key 仅保留为未来候选并全部暂缓；OAuth、setup token、Cookie/密码、自定义 upstream、云凭证和复合平台继续禁止。
+- 所有新增 Feature Flag 保持关闭，角色权威保持 `legacy`；当前范围只接受默认关闭的 dark foundation，不启用 Phase 2、自助托管、凭据导出、资源分享、shadow/RBAC 或 ACL enforcement。
+
+### 版本化决定
+
+- 新增 [`phase-0-exit-record.md`](phase-0-exit-record.md)，以基线 `674a5387e8e112553e8d5188441d3edaf427296c` 和 Draft PR #1 固定适用事实、单维护者风险接受、未决 release 项 owner/触发时点/验收方法和自动重开条件。
+- `credential-inventory.md` 达到设计级 `Decision Accepted`：未知键和 `header_overrides` fail closed，管理员明文导出关闭，具体 KMS/provider 与加密实现保留为首次部署/启用前的 `Release Accepted` 门禁。
+- `outbound-security.md` 达到空 allowlist 的设计级 `Decision Accepted`：未来候选仍受固定目标、direct transport、SSRF、禁重定向/代理、多维限频、Redis fail-closed、DTO 和 canary 要求约束。
+- 0.4、0.5、0.8 和 1.12 勾选，任务进度从 20/49 更新为 24/49。1.12 只批准当前无部署 dark-foundation 的工程阶段退出，不批准发布或 Phase 2。
+
+### 自动重开门禁
+
+- 首次创建 production/staging、导入真实数据或升级现有数据库前，必须运行并归档 `data-preflight.sql` 与 `credential-key-preflight.sql`；provenance inventory 全部 `resolved`、terminal inventory 零行。
+- 仅当未来环境运行过旧 auto-reset Worker 时，migration 243 才要求 maintenance window、auto-reset 关闭、旧 fleet 停止排空、同版本切换、unresolved marker 协调、Worker readiness 和回滚演练。当前 fresh/no-data 状态不伪造这些证据。
+- 任一环境首次进入 `shadow` 前后必须归档 readiness、差异指标、日志量、sink `dropped_count`、观察窗口和回滚结果。
+- 首次启用任一自助组合、凭据导出、RBAC 或 ACL enforcement 前，两份安全清单必须分别达到 `Release Accepted`；生产风险场景应优先引入独立安全 reviewer。
+
+Draft PR #1 继续保持 Draft，不因本次阶段退出自动转 Ready 或合并。

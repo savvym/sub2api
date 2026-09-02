@@ -2,7 +2,7 @@
 
 阶段状态：
 
-- Phase 0 设计决策：**Review Ready（尚未 Decision Accepted）**，2026-08-20 基于仓库静态审计建立，供平台、认证类型和安全负责人复核。
+- Phase 0 设计决策：**Decision Accepted（单维护者、无部署范围）**。2026-09-02 由唯一维护者接受本文的保守分类、目标边界和迁移约束；批准范围与自动重开条件见 [`phase-0-exit-record.md`](phase-0-exit-record.md)。该记录明确不声称存在独立平台/认证/安全评审。
 - Phase 2 实施/发布验收：**Not Ready（尚未 Release Accepted）**；生产只读键名统计、实现证据和泄漏测试仍未完成。
 
 `Decision Accepted` 只表示敏感分类、所有权、加密边界和迁移约束已经冻结，可用于勾选任务 0.4；它不表示对应控制已经实现，也不允许启用 Phase 2 自助托管。`Release Accepted` 才表示第 8.2 节的生产数据与实现门禁已经关闭。两种状态不得简写为含义不明的 `Accepted`。
@@ -163,22 +163,22 @@ CRS 同步会复制远端 `Extra` 后补充本地标识；`sanitizeCredentialsMa
 - 通用日志、非 JSON 上游错误和任意非敏感键名中的秘密可能绕过脱敏。
 - `header_overrides`、CRS 远端 `Extra` 和开放 JSONB 允许未来新增未分类秘密。
 - 目前没有统一 platform/account-type schema，也没有覆盖所有响应、日志、缓存、导出和备份的 canary 泄漏测试。
-- 通用 envelope 的 KMS、key hierarchy、轮换、恢复、break-glass 和灾备解密流程尚未决策。
+- 通用 envelope 的目标约束已接受，但具体 KMS provider、key hierarchy 实现、轮换、恢复、break-glass 和灾备解密流程尚未实现；首次部署或启用凭据能力前必须重新评审并完成 `Release Accepted`。
 
 ## 8. 分阶段批准门禁
 
 ### 8.1 Phase 0 设计决策批准（任务 0.4）
 
-以下项目全部完成后，才能将 Phase 0 状态从 `Review Ready` 改为 `Decision Accepted` 并勾选任务 0.4：
+以下项目已按 [`phase-0-exit-record.md`](phase-0-exit-record.md) 的单维护者、无部署范围关闭，因此 Phase 0 状态可改为 `Decision Accepted` 并勾选任务 0.4：
 
-- [ ] 各平台/认证类型负责人确认本清单覆盖的必需、可选、废弃键，以及 refresh、CAS、probe、Scheduler/OAuth Redis cache 和 Spark shadow 引用依赖；未识别键的处置规则保持 fail closed。
-- [ ] 安全负责人确认 Secret/Sensitive/Operational/Public config 分类、DTO allowlist、未知键默认 Secret 和 `header_overrides` 整体 Secret 策略。
-- [ ] 平台基础设施负责人确认 PostgreSQL、OAuth Redis、Scheduler Redis、导出和备份的目标加密边界，以及 KMS/key hierarchy、轮换、恢复和灾备责任归属。
-- [ ] 产品与安全负责人确认管理员明文导出的目标策略：默认关闭、break-glass、审批、durable audit、有效期、水印和撤销方式。
-- [ ] 迁移负责人确认第 6 节的批次顺序与不变量作为实施约束；任何变更都必须重新经过平台、认证和安全评审。
-- [ ] 建立一条不可变的设计批准记录，包含评审文档 commit/PR、日期、适用平台/认证类型、所有未决实施项及其 owner/目标阶段，并分别附平台、相关认证类型、安全负责人的批准链接；涉及明文导出时另附产品与安全批准链接。
+- [x] 唯一维护者复核仓库中已发现的键族和 refresh、CAS、probe、Scheduler/OAuth Redis cache、Spark shadow 引用依赖；不存在已批准的自助平台组合，未识别键继续 fail closed。
+- [x] 唯一维护者接受 Secret/Sensitive/Operational/Public config 分类、DTO allowlist、未知键默认 Secret 和 `header_overrides` 整体 Secret 策略。
+- [x] 唯一维护者接受 PostgreSQL、OAuth Redis、Scheduler Redis、导出和备份的目标加密边界；具体 KMS/key hierarchy、轮换、恢复和灾备实现由首次部署/启用前 `Release Accepted` 门禁关闭。
+- [x] 管理员明文导出保持关闭；未来 break-glass 必须单独实现审批、durable audit、有效期、水印和撤销后重新批准。
+- [x] 唯一维护者接受第 6 节批次顺序与不变量作为实施约束；任何变化会自动重新打开本决策。
+- [x] 已建立版本化设计批准记录，列出单维护者风险接受、适用范围、未决项 owner、目标阶段、验收方法和自动重开条件。
 
-批准链接必须能追溯批准人身份、角色、日期、明确结论和所批准的文档版本。仅填写姓名、口头确认或不可长期访问的聊天截图不算证据。Phase 0 可以在第 8.2 节尚未实施时完成，但所有未决项必须有 owner、目标任务和验收方法，不能以设计批准替代发布验收。
+本项目当前没有独立平台、认证和安全负责人；版本化退出记录透明记录这一限制，不将单人接受表述为三方独立批准。首次创建部署环境、导入真实数据、启用任一自助组合或凭据导出时，本决定自动重开，并应优先引入独立安全评审。Phase 0 可以在第 8.2 节尚未实施时完成，但不能以设计批准替代发布验收。
 
 ### 8.2 Phase 2 实施/发布验收
 

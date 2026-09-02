@@ -2,7 +2,7 @@
 
 阶段状态：
 
-- Phase 0 设计决策：**Review Ready（尚未 Decision Accepted）**。
+- Phase 0 设计决策：**Decision Accepted（空 allowlist、单维护者、无部署范围）**。2026-09-02 唯一维护者决定所有自助组合继续暂缓、OAuth 继续关闭；适用范围和自动重开条件见 [`phase-0-exit-record.md`](phase-0-exit-record.md)。
 - Phase 2 实施/发布验收：**Not Ready（尚未 Release Accepted）**。
 
 `Decision Accepted` 只冻结自助产品矩阵、固定目标、网络契约、限频基线和延期范围，可用于勾选任务 0.5；它不证明第 6 节已经实现，也不允许开启任何自助平台。只有第 6、7 节的代码与目标环境证据完成并取得 `Release Accepted` 后，候选组合才可逐项启用。两种状态不得简写为含义不明的 `Accepted`。管理员现有高级能力不在本文件中被静默收紧。
@@ -13,15 +13,17 @@
 
 审计结论：现有代码具备部分 URL、Header、代理和 OAuth 防护，但它们是面向管理员高级能力逐步补强的组件，尚未形成租户自助入口所需的统一安全边界。V1 必须采用“服务端固定产品矩阵 + 专用 DTO + 固定官方端点”，不能直接暴露现有管理员 `credentials`、`extra`、`proxy_id` 或通用帐号创建服务。
 
+当前 `Decision Accepted` 的启用 allowlist 为空。下表中的 API Key 项仅保留为未来候选基线，不批准当前启用；任何候选进入实现或灰度前都必须重新打开本决定并完成第 6、7、8.2 节。
+
 ## 2. V1 服务端 Allowlist 建议
 
 以下是首批候选矩阵，不表示当前代码已经允许上线。只有第 6 节硬阻塞全部关闭、验收测试通过后，候选项才可逐项启用。
 
 | 平台 | 认证类型 | V1 决策 | 服务端固定目标 | 约束 |
 | --- | --- | --- | --- | --- |
-| OpenAI | `apikey` | 首批候选 | `https://api.openai.com:443` | 服务端拼接受支持的 `/v1/*` 路径；请求不得携带 `base_url` |
-| Anthropic | `apikey` | 首批候选 | `https://api.anthropic.com:443` | 服务端拼接受支持的 `/v1/*` 路径；只接受 API Key 本身和非敏感展示字段 |
-| Gemini | `apikey` | 首批候选 | `https://generativelanguage.googleapis.com:443` | 服务端拼接受支持的 `/v1beta/*` 路径；禁止用户提供 Google 项目/OAuth 扩展字段 |
+| OpenAI | `apikey` | 未来候选（当前暂缓） | `https://api.openai.com:443` | 服务端拼接受支持的 `/v1/*` 路径；请求不得携带 `base_url` |
+| Anthropic | `apikey` | 未来候选（当前暂缓） | `https://api.anthropic.com:443` | 服务端拼接受支持的 `/v1/*` 路径；只接受 API Key 本身和非敏感展示字段 |
+| Gemini | `apikey` | 未来候选（当前暂缓） | `https://generativelanguage.googleapis.com:443` | 服务端拼接受支持的 `/v1beta/*` 路径；禁止用户提供 Google 项目/OAuth 扩展字段 |
 | Grok | `apikey` | V1 暂缓 | 当前存在 API、区域 API、CLI proxy、fallback 和 operator policy 多套目标 | 先收敛为单一 API Key 产品及精确 host/path，再单独评审 |
 | Kimi / Zhipu / DeepSeek | `apikey` | V1 暂缓 | 代码中存在 PAYG/Coding 模式、协议组合及可覆写 `base_url` | 先为每个平台冻结唯一模式、协议、host/path 和额度探测目标 |
 | 任意平台 | `oauth` | V1 禁止 | 不适用 | 完成用户 Actor 绑定、回调单次消费和平台专项端点评审后再开放 |
@@ -115,17 +117,17 @@ Allowlist 必须由服务端按照 `(platform, auth_type, product_version)` 选�
 
 ### 8.1 Phase 0 设计决策批准（任务 0.5）
 
-以下项目全部完成后，才能将 Phase 0 状态从 `Review Ready` 改为 `Decision Accepted` 并勾选任务 0.5：
+以下项目已按 [`phase-0-exit-record.md`](phase-0-exit-record.md) 的空 allowlist、单维护者、无部署范围关闭，因此 Phase 0 状态可改为 `Decision Accepted` 并勾选任务 0.5：
 
-- [ ] 冻结首批候选、暂缓和禁止的 `(platform, auth_type, product_version)` 组合；每个候选明确精确 scheme/host/port/path 模板和允许的凭证键，客户端不能选择网络目标。
-- [ ] 冻结 direct transport 安全契约：dial-time 全地址校验并绑定已验证 IP、保留 TLS SNI/证书校验、禁重定向、禁环境/帐号代理、响应大小上限和连接复用边界。
-- [ ] 冻结第 5.2 节初始限频、pending flow、帐号配额、provider bulkhead、Redis 故障 fail-closed 和调高配置的审批规则。
-- [ ] 明确 OAuth 是否继续延期；任何拟开放 OAuth 组合都必须先冻结 Actor/Owner 强绑定、PKCE、redirect URI、TTL 和单次消费契约。
-- [ ] 明确自助专用 DTO、未知键拒绝、凭证/日志边界、逐平台灰度指标和全关回滚的验收责任。
-- [ ] 为第 6、7 节每个未决实施项登记 owner、目标任务/版本和验收方法；Phase 0 不要求这些代码已经完成，但不允许存在无 owner 的安全阻塞。
-- [ ] 建立一条不可变的设计批准记录，包含评审文档 commit/PR、日期、首批组合与精确目标、限频值、OAuth 决策和未决实施清单，并分别附安全、平台及每个候选组合认证类型负责人的批准链接。
+- [x] 当前启用 allowlist 冻结为空；OpenAI/Anthropic/Gemini API Key 仅为未来候选，其余组合暂缓或禁止，客户端不能选择网络目标。
+- [x] 唯一维护者接受 direct transport 安全契约作为未来候选的启用前硬门禁：dial-time 全地址校验和 IP 绑定、TLS SNI/证书校验、禁重定向、禁环境/帐号代理、响应上限和受控连接复用。
+- [x] 唯一维护者接受第 5.2 节限频、pending flow、帐号配额、provider bulkhead、Redis 故障 fail-closed 和调高配置重新审批规则；当前没有启用组合。
+- [x] OAuth 继续延期并禁止；任何拟开放组合必须重新批准 Actor/Owner 强绑定、PKCE、redirect URI、TTL 和单次消费契约。
+- [x] 自助专用 DTO、未知键拒绝、凭证/日志边界、逐平台灰度指标和全关回滚由未来 Phase 2/首次启用门禁验收。
+- [x] 第 6、7 节未决实施项统一由 sole maintainer 负责，目标阶段为 Phase 2 或首次启用前，验收方法保持本文件所列矩阵。
+- [x] 已建立版本化设计批准记录，包含空 allowlist、未来候选固定目标、限频基线、OAuth 决策、未决实施清单和自动重开条件。
 
-批准链接必须能追溯批准人身份、角色、日期、明确结论和所批准的文档版本。仅填写姓名、口头确认或不可长期访问的聊天截图不算证据。新增平台、认证类型、目标 host/path、代理能力或调高限频会使对应决策失效，必须重新批准。
+本项目当前没有独立平台、认证和安全负责人；版本化退出记录透明记录单维护者风险接受，不将其表述为三方独立批准。首次创建部署环境或拟启用任一组合时，本决定自动重开，并应优先引入独立安全评审。新增平台、认证类型、目标 host/path、代理能力或调高限频同样会使对应决策失效。
 
 ### 8.2 Phase 2 实施/发布验收
 
