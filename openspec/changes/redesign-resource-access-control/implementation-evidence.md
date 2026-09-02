@@ -696,3 +696,37 @@ PostgreSQL 动态测试覆盖 Owner、public、直接用户 Grant、角色 Grant
 - 首次启用任一自助组合、凭据导出、RBAC 或 ACL enforcement 前，两份安全清单必须分别达到 `Release Accepted`；生产风险场景应优先引入独立安全 reviewer。
 
 Draft PR #1 继续保持 Draft，不因本次阶段退出自动转 Ready 或合并。
+
+## 2026-09-02 - Hosting Qualification and Quota Foundation（2.1）
+
+### 实现范围
+
+- 新增 migration 244 `user_hosting_entitlements`，以一用户一行保存 Account/Group 非负配额、正 CAS version、创建/更新管理员和时间戳。`user_id` 删除级联，两个管理员 provenance FK 使用 restrict；hoster 资格仍只由系统 `user_roles` 中的 `hoster` 角色决定，migration 不写角色、setting 或 Feature Flag。
+- 新增对应 Ent Schema、生成代码和生产 Wire。Schema 契约固定唯一列、三个 FK symbol 与删除策略；生成过程中发现一对一 edge 已隐式提供 `user_id` 唯一性，删除重复显式索引后 SQLite `enttest` 建库恢复正常。
+- 新增管理员 `GET/PUT /api/v1/admin/authorization/hosting-entitlements/:user_id`。GET 返回 hoster 有效资格、配额、当前未删除 Owner 资源用量、剩余量、CAS version 和授权版本；PUT 要求完整严格 JSON、非负 expected/version quotas，以及带 session ID 的近期 JWT TOTP step-up，Admin API Key 不允许执行写入。
+- PUT 在 `SERIALIZABLE` 事务中按稳定顺序锁 actor/target user、actor roles、系统 hoster role、目标 hoster assignment 和 entitlement；随后重新解析 active legacy admin 并比较 Actor 授权快照，以 expected version 执行 CAS。成功 hoster/配额写和固定 action/method/path 的 durable audit 同事务提交，audit 失败整体回滚；no-op 保留通用 attempt audit，不伪造事务内成功变更记录。
+- 新增或撤销 hoster、以及把临时 hoster assignment 转为永久时递增目标 `users.authz_version`，由现有 trigger 为有效 API Key 写 cache invalidation Outbox；纯配额变化只递增 entitlement version。首次配置从 version 0 物化为 1；管理员可把配额降到当前 usage 以下，存量资源不删除，后续创建拒绝。
+- 新增事务绑定 `HostingCapacityGuard`。Account/Group 创建调用方必须持有 `SERIALIZABLE` 数据库事务，guard 在锁内重解析 JWT User、重校验 Actor、active hoster、Policy `CanCreate`、实时 usage 与 quota，并要求锁持续到资源 insert 提交或回滚；其他隔离级别 fail closed，避免 Repeatable Read 在等待行锁后继续读取旧快照。并发创建共享同一 entitlement/user/role 锁，不能共同越过最后一个容量。
+- role shadow 增加窄例外：普通 JWT User 的 Account/Group `CanCreate` 使用 RBAC 结果；管理员、Service Principal、`CheckCapability`、`Authorize`、`AccessibleScope` 和其他资源类型仍返回 legacy。例外继续受总开关、self-service、主体状态、对应创建能力与事务内配额约束。
+- 本切片没有注册普通用户 Account/Group 路由或 UI，没有启用平台/OAuth/凭据导出，也没有修改数据库 setting。当前 Feature Flag 全部关闭、`role_authorization_mode=legacy`，因此新增 shadow 例外在当前运行范围不可触发自助创建。
+
+### 自动化验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| hosting entitlement migration、service、authz、admin handler 与 route 聚焦 unit | 通过；`internal/service` 非缓存运行 176.277s，其他聚焦包均成功 |
+| Ent schema/migrate 与 generated-schema contract | 通过；覆盖唯一列、FK symbol、CASCADE/RESTRICT 和 SQLite 建库 |
+| `make -C backend generate` | 通过；Ent 与 Wire 已按最终 Schema/DI 重新生成 |
+| `make -C backend test-unit` | 通过；完整 unit-tag backend tree 成功 |
+| shadow `CanCreate` 窄例外与 self-service 关闭回归 | 通过；普通 User Account/Group 创建能力可用，开关关闭仍拒绝，管理员/Service Principal/其他 Policy API 保持 legacy |
+| `cd backend && go vet ./internal/authz ./internal/service ./internal/repository ./internal/handler/admin ./internal/server/routes ./migrations` | 通过 |
+| `make -C backend build` | 通过；生产 Wire 包含 repository/service/handler |
+| `cd backend && go test -tags=integration ./... -run '^$' -count=1` | 通过；全 integration 标签树编译成功，不代表 Testcontainers 动态执行 |
+| `cd backend && go test -tags=integration ./internal/repository -count=1` | 通过并明确跳过；本机没有 Docker，repository 报告 `docker is not available; skipping integration tests` |
+| `cd backend && CI=1 go test -tags=integration ./... -count=1` | 环境门禁失败；唯一失败原因为 `docker is not available (CI=true)`，其余 tagged packages 成功，不能记录为动态通过 |
+| `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
+| `git diff --check` | 通过 |
+
+### PostgreSQL/Testcontainers 待补证据
+
+新增 integration 场景已经覆盖 migration/schema、hoster grant/quota/revoke、授权版本与 cache Outbox、audit failure 全事务回滚、首次及后续版本并发 CAS、非 `SERIALIZABLE` 容量事务拒绝、降额低于 usage 后拒绝，以及 Account/Group 两类并发创建至多一个成功。当前机器没有 Docker，这些场景只完成标签编译和显式本地跳过；本次提交推送后必须由 Draft PR #1 的 GitHub Actions 无过滤 integration suite 动态执行并补录 run/job/SHA。该外部结果不影响代码提交，但在记录成功前不得把 Testcontainers 门禁标为通过或启用 self-service。

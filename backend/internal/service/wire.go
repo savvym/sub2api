@@ -856,6 +856,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAuthorizationExpiryWorker,
 	ProvideAuthorizationPropagationGuard,
 	NewRoleService,
+	NewHostingEntitlementService,
 	NewPasskeyService,
 	NewUserService,
 	ProvideAPIKeyService,

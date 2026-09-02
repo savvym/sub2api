@@ -52,6 +52,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/userallowedgroup"
 	"github.com/Wei-Shaw/sub2api/ent/userattributedefinition"
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
+	"github.com/Wei-Shaw/sub2api/ent/userhostingentitlement"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
 	"github.com/Wei-Shaw/sub2api/ent/userrole"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
@@ -2700,6 +2701,39 @@ func init() {
 	userattributevalueDescValue := userattributevalueFields[2].Descriptor()
 	// userattributevalue.DefaultValue holds the default value on creation for the value field.
 	userattributevalue.DefaultValue = userattributevalueDescValue.Default.(string)
+	userhostingentitlementMixin := schema.UserHostingEntitlement{}.Mixin()
+	userhostingentitlementMixinFields0 := userhostingentitlementMixin[0].Fields()
+	_ = userhostingentitlementMixinFields0
+	userhostingentitlementFields := schema.UserHostingEntitlement{}.Fields()
+	_ = userhostingentitlementFields
+	// userhostingentitlementDescCreatedAt is the schema descriptor for created_at field.
+	userhostingentitlementDescCreatedAt := userhostingentitlementMixinFields0[0].Descriptor()
+	// userhostingentitlement.DefaultCreatedAt holds the default value on creation for the created_at field.
+	userhostingentitlement.DefaultCreatedAt = userhostingentitlementDescCreatedAt.Default.(func() time.Time)
+	// userhostingentitlementDescUpdatedAt is the schema descriptor for updated_at field.
+	userhostingentitlementDescUpdatedAt := userhostingentitlementMixinFields0[1].Descriptor()
+	// userhostingentitlement.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	userhostingentitlement.DefaultUpdatedAt = userhostingentitlementDescUpdatedAt.Default.(func() time.Time)
+	// userhostingentitlement.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	userhostingentitlement.UpdateDefaultUpdatedAt = userhostingentitlementDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// userhostingentitlementDescAccountLimit is the schema descriptor for account_limit field.
+	userhostingentitlementDescAccountLimit := userhostingentitlementFields[1].Descriptor()
+	// userhostingentitlement.DefaultAccountLimit holds the default value on creation for the account_limit field.
+	userhostingentitlement.DefaultAccountLimit = userhostingentitlementDescAccountLimit.Default.(int64)
+	// userhostingentitlement.AccountLimitValidator is a validator for the "account_limit" field. It is called by the builders before save.
+	userhostingentitlement.AccountLimitValidator = userhostingentitlementDescAccountLimit.Validators[0].(func(int64) error)
+	// userhostingentitlementDescGroupLimit is the schema descriptor for group_limit field.
+	userhostingentitlementDescGroupLimit := userhostingentitlementFields[2].Descriptor()
+	// userhostingentitlement.DefaultGroupLimit holds the default value on creation for the group_limit field.
+	userhostingentitlement.DefaultGroupLimit = userhostingentitlementDescGroupLimit.Default.(int64)
+	// userhostingentitlement.GroupLimitValidator is a validator for the "group_limit" field. It is called by the builders before save.
+	userhostingentitlement.GroupLimitValidator = userhostingentitlementDescGroupLimit.Validators[0].(func(int64) error)
+	// userhostingentitlementDescVersion is the schema descriptor for version field.
+	userhostingentitlementDescVersion := userhostingentitlementFields[3].Descriptor()
+	// userhostingentitlement.DefaultVersion holds the default value on creation for the version field.
+	userhostingentitlement.DefaultVersion = userhostingentitlementDescVersion.Default.(int64)
+	// userhostingentitlement.VersionValidator is a validator for the "version" field. It is called by the builders before save.
+	userhostingentitlement.VersionValidator = userhostingentitlementDescVersion.Validators[0].(func(int64) error)
 	userplatformquotaMixin := schema.UserPlatformQuota{}.Mixin()
 	userplatformquotaMixinHooks1 := userplatformquotaMixin[1].Hooks()
 	userplatformquota.Hooks[0] = userplatformquotaMixinHooks1[0]

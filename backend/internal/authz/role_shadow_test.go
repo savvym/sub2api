@@ -41,15 +41,15 @@ func TestPolicyRoleShadowReturnsLegacyAndObservesRBAC(t *testing.T) {
 }
 
 func TestPolicyRoleShadowCoversCreateAuthorizeAndScope(t *testing.T) {
-	t.Run("create records legacy deny and rbac allow", func(t *testing.T) {
+	t.Run("create records both decisions and uses rbac for an ordinary user", func(t *testing.T) {
 		actor := mustUserActor(t, 402, 2, nil, []Capability{CapabilityAccountCreate}, false)
 		subject := mustSubjectSnapshotForActor(t, actor, fullyEnabledConfiguration(t, RoleAuthorizationModeShadow), false)
 		observer := &captureRoleShadowObserver{}
 		policy := NewPolicyServiceWithShadowObserver(&stubPolicyStore{subjectSnapshot: subject}, observer)
 
 		decision, err := policy.CanCreate(context.Background(), actor, ResourceTypeAccount)
-		if err != nil || decision.Allowed() || decision.DenyReason() != DenyReasonMissingCapability {
-			t.Fatalf("shadow changed authoritative create result: decision=%+v err=%v", decision, err)
+		if err != nil || !decision.Allowed() || decision.MatchSource() != MatchSourcePlatformCapability {
+			t.Fatalf("shadow did not use ordinary-user create capability: decision=%+v err=%v", decision, err)
 		}
 		comparison := observer.comparisons[0]
 		if comparison.Operation != PolicyOperationCanCreate || !comparison.BehaviorMismatch ||
@@ -118,6 +118,30 @@ func TestPolicyRoleShadowTreatsEquivalentAllowsAsProvenanceOnly(t *testing.T) {
 		comparison.Legacy.Source != MatchSourceLegacyUser || comparison.RBAC.Source != MatchSourcePlatformCapability {
 		t.Fatalf("expected provenance-only comparison, got %+v", comparison)
 	}
+}
+
+func TestPolicyRoleShadowCreateExceptionIsNarrow(t *testing.T) {
+	t.Run("check capability remains legacy authoritative", func(t *testing.T) {
+		actor := mustUserActor(t, 407, 1, nil, []Capability{CapabilityAccountCreate}, false)
+		subject := mustSubjectSnapshotForActor(t, actor, fullyEnabledConfiguration(t, RoleAuthorizationModeShadow), false)
+		policy := NewPolicyService(&stubPolicyStore{subjectSnapshot: subject})
+
+		decision, err := policy.CheckCapability(context.Background(), actor, CapabilityAccountCreate)
+		if err != nil || decision.Allowed() || decision.DenyReason() != DenyReasonMissingCapability {
+			t.Fatalf("shadow capability check became rbac authoritative: decision=%+v err=%v", decision, err)
+		}
+	})
+
+	t.Run("service principal remains legacy authoritative", func(t *testing.T) {
+		actor := mustServicePrincipalActor(t, 408, 1, nil, []Capability{CapabilityAccountCreate})
+		subject := mustSubjectSnapshotForActor(t, actor, fullyEnabledConfiguration(t, RoleAuthorizationModeShadow), false)
+		policy := NewPolicyService(&stubPolicyStore{subjectSnapshot: subject})
+
+		decision, err := policy.CanCreate(context.Background(), actor, ResourceTypeAccount)
+		if err != nil || decision.Allowed() || decision.DenyReason() != DenyReasonMissingCapability {
+			t.Fatalf("shadow service principal gained ordinary-user create authority: decision=%+v err=%v", decision, err)
+		}
+	})
 }
 
 func TestPolicyRoleShadowObserverCannotChangeAuthorization(t *testing.T) {

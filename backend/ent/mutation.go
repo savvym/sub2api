@@ -59,6 +59,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/userallowedgroup"
 	"github.com/Wei-Shaw/sub2api/ent/userattributedefinition"
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
+	"github.com/Wei-Shaw/sub2api/ent/userhostingentitlement"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
 	"github.com/Wei-Shaw/sub2api/ent/userrole"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
@@ -120,6 +121,7 @@ const (
 	TypeUserAllowedGroup                 = "UserAllowedGroup"
 	TypeUserAttributeDefinition          = "UserAttributeDefinition"
 	TypeUserAttributeValue               = "UserAttributeValue"
+	TypeUserHostingEntitlement           = "UserHostingEntitlement"
 	TypeUserPlatformQuota                = "UserPlatformQuota"
 	TypeUserRole                         = "UserRole"
 	TypeUserSubscription                 = "UserSubscription"
@@ -56978,90 +56980,98 @@ func (m *UsageLogMutation) ResetEdge(name string) error {
 // UserMutation represents an operation that mutates the User nodes in the graph.
 type UserMutation struct {
 	config
-	op                            Op
-	typ                           string
-	id                            *int64
-	created_at                    *time.Time
-	updated_at                    *time.Time
-	deleted_at                    *time.Time
-	email                         *string
-	password_hash                 *string
-	role                          *string
-	authz_version                 *int64
-	addauthz_version              *int64
-	balance                       *float64
-	addbalance                    *float64
-	frozen_balance                *float64
-	addfrozen_balance             *float64
-	concurrency                   *int
-	addconcurrency                *int
-	status                        *string
-	username                      *string
-	notes                         *string
-	totp_secret_encrypted         *string
-	totp_enabled                  *bool
-	totp_enabled_at               *time.Time
-	signup_source                 *string
-	last_login_at                 *time.Time
-	last_active_at                *time.Time
-	balance_notify_enabled        *bool
-	balance_notify_threshold_type *string
-	balance_notify_threshold      *float64
-	addbalance_notify_threshold   *float64
-	balance_notify_extra_emails   *string
-	total_recharged               *float64
-	addtotal_recharged            *float64
-	rpm_limit                     *int
-	addrpm_limit                  *int
-	clearedFields                 map[string]struct{}
-	api_keys                      map[int64]struct{}
-	removedapi_keys               map[int64]struct{}
-	clearedapi_keys               bool
-	redeem_codes                  map[int64]struct{}
-	removedredeem_codes           map[int64]struct{}
-	clearedredeem_codes           bool
-	subscriptions                 map[int64]struct{}
-	removedsubscriptions          map[int64]struct{}
-	clearedsubscriptions          bool
-	assigned_subscriptions        map[int64]struct{}
-	removedassigned_subscriptions map[int64]struct{}
-	clearedassigned_subscriptions bool
-	announcement_reads            map[int64]struct{}
-	removedannouncement_reads     map[int64]struct{}
-	clearedannouncement_reads     bool
-	allowed_groups                map[int64]struct{}
-	removedallowed_groups         map[int64]struct{}
-	clearedallowed_groups         bool
-	authorization_roles           map[int64]struct{}
-	removedauthorization_roles    map[int64]struct{}
-	clearedauthorization_roles    bool
-	usage_logs                    map[int64]struct{}
-	removedusage_logs             map[int64]struct{}
-	clearedusage_logs             bool
-	attribute_values              map[int64]struct{}
-	removedattribute_values       map[int64]struct{}
-	clearedattribute_values       bool
-	promo_code_usages             map[int64]struct{}
-	removedpromo_code_usages      map[int64]struct{}
-	clearedpromo_code_usages      bool
-	payment_orders                map[int64]struct{}
-	removedpayment_orders         map[int64]struct{}
-	clearedpayment_orders         bool
-	auth_identities               map[int64]struct{}
-	removedauth_identities        map[int64]struct{}
-	clearedauth_identities        bool
-	pending_auth_sessions         map[int64]struct{}
-	removedpending_auth_sessions  map[int64]struct{}
-	clearedpending_auth_sessions  bool
-	platform_quotas               map[int64]struct{}
-	removedplatform_quotas        map[int64]struct{}
-	clearedplatform_quotas        bool
-	user_roles                    map[int64]struct{}
-	removeduser_roles             map[int64]struct{}
-	cleareduser_roles             bool
-	done                          bool
-	oldValue                      func(context.Context) (*User, error)
-	predicates                    []predicate.User
+	op                                  Op
+	typ                                 string
+	id                                  *int64
+	created_at                          *time.Time
+	updated_at                          *time.Time
+	deleted_at                          *time.Time
+	email                               *string
+	password_hash                       *string
+	role                                *string
+	authz_version                       *int64
+	addauthz_version                    *int64
+	balance                             *float64
+	addbalance                          *float64
+	frozen_balance                      *float64
+	addfrozen_balance                   *float64
+	concurrency                         *int
+	addconcurrency                      *int
+	status                              *string
+	username                            *string
+	notes                               *string
+	totp_secret_encrypted               *string
+	totp_enabled                        *bool
+	totp_enabled_at                     *time.Time
+	signup_source                       *string
+	last_login_at                       *time.Time
+	last_active_at                      *time.Time
+	balance_notify_enabled              *bool
+	balance_notify_threshold_type       *string
+	balance_notify_threshold            *float64
+	addbalance_notify_threshold         *float64
+	balance_notify_extra_emails         *string
+	total_recharged                     *float64
+	addtotal_recharged                  *float64
+	rpm_limit                           *int
+	addrpm_limit                        *int
+	clearedFields                       map[string]struct{}
+	api_keys                            map[int64]struct{}
+	removedapi_keys                     map[int64]struct{}
+	clearedapi_keys                     bool
+	redeem_codes                        map[int64]struct{}
+	removedredeem_codes                 map[int64]struct{}
+	clearedredeem_codes                 bool
+	subscriptions                       map[int64]struct{}
+	removedsubscriptions                map[int64]struct{}
+	clearedsubscriptions                bool
+	assigned_subscriptions              map[int64]struct{}
+	removedassigned_subscriptions       map[int64]struct{}
+	clearedassigned_subscriptions       bool
+	announcement_reads                  map[int64]struct{}
+	removedannouncement_reads           map[int64]struct{}
+	clearedannouncement_reads           bool
+	allowed_groups                      map[int64]struct{}
+	removedallowed_groups               map[int64]struct{}
+	clearedallowed_groups               bool
+	authorization_roles                 map[int64]struct{}
+	removedauthorization_roles          map[int64]struct{}
+	clearedauthorization_roles          bool
+	usage_logs                          map[int64]struct{}
+	removedusage_logs                   map[int64]struct{}
+	clearedusage_logs                   bool
+	attribute_values                    map[int64]struct{}
+	removedattribute_values             map[int64]struct{}
+	clearedattribute_values             bool
+	promo_code_usages                   map[int64]struct{}
+	removedpromo_code_usages            map[int64]struct{}
+	clearedpromo_code_usages            bool
+	payment_orders                      map[int64]struct{}
+	removedpayment_orders               map[int64]struct{}
+	clearedpayment_orders               bool
+	auth_identities                     map[int64]struct{}
+	removedauth_identities              map[int64]struct{}
+	clearedauth_identities              bool
+	pending_auth_sessions               map[int64]struct{}
+	removedpending_auth_sessions        map[int64]struct{}
+	clearedpending_auth_sessions        bool
+	platform_quotas                     map[int64]struct{}
+	removedplatform_quotas              map[int64]struct{}
+	clearedplatform_quotas              bool
+	hosting_entitlement                 *int64
+	clearedhosting_entitlement          bool
+	created_hosting_entitlements        map[int64]struct{}
+	removedcreated_hosting_entitlements map[int64]struct{}
+	clearedcreated_hosting_entitlements bool
+	updated_hosting_entitlements        map[int64]struct{}
+	removedupdated_hosting_entitlements map[int64]struct{}
+	clearedupdated_hosting_entitlements bool
+	user_roles                          map[int64]struct{}
+	removeduser_roles                   map[int64]struct{}
+	cleareduser_roles                   bool
+	done                                bool
+	oldValue                            func(context.Context) (*User, error)
+	predicates                          []predicate.User
 }
 
 var _ ent.Mutation = (*UserMutation)(nil)
@@ -59037,6 +59047,153 @@ func (m *UserMutation) ResetPlatformQuotas() {
 	m.removedplatform_quotas = nil
 }
 
+// SetHostingEntitlementID sets the "hosting_entitlement" edge to the UserHostingEntitlement entity by id.
+func (m *UserMutation) SetHostingEntitlementID(id int64) {
+	m.hosting_entitlement = &id
+}
+
+// ClearHostingEntitlement clears the "hosting_entitlement" edge to the UserHostingEntitlement entity.
+func (m *UserMutation) ClearHostingEntitlement() {
+	m.clearedhosting_entitlement = true
+}
+
+// HostingEntitlementCleared reports if the "hosting_entitlement" edge to the UserHostingEntitlement entity was cleared.
+func (m *UserMutation) HostingEntitlementCleared() bool {
+	return m.clearedhosting_entitlement
+}
+
+// HostingEntitlementID returns the "hosting_entitlement" edge ID in the mutation.
+func (m *UserMutation) HostingEntitlementID() (id int64, exists bool) {
+	if m.hosting_entitlement != nil {
+		return *m.hosting_entitlement, true
+	}
+	return
+}
+
+// HostingEntitlementIDs returns the "hosting_entitlement" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// HostingEntitlementID instead. It exists only for internal usage by the builders.
+func (m *UserMutation) HostingEntitlementIDs() (ids []int64) {
+	if id := m.hosting_entitlement; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetHostingEntitlement resets all changes to the "hosting_entitlement" edge.
+func (m *UserMutation) ResetHostingEntitlement() {
+	m.hosting_entitlement = nil
+	m.clearedhosting_entitlement = false
+}
+
+// AddCreatedHostingEntitlementIDs adds the "created_hosting_entitlements" edge to the UserHostingEntitlement entity by ids.
+func (m *UserMutation) AddCreatedHostingEntitlementIDs(ids ...int64) {
+	if m.created_hosting_entitlements == nil {
+		m.created_hosting_entitlements = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.created_hosting_entitlements[ids[i]] = struct{}{}
+	}
+}
+
+// ClearCreatedHostingEntitlements clears the "created_hosting_entitlements" edge to the UserHostingEntitlement entity.
+func (m *UserMutation) ClearCreatedHostingEntitlements() {
+	m.clearedcreated_hosting_entitlements = true
+}
+
+// CreatedHostingEntitlementsCleared reports if the "created_hosting_entitlements" edge to the UserHostingEntitlement entity was cleared.
+func (m *UserMutation) CreatedHostingEntitlementsCleared() bool {
+	return m.clearedcreated_hosting_entitlements
+}
+
+// RemoveCreatedHostingEntitlementIDs removes the "created_hosting_entitlements" edge to the UserHostingEntitlement entity by IDs.
+func (m *UserMutation) RemoveCreatedHostingEntitlementIDs(ids ...int64) {
+	if m.removedcreated_hosting_entitlements == nil {
+		m.removedcreated_hosting_entitlements = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.created_hosting_entitlements, ids[i])
+		m.removedcreated_hosting_entitlements[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedCreatedHostingEntitlements returns the removed IDs of the "created_hosting_entitlements" edge to the UserHostingEntitlement entity.
+func (m *UserMutation) RemovedCreatedHostingEntitlementsIDs() (ids []int64) {
+	for id := range m.removedcreated_hosting_entitlements {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// CreatedHostingEntitlementsIDs returns the "created_hosting_entitlements" edge IDs in the mutation.
+func (m *UserMutation) CreatedHostingEntitlementsIDs() (ids []int64) {
+	for id := range m.created_hosting_entitlements {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetCreatedHostingEntitlements resets all changes to the "created_hosting_entitlements" edge.
+func (m *UserMutation) ResetCreatedHostingEntitlements() {
+	m.created_hosting_entitlements = nil
+	m.clearedcreated_hosting_entitlements = false
+	m.removedcreated_hosting_entitlements = nil
+}
+
+// AddUpdatedHostingEntitlementIDs adds the "updated_hosting_entitlements" edge to the UserHostingEntitlement entity by ids.
+func (m *UserMutation) AddUpdatedHostingEntitlementIDs(ids ...int64) {
+	if m.updated_hosting_entitlements == nil {
+		m.updated_hosting_entitlements = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.updated_hosting_entitlements[ids[i]] = struct{}{}
+	}
+}
+
+// ClearUpdatedHostingEntitlements clears the "updated_hosting_entitlements" edge to the UserHostingEntitlement entity.
+func (m *UserMutation) ClearUpdatedHostingEntitlements() {
+	m.clearedupdated_hosting_entitlements = true
+}
+
+// UpdatedHostingEntitlementsCleared reports if the "updated_hosting_entitlements" edge to the UserHostingEntitlement entity was cleared.
+func (m *UserMutation) UpdatedHostingEntitlementsCleared() bool {
+	return m.clearedupdated_hosting_entitlements
+}
+
+// RemoveUpdatedHostingEntitlementIDs removes the "updated_hosting_entitlements" edge to the UserHostingEntitlement entity by IDs.
+func (m *UserMutation) RemoveUpdatedHostingEntitlementIDs(ids ...int64) {
+	if m.removedupdated_hosting_entitlements == nil {
+		m.removedupdated_hosting_entitlements = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.updated_hosting_entitlements, ids[i])
+		m.removedupdated_hosting_entitlements[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedUpdatedHostingEntitlements returns the removed IDs of the "updated_hosting_entitlements" edge to the UserHostingEntitlement entity.
+func (m *UserMutation) RemovedUpdatedHostingEntitlementsIDs() (ids []int64) {
+	for id := range m.removedupdated_hosting_entitlements {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// UpdatedHostingEntitlementsIDs returns the "updated_hosting_entitlements" edge IDs in the mutation.
+func (m *UserMutation) UpdatedHostingEntitlementsIDs() (ids []int64) {
+	for id := range m.updated_hosting_entitlements {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetUpdatedHostingEntitlements resets all changes to the "updated_hosting_entitlements" edge.
+func (m *UserMutation) ResetUpdatedHostingEntitlements() {
+	m.updated_hosting_entitlements = nil
+	m.clearedupdated_hosting_entitlements = false
+	m.removedupdated_hosting_entitlements = nil
+}
+
 // AddUserRoleIDs adds the "user_roles" edge to the UserRole entity by ids.
 func (m *UserMutation) AddUserRoleIDs(ids ...int64) {
 	if m.user_roles == nil {
@@ -59758,7 +59915,7 @@ func (m *UserMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *UserMutation) AddedEdges() []string {
-	edges := make([]string, 0, 15)
+	edges := make([]string, 0, 18)
 	if m.api_keys != nil {
 		edges = append(edges, user.EdgeAPIKeys)
 	}
@@ -59800,6 +59957,15 @@ func (m *UserMutation) AddedEdges() []string {
 	}
 	if m.platform_quotas != nil {
 		edges = append(edges, user.EdgePlatformQuotas)
+	}
+	if m.hosting_entitlement != nil {
+		edges = append(edges, user.EdgeHostingEntitlement)
+	}
+	if m.created_hosting_entitlements != nil {
+		edges = append(edges, user.EdgeCreatedHostingEntitlements)
+	}
+	if m.updated_hosting_entitlements != nil {
+		edges = append(edges, user.EdgeUpdatedHostingEntitlements)
 	}
 	if m.user_roles != nil {
 		edges = append(edges, user.EdgeUserRoles)
@@ -59895,6 +60061,22 @@ func (m *UserMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case user.EdgeHostingEntitlement:
+		if id := m.hosting_entitlement; id != nil {
+			return []ent.Value{*id}
+		}
+	case user.EdgeCreatedHostingEntitlements:
+		ids := make([]ent.Value, 0, len(m.created_hosting_entitlements))
+		for id := range m.created_hosting_entitlements {
+			ids = append(ids, id)
+		}
+		return ids
+	case user.EdgeUpdatedHostingEntitlements:
+		ids := make([]ent.Value, 0, len(m.updated_hosting_entitlements))
+		for id := range m.updated_hosting_entitlements {
+			ids = append(ids, id)
+		}
+		return ids
 	case user.EdgeUserRoles:
 		ids := make([]ent.Value, 0, len(m.user_roles))
 		for id := range m.user_roles {
@@ -59907,7 +60089,7 @@ func (m *UserMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *UserMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 15)
+	edges := make([]string, 0, 18)
 	if m.removedapi_keys != nil {
 		edges = append(edges, user.EdgeAPIKeys)
 	}
@@ -59949,6 +60131,12 @@ func (m *UserMutation) RemovedEdges() []string {
 	}
 	if m.removedplatform_quotas != nil {
 		edges = append(edges, user.EdgePlatformQuotas)
+	}
+	if m.removedcreated_hosting_entitlements != nil {
+		edges = append(edges, user.EdgeCreatedHostingEntitlements)
+	}
+	if m.removedupdated_hosting_entitlements != nil {
+		edges = append(edges, user.EdgeUpdatedHostingEntitlements)
 	}
 	if m.removeduser_roles != nil {
 		edges = append(edges, user.EdgeUserRoles)
@@ -60044,6 +60232,18 @@ func (m *UserMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case user.EdgeCreatedHostingEntitlements:
+		ids := make([]ent.Value, 0, len(m.removedcreated_hosting_entitlements))
+		for id := range m.removedcreated_hosting_entitlements {
+			ids = append(ids, id)
+		}
+		return ids
+	case user.EdgeUpdatedHostingEntitlements:
+		ids := make([]ent.Value, 0, len(m.removedupdated_hosting_entitlements))
+		for id := range m.removedupdated_hosting_entitlements {
+			ids = append(ids, id)
+		}
+		return ids
 	case user.EdgeUserRoles:
 		ids := make([]ent.Value, 0, len(m.removeduser_roles))
 		for id := range m.removeduser_roles {
@@ -60056,7 +60256,7 @@ func (m *UserMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *UserMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 15)
+	edges := make([]string, 0, 18)
 	if m.clearedapi_keys {
 		edges = append(edges, user.EdgeAPIKeys)
 	}
@@ -60099,6 +60299,15 @@ func (m *UserMutation) ClearedEdges() []string {
 	if m.clearedplatform_quotas {
 		edges = append(edges, user.EdgePlatformQuotas)
 	}
+	if m.clearedhosting_entitlement {
+		edges = append(edges, user.EdgeHostingEntitlement)
+	}
+	if m.clearedcreated_hosting_entitlements {
+		edges = append(edges, user.EdgeCreatedHostingEntitlements)
+	}
+	if m.clearedupdated_hosting_entitlements {
+		edges = append(edges, user.EdgeUpdatedHostingEntitlements)
+	}
 	if m.cleareduser_roles {
 		edges = append(edges, user.EdgeUserRoles)
 	}
@@ -60137,6 +60346,12 @@ func (m *UserMutation) EdgeCleared(name string) bool {
 		return m.clearedpending_auth_sessions
 	case user.EdgePlatformQuotas:
 		return m.clearedplatform_quotas
+	case user.EdgeHostingEntitlement:
+		return m.clearedhosting_entitlement
+	case user.EdgeCreatedHostingEntitlements:
+		return m.clearedcreated_hosting_entitlements
+	case user.EdgeUpdatedHostingEntitlements:
+		return m.clearedupdated_hosting_entitlements
 	case user.EdgeUserRoles:
 		return m.cleareduser_roles
 	}
@@ -60147,6 +60362,9 @@ func (m *UserMutation) EdgeCleared(name string) bool {
 // if that edge is not defined in the schema.
 func (m *UserMutation) ClearEdge(name string) error {
 	switch name {
+	case user.EdgeHostingEntitlement:
+		m.ClearHostingEntitlement()
+		return nil
 	}
 	return fmt.Errorf("unknown User unique edge %s", name)
 }
@@ -60196,6 +60414,15 @@ func (m *UserMutation) ResetEdge(name string) error {
 		return nil
 	case user.EdgePlatformQuotas:
 		m.ResetPlatformQuotas()
+		return nil
+	case user.EdgeHostingEntitlement:
+		m.ResetHostingEntitlement()
+		return nil
+	case user.EdgeCreatedHostingEntitlements:
+		m.ResetCreatedHostingEntitlements()
+		return nil
+	case user.EdgeUpdatedHostingEntitlements:
+		m.ResetUpdatedHostingEntitlements()
 		return nil
 	case user.EdgeUserRoles:
 		m.ResetUserRoles()
@@ -62418,6 +62645,984 @@ func (m *UserAttributeValueMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown UserAttributeValue edge %s", name)
+}
+
+// UserHostingEntitlementMutation represents an operation that mutates the UserHostingEntitlement nodes in the graph.
+type UserHostingEntitlementMutation struct {
+	config
+	op                Op
+	typ               string
+	id                *int64
+	created_at        *time.Time
+	updated_at        *time.Time
+	account_limit     *int64
+	addaccount_limit  *int64
+	group_limit       *int64
+	addgroup_limit    *int64
+	version           *int64
+	addversion        *int64
+	clearedFields     map[string]struct{}
+	user              *int64
+	cleareduser       bool
+	created_by        *int64
+	clearedcreated_by bool
+	updated_by        *int64
+	clearedupdated_by bool
+	done              bool
+	oldValue          func(context.Context) (*UserHostingEntitlement, error)
+	predicates        []predicate.UserHostingEntitlement
+}
+
+var _ ent.Mutation = (*UserHostingEntitlementMutation)(nil)
+
+// userhostingentitlementOption allows management of the mutation configuration using functional options.
+type userhostingentitlementOption func(*UserHostingEntitlementMutation)
+
+// newUserHostingEntitlementMutation creates new mutation for the UserHostingEntitlement entity.
+func newUserHostingEntitlementMutation(c config, op Op, opts ...userhostingentitlementOption) *UserHostingEntitlementMutation {
+	m := &UserHostingEntitlementMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeUserHostingEntitlement,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withUserHostingEntitlementID sets the ID field of the mutation.
+func withUserHostingEntitlementID(id int64) userhostingentitlementOption {
+	return func(m *UserHostingEntitlementMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *UserHostingEntitlement
+		)
+		m.oldValue = func(ctx context.Context) (*UserHostingEntitlement, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().UserHostingEntitlement.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withUserHostingEntitlement sets the old UserHostingEntitlement of the mutation.
+func withUserHostingEntitlement(node *UserHostingEntitlement) userhostingentitlementOption {
+	return func(m *UserHostingEntitlementMutation) {
+		m.oldValue = func(context.Context) (*UserHostingEntitlement, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m UserHostingEntitlementMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m UserHostingEntitlementMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *UserHostingEntitlementMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *UserHostingEntitlementMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().UserHostingEntitlement.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *UserHostingEntitlementMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *UserHostingEntitlementMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the UserHostingEntitlement entity.
+// If the UserHostingEntitlement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserHostingEntitlementMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *UserHostingEntitlementMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *UserHostingEntitlementMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *UserHostingEntitlementMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the UserHostingEntitlement entity.
+// If the UserHostingEntitlement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserHostingEntitlementMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *UserHostingEntitlementMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetUserID sets the "user_id" field.
+func (m *UserHostingEntitlementMutation) SetUserID(i int64) {
+	m.user = &i
+}
+
+// UserID returns the value of the "user_id" field in the mutation.
+func (m *UserHostingEntitlementMutation) UserID() (r int64, exists bool) {
+	v := m.user
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUserID returns the old "user_id" field's value of the UserHostingEntitlement entity.
+// If the UserHostingEntitlement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserHostingEntitlementMutation) OldUserID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUserID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUserID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUserID: %w", err)
+	}
+	return oldValue.UserID, nil
+}
+
+// ResetUserID resets all changes to the "user_id" field.
+func (m *UserHostingEntitlementMutation) ResetUserID() {
+	m.user = nil
+}
+
+// SetAccountLimit sets the "account_limit" field.
+func (m *UserHostingEntitlementMutation) SetAccountLimit(i int64) {
+	m.account_limit = &i
+	m.addaccount_limit = nil
+}
+
+// AccountLimit returns the value of the "account_limit" field in the mutation.
+func (m *UserHostingEntitlementMutation) AccountLimit() (r int64, exists bool) {
+	v := m.account_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountLimit returns the old "account_limit" field's value of the UserHostingEntitlement entity.
+// If the UserHostingEntitlement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserHostingEntitlementMutation) OldAccountLimit(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountLimit is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountLimit requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountLimit: %w", err)
+	}
+	return oldValue.AccountLimit, nil
+}
+
+// AddAccountLimit adds i to the "account_limit" field.
+func (m *UserHostingEntitlementMutation) AddAccountLimit(i int64) {
+	if m.addaccount_limit != nil {
+		*m.addaccount_limit += i
+	} else {
+		m.addaccount_limit = &i
+	}
+}
+
+// AddedAccountLimit returns the value that was added to the "account_limit" field in this mutation.
+func (m *UserHostingEntitlementMutation) AddedAccountLimit() (r int64, exists bool) {
+	v := m.addaccount_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAccountLimit resets all changes to the "account_limit" field.
+func (m *UserHostingEntitlementMutation) ResetAccountLimit() {
+	m.account_limit = nil
+	m.addaccount_limit = nil
+}
+
+// SetGroupLimit sets the "group_limit" field.
+func (m *UserHostingEntitlementMutation) SetGroupLimit(i int64) {
+	m.group_limit = &i
+	m.addgroup_limit = nil
+}
+
+// GroupLimit returns the value of the "group_limit" field in the mutation.
+func (m *UserHostingEntitlementMutation) GroupLimit() (r int64, exists bool) {
+	v := m.group_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldGroupLimit returns the old "group_limit" field's value of the UserHostingEntitlement entity.
+// If the UserHostingEntitlement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserHostingEntitlementMutation) OldGroupLimit(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldGroupLimit is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldGroupLimit requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldGroupLimit: %w", err)
+	}
+	return oldValue.GroupLimit, nil
+}
+
+// AddGroupLimit adds i to the "group_limit" field.
+func (m *UserHostingEntitlementMutation) AddGroupLimit(i int64) {
+	if m.addgroup_limit != nil {
+		*m.addgroup_limit += i
+	} else {
+		m.addgroup_limit = &i
+	}
+}
+
+// AddedGroupLimit returns the value that was added to the "group_limit" field in this mutation.
+func (m *UserHostingEntitlementMutation) AddedGroupLimit() (r int64, exists bool) {
+	v := m.addgroup_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetGroupLimit resets all changes to the "group_limit" field.
+func (m *UserHostingEntitlementMutation) ResetGroupLimit() {
+	m.group_limit = nil
+	m.addgroup_limit = nil
+}
+
+// SetVersion sets the "version" field.
+func (m *UserHostingEntitlementMutation) SetVersion(i int64) {
+	m.version = &i
+	m.addversion = nil
+}
+
+// Version returns the value of the "version" field in the mutation.
+func (m *UserHostingEntitlementMutation) Version() (r int64, exists bool) {
+	v := m.version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVersion returns the old "version" field's value of the UserHostingEntitlement entity.
+// If the UserHostingEntitlement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserHostingEntitlementMutation) OldVersion(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVersion: %w", err)
+	}
+	return oldValue.Version, nil
+}
+
+// AddVersion adds i to the "version" field.
+func (m *UserHostingEntitlementMutation) AddVersion(i int64) {
+	if m.addversion != nil {
+		*m.addversion += i
+	} else {
+		m.addversion = &i
+	}
+}
+
+// AddedVersion returns the value that was added to the "version" field in this mutation.
+func (m *UserHostingEntitlementMutation) AddedVersion() (r int64, exists bool) {
+	v := m.addversion
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetVersion resets all changes to the "version" field.
+func (m *UserHostingEntitlementMutation) ResetVersion() {
+	m.version = nil
+	m.addversion = nil
+}
+
+// SetCreatedByUserID sets the "created_by_user_id" field.
+func (m *UserHostingEntitlementMutation) SetCreatedByUserID(i int64) {
+	m.created_by = &i
+}
+
+// CreatedByUserID returns the value of the "created_by_user_id" field in the mutation.
+func (m *UserHostingEntitlementMutation) CreatedByUserID() (r int64, exists bool) {
+	v := m.created_by
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedByUserID returns the old "created_by_user_id" field's value of the UserHostingEntitlement entity.
+// If the UserHostingEntitlement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserHostingEntitlementMutation) OldCreatedByUserID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedByUserID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedByUserID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedByUserID: %w", err)
+	}
+	return oldValue.CreatedByUserID, nil
+}
+
+// ResetCreatedByUserID resets all changes to the "created_by_user_id" field.
+func (m *UserHostingEntitlementMutation) ResetCreatedByUserID() {
+	m.created_by = nil
+}
+
+// SetUpdatedByUserID sets the "updated_by_user_id" field.
+func (m *UserHostingEntitlementMutation) SetUpdatedByUserID(i int64) {
+	m.updated_by = &i
+}
+
+// UpdatedByUserID returns the value of the "updated_by_user_id" field in the mutation.
+func (m *UserHostingEntitlementMutation) UpdatedByUserID() (r int64, exists bool) {
+	v := m.updated_by
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedByUserID returns the old "updated_by_user_id" field's value of the UserHostingEntitlement entity.
+// If the UserHostingEntitlement object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserHostingEntitlementMutation) OldUpdatedByUserID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedByUserID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedByUserID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedByUserID: %w", err)
+	}
+	return oldValue.UpdatedByUserID, nil
+}
+
+// ResetUpdatedByUserID resets all changes to the "updated_by_user_id" field.
+func (m *UserHostingEntitlementMutation) ResetUpdatedByUserID() {
+	m.updated_by = nil
+}
+
+// ClearUser clears the "user" edge to the User entity.
+func (m *UserHostingEntitlementMutation) ClearUser() {
+	m.cleareduser = true
+	m.clearedFields[userhostingentitlement.FieldUserID] = struct{}{}
+}
+
+// UserCleared reports if the "user" edge to the User entity was cleared.
+func (m *UserHostingEntitlementMutation) UserCleared() bool {
+	return m.cleareduser
+}
+
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
+func (m *UserHostingEntitlementMutation) UserIDs() (ids []int64) {
+	if id := m.user; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetUser resets all changes to the "user" edge.
+func (m *UserHostingEntitlementMutation) ResetUser() {
+	m.user = nil
+	m.cleareduser = false
+}
+
+// SetCreatedByID sets the "created_by" edge to the User entity by id.
+func (m *UserHostingEntitlementMutation) SetCreatedByID(id int64) {
+	m.created_by = &id
+}
+
+// ClearCreatedBy clears the "created_by" edge to the User entity.
+func (m *UserHostingEntitlementMutation) ClearCreatedBy() {
+	m.clearedcreated_by = true
+	m.clearedFields[userhostingentitlement.FieldCreatedByUserID] = struct{}{}
+}
+
+// CreatedByCleared reports if the "created_by" edge to the User entity was cleared.
+func (m *UserHostingEntitlementMutation) CreatedByCleared() bool {
+	return m.clearedcreated_by
+}
+
+// CreatedByID returns the "created_by" edge ID in the mutation.
+func (m *UserHostingEntitlementMutation) CreatedByID() (id int64, exists bool) {
+	if m.created_by != nil {
+		return *m.created_by, true
+	}
+	return
+}
+
+// CreatedByIDs returns the "created_by" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// CreatedByID instead. It exists only for internal usage by the builders.
+func (m *UserHostingEntitlementMutation) CreatedByIDs() (ids []int64) {
+	if id := m.created_by; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetCreatedBy resets all changes to the "created_by" edge.
+func (m *UserHostingEntitlementMutation) ResetCreatedBy() {
+	m.created_by = nil
+	m.clearedcreated_by = false
+}
+
+// SetUpdatedByID sets the "updated_by" edge to the User entity by id.
+func (m *UserHostingEntitlementMutation) SetUpdatedByID(id int64) {
+	m.updated_by = &id
+}
+
+// ClearUpdatedBy clears the "updated_by" edge to the User entity.
+func (m *UserHostingEntitlementMutation) ClearUpdatedBy() {
+	m.clearedupdated_by = true
+	m.clearedFields[userhostingentitlement.FieldUpdatedByUserID] = struct{}{}
+}
+
+// UpdatedByCleared reports if the "updated_by" edge to the User entity was cleared.
+func (m *UserHostingEntitlementMutation) UpdatedByCleared() bool {
+	return m.clearedupdated_by
+}
+
+// UpdatedByID returns the "updated_by" edge ID in the mutation.
+func (m *UserHostingEntitlementMutation) UpdatedByID() (id int64, exists bool) {
+	if m.updated_by != nil {
+		return *m.updated_by, true
+	}
+	return
+}
+
+// UpdatedByIDs returns the "updated_by" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UpdatedByID instead. It exists only for internal usage by the builders.
+func (m *UserHostingEntitlementMutation) UpdatedByIDs() (ids []int64) {
+	if id := m.updated_by; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetUpdatedBy resets all changes to the "updated_by" edge.
+func (m *UserHostingEntitlementMutation) ResetUpdatedBy() {
+	m.updated_by = nil
+	m.clearedupdated_by = false
+}
+
+// Where appends a list predicates to the UserHostingEntitlementMutation builder.
+func (m *UserHostingEntitlementMutation) Where(ps ...predicate.UserHostingEntitlement) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the UserHostingEntitlementMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *UserHostingEntitlementMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.UserHostingEntitlement, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *UserHostingEntitlementMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *UserHostingEntitlementMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (UserHostingEntitlement).
+func (m *UserHostingEntitlementMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *UserHostingEntitlementMutation) Fields() []string {
+	fields := make([]string, 0, 8)
+	if m.created_at != nil {
+		fields = append(fields, userhostingentitlement.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, userhostingentitlement.FieldUpdatedAt)
+	}
+	if m.user != nil {
+		fields = append(fields, userhostingentitlement.FieldUserID)
+	}
+	if m.account_limit != nil {
+		fields = append(fields, userhostingentitlement.FieldAccountLimit)
+	}
+	if m.group_limit != nil {
+		fields = append(fields, userhostingentitlement.FieldGroupLimit)
+	}
+	if m.version != nil {
+		fields = append(fields, userhostingentitlement.FieldVersion)
+	}
+	if m.created_by != nil {
+		fields = append(fields, userhostingentitlement.FieldCreatedByUserID)
+	}
+	if m.updated_by != nil {
+		fields = append(fields, userhostingentitlement.FieldUpdatedByUserID)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *UserHostingEntitlementMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case userhostingentitlement.FieldCreatedAt:
+		return m.CreatedAt()
+	case userhostingentitlement.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case userhostingentitlement.FieldUserID:
+		return m.UserID()
+	case userhostingentitlement.FieldAccountLimit:
+		return m.AccountLimit()
+	case userhostingentitlement.FieldGroupLimit:
+		return m.GroupLimit()
+	case userhostingentitlement.FieldVersion:
+		return m.Version()
+	case userhostingentitlement.FieldCreatedByUserID:
+		return m.CreatedByUserID()
+	case userhostingentitlement.FieldUpdatedByUserID:
+		return m.UpdatedByUserID()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *UserHostingEntitlementMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case userhostingentitlement.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case userhostingentitlement.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case userhostingentitlement.FieldUserID:
+		return m.OldUserID(ctx)
+	case userhostingentitlement.FieldAccountLimit:
+		return m.OldAccountLimit(ctx)
+	case userhostingentitlement.FieldGroupLimit:
+		return m.OldGroupLimit(ctx)
+	case userhostingentitlement.FieldVersion:
+		return m.OldVersion(ctx)
+	case userhostingentitlement.FieldCreatedByUserID:
+		return m.OldCreatedByUserID(ctx)
+	case userhostingentitlement.FieldUpdatedByUserID:
+		return m.OldUpdatedByUserID(ctx)
+	}
+	return nil, fmt.Errorf("unknown UserHostingEntitlement field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *UserHostingEntitlementMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case userhostingentitlement.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case userhostingentitlement.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case userhostingentitlement.FieldUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUserID(v)
+		return nil
+	case userhostingentitlement.FieldAccountLimit:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountLimit(v)
+		return nil
+	case userhostingentitlement.FieldGroupLimit:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetGroupLimit(v)
+		return nil
+	case userhostingentitlement.FieldVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVersion(v)
+		return nil
+	case userhostingentitlement.FieldCreatedByUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedByUserID(v)
+		return nil
+	case userhostingentitlement.FieldUpdatedByUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedByUserID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown UserHostingEntitlement field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *UserHostingEntitlementMutation) AddedFields() []string {
+	var fields []string
+	if m.addaccount_limit != nil {
+		fields = append(fields, userhostingentitlement.FieldAccountLimit)
+	}
+	if m.addgroup_limit != nil {
+		fields = append(fields, userhostingentitlement.FieldGroupLimit)
+	}
+	if m.addversion != nil {
+		fields = append(fields, userhostingentitlement.FieldVersion)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *UserHostingEntitlementMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case userhostingentitlement.FieldAccountLimit:
+		return m.AddedAccountLimit()
+	case userhostingentitlement.FieldGroupLimit:
+		return m.AddedGroupLimit()
+	case userhostingentitlement.FieldVersion:
+		return m.AddedVersion()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *UserHostingEntitlementMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case userhostingentitlement.FieldAccountLimit:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAccountLimit(v)
+		return nil
+	case userhostingentitlement.FieldGroupLimit:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddGroupLimit(v)
+		return nil
+	case userhostingentitlement.FieldVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddVersion(v)
+		return nil
+	}
+	return fmt.Errorf("unknown UserHostingEntitlement numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *UserHostingEntitlementMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *UserHostingEntitlementMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *UserHostingEntitlementMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown UserHostingEntitlement nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *UserHostingEntitlementMutation) ResetField(name string) error {
+	switch name {
+	case userhostingentitlement.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case userhostingentitlement.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case userhostingentitlement.FieldUserID:
+		m.ResetUserID()
+		return nil
+	case userhostingentitlement.FieldAccountLimit:
+		m.ResetAccountLimit()
+		return nil
+	case userhostingentitlement.FieldGroupLimit:
+		m.ResetGroupLimit()
+		return nil
+	case userhostingentitlement.FieldVersion:
+		m.ResetVersion()
+		return nil
+	case userhostingentitlement.FieldCreatedByUserID:
+		m.ResetCreatedByUserID()
+		return nil
+	case userhostingentitlement.FieldUpdatedByUserID:
+		m.ResetUpdatedByUserID()
+		return nil
+	}
+	return fmt.Errorf("unknown UserHostingEntitlement field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *UserHostingEntitlementMutation) AddedEdges() []string {
+	edges := make([]string, 0, 3)
+	if m.user != nil {
+		edges = append(edges, userhostingentitlement.EdgeUser)
+	}
+	if m.created_by != nil {
+		edges = append(edges, userhostingentitlement.EdgeCreatedBy)
+	}
+	if m.updated_by != nil {
+		edges = append(edges, userhostingentitlement.EdgeUpdatedBy)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *UserHostingEntitlementMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case userhostingentitlement.EdgeUser:
+		if id := m.user; id != nil {
+			return []ent.Value{*id}
+		}
+	case userhostingentitlement.EdgeCreatedBy:
+		if id := m.created_by; id != nil {
+			return []ent.Value{*id}
+		}
+	case userhostingentitlement.EdgeUpdatedBy:
+		if id := m.updated_by; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *UserHostingEntitlementMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 3)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *UserHostingEntitlementMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *UserHostingEntitlementMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 3)
+	if m.cleareduser {
+		edges = append(edges, userhostingentitlement.EdgeUser)
+	}
+	if m.clearedcreated_by {
+		edges = append(edges, userhostingentitlement.EdgeCreatedBy)
+	}
+	if m.clearedupdated_by {
+		edges = append(edges, userhostingentitlement.EdgeUpdatedBy)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *UserHostingEntitlementMutation) EdgeCleared(name string) bool {
+	switch name {
+	case userhostingentitlement.EdgeUser:
+		return m.cleareduser
+	case userhostingentitlement.EdgeCreatedBy:
+		return m.clearedcreated_by
+	case userhostingentitlement.EdgeUpdatedBy:
+		return m.clearedupdated_by
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *UserHostingEntitlementMutation) ClearEdge(name string) error {
+	switch name {
+	case userhostingentitlement.EdgeUser:
+		m.ClearUser()
+		return nil
+	case userhostingentitlement.EdgeCreatedBy:
+		m.ClearCreatedBy()
+		return nil
+	case userhostingentitlement.EdgeUpdatedBy:
+		m.ClearUpdatedBy()
+		return nil
+	}
+	return fmt.Errorf("unknown UserHostingEntitlement unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *UserHostingEntitlementMutation) ResetEdge(name string) error {
+	switch name {
+	case userhostingentitlement.EdgeUser:
+		m.ResetUser()
+		return nil
+	case userhostingentitlement.EdgeCreatedBy:
+		m.ResetCreatedBy()
+		return nil
+	case userhostingentitlement.EdgeUpdatedBy:
+		m.ResetUpdatedBy()
+		return nil
+	}
+	return fmt.Errorf("unknown UserHostingEntitlement edge %s", name)
 }
 
 // UserPlatformQuotaMutation represents an operation that mutates the UserPlatformQuota nodes in the graph.

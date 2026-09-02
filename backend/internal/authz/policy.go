@@ -107,6 +107,14 @@ func (s *PolicyService) CanCreate(ctx context.Context, actor Actor, resourceType
 			roleShadowDecisionOutcome(legacy),
 			roleShadowDecisionOutcome(rbac),
 		))
+		// Account and Group self-service creation has no legacy user surface.
+		// During shadow, an ordinary JWT user may therefore use the RBAC create
+		// decision while legacy administrators and service principals retain the
+		// existing legacy result. Other policy operations remain legacy-authoritative.
+		if actor.Kind() == SubjectKindUser &&
+			!hasLegacyAdminAuthorityForMode(actor, snapshot, RoleAuthorizationModeLegacy) {
+			return rbac, nil
+		}
 		return legacy, nil
 	}
 	return canCreateDecisionForMode(actor, snapshot, capability, snapshot.Configuration().RoleMode()), nil

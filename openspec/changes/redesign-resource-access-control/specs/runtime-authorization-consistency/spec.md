@@ -48,10 +48,15 @@ Responses WebSocket 的每个新 turn、粘性会话 retry/fallback 和 queued �
 - **THEN** 系统 MUST 不复用旧快照选择已无权使用的帐号
 
 ### Requirement: 授权权威源必须按状态机渐进切换
-角色授权 SHALL 使用 `legacy/shadow/rbac`；分组消费授权 SHALL 使用 `legacy/shadow/acl`。legacy/shadow 阶段响应由旧来源决定，shadow 只记录差异；rbac/acl 阶段旧字段和旧表 MUST 不再参与允许判定。
+角色授权 SHALL 使用 `legacy/shadow/rbac`；分组消费授权 SHALL 使用 `legacy/shadow/acl`。legacy/shadow 阶段默认由旧来源决定并记录差异；唯一例外是普通 JWT 用户的 Account/Group `CanCreate` 在 shadow 下采用 RBAC 结果。rbac/acl 阶段旧字段和旧表 MUST 不再参与允许判定。
+
+#### Scenario: shadow 下普通用户创建采用窄 RBAC 结果
+- **WHEN** 普通 JWT 用户在 role shadow 下请求 Account 或 Group `CanCreate`
+- **THEN** 系统 MUST 使用 RBAC 创建能力结果，并继续要求总开关、self-service、主体状态、hoster 资格和事务内配额全部满足
+- **THEN** 管理员、Service Principal、其他 Policy API 和其他资源类型 MUST 继续使用 legacy 响应
 
 #### Scenario: shadow 比较发现差异
-- **WHEN** 新旧授权结果不同
+- **WHEN** 上述普通用户 Account/Group `CanCreate` 例外之外的新旧授权结果不同
 - **THEN** 系统 MUST 继续使用旧权威源响应并记录脱敏差异
 - **THEN** 该批次 MUST NOT 切换到新权威源
 

@@ -61,6 +61,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/userallowedgroup"
 	"github.com/Wei-Shaw/sub2api/ent/userattributedefinition"
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
+	"github.com/Wei-Shaw/sub2api/ent/userhostingentitlement"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
 	"github.com/Wei-Shaw/sub2api/ent/userrole"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
@@ -165,6 +166,8 @@ type Client struct {
 	UserAttributeDefinition *UserAttributeDefinitionClient
 	// UserAttributeValue is the client for interacting with the UserAttributeValue builders.
 	UserAttributeValue *UserAttributeValueClient
+	// UserHostingEntitlement is the client for interacting with the UserHostingEntitlement builders.
+	UserHostingEntitlement *UserHostingEntitlementClient
 	// UserPlatformQuota is the client for interacting with the UserPlatformQuota builders.
 	UserPlatformQuota *UserPlatformQuotaClient
 	// UserRole is the client for interacting with the UserRole builders.
@@ -228,6 +231,7 @@ func (c *Client) init() {
 	c.UserAllowedGroup = NewUserAllowedGroupClient(c.config)
 	c.UserAttributeDefinition = NewUserAttributeDefinitionClient(c.config)
 	c.UserAttributeValue = NewUserAttributeValueClient(c.config)
+	c.UserHostingEntitlement = NewUserHostingEntitlementClient(c.config)
 	c.UserPlatformQuota = NewUserPlatformQuotaClient(c.config)
 	c.UserRole = NewUserRoleClient(c.config)
 	c.UserSubscription = NewUserSubscriptionClient(c.config)
@@ -369,6 +373,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		UserAllowedGroup:                 NewUserAllowedGroupClient(cfg),
 		UserAttributeDefinition:          NewUserAttributeDefinitionClient(cfg),
 		UserAttributeValue:               NewUserAttributeValueClient(cfg),
+		UserHostingEntitlement:           NewUserHostingEntitlementClient(cfg),
 		UserPlatformQuota:                NewUserPlatformQuotaClient(cfg),
 		UserRole:                         NewUserRoleClient(cfg),
 		UserSubscription:                 NewUserSubscriptionClient(cfg),
@@ -437,6 +442,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		UserAllowedGroup:                 NewUserAllowedGroupClient(cfg),
 		UserAttributeDefinition:          NewUserAttributeDefinitionClient(cfg),
 		UserAttributeValue:               NewUserAttributeValueClient(cfg),
+		UserHostingEntitlement:           NewUserHostingEntitlementClient(cfg),
 		UserPlatformQuota:                NewUserPlatformQuotaClient(cfg),
 		UserRole:                         NewUserRoleClient(cfg),
 		UserSubscription:                 NewUserSubscriptionClient(cfg),
@@ -482,7 +488,7 @@ func (c *Client) Use(hooks ...Hook) {
 		c.ServicePrincipalWorkerPermission, c.Setting, c.SubscriptionPlan,
 		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
 		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
-		c.UserPlatformQuota, c.UserRole, c.UserSubscription,
+		c.UserHostingEntitlement, c.UserPlatformQuota, c.UserRole, c.UserSubscription,
 	} {
 		n.Use(hooks...)
 	}
@@ -505,7 +511,7 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.ServicePrincipalWorkerPermission, c.Setting, c.SubscriptionPlan,
 		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
 		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
-		c.UserPlatformQuota, c.UserRole, c.UserSubscription,
+		c.UserHostingEntitlement, c.UserPlatformQuota, c.UserRole, c.UserSubscription,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -606,6 +612,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.UserAttributeDefinition.mutate(ctx, m)
 	case *UserAttributeValueMutation:
 		return c.UserAttributeValue.mutate(ctx, m)
+	case *UserHostingEntitlementMutation:
+		return c.UserHostingEntitlement.mutate(ctx, m)
 	case *UserPlatformQuotaMutation:
 		return c.UserPlatformQuota.mutate(ctx, m)
 	case *UserRoleMutation:
@@ -7838,6 +7846,54 @@ func (c *UserClient) QueryPlatformQuotas(_m *User) *UserPlatformQuotaQuery {
 	return query
 }
 
+// QueryHostingEntitlement queries the hosting_entitlement edge of a User.
+func (c *UserClient) QueryHostingEntitlement(_m *User) *UserHostingEntitlementQuery {
+	query := (&UserHostingEntitlementClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, id),
+			sqlgraph.To(userhostingentitlement.Table, userhostingentitlement.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, user.HostingEntitlementTable, user.HostingEntitlementColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryCreatedHostingEntitlements queries the created_hosting_entitlements edge of a User.
+func (c *UserClient) QueryCreatedHostingEntitlements(_m *User) *UserHostingEntitlementQuery {
+	query := (&UserHostingEntitlementClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, id),
+			sqlgraph.To(userhostingentitlement.Table, userhostingentitlement.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.CreatedHostingEntitlementsTable, user.CreatedHostingEntitlementsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryUpdatedHostingEntitlements queries the updated_hosting_entitlements edge of a User.
+func (c *UserClient) QueryUpdatedHostingEntitlements(_m *User) *UserHostingEntitlementQuery {
+	query := (&UserHostingEntitlementClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, id),
+			sqlgraph.To(userhostingentitlement.Table, userhostingentitlement.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.UpdatedHostingEntitlementsTable, user.UpdatedHostingEntitlementsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryUserAllowedGroups queries the user_allowed_groups edge of a User.
 func (c *UserClient) QueryUserAllowedGroups(_m *User) *UserAllowedGroupQuery {
 	query := (&UserAllowedGroupClient{config: c.config}).Query()
@@ -8326,6 +8382,187 @@ func (c *UserAttributeValueClient) mutate(ctx context.Context, m *UserAttributeV
 		return (&UserAttributeValueDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown UserAttributeValue mutation op: %q", m.Op())
+	}
+}
+
+// UserHostingEntitlementClient is a client for the UserHostingEntitlement schema.
+type UserHostingEntitlementClient struct {
+	config
+}
+
+// NewUserHostingEntitlementClient returns a client for the UserHostingEntitlement from the given config.
+func NewUserHostingEntitlementClient(c config) *UserHostingEntitlementClient {
+	return &UserHostingEntitlementClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `userhostingentitlement.Hooks(f(g(h())))`.
+func (c *UserHostingEntitlementClient) Use(hooks ...Hook) {
+	c.hooks.UserHostingEntitlement = append(c.hooks.UserHostingEntitlement, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `userhostingentitlement.Intercept(f(g(h())))`.
+func (c *UserHostingEntitlementClient) Intercept(interceptors ...Interceptor) {
+	c.inters.UserHostingEntitlement = append(c.inters.UserHostingEntitlement, interceptors...)
+}
+
+// Create returns a builder for creating a UserHostingEntitlement entity.
+func (c *UserHostingEntitlementClient) Create() *UserHostingEntitlementCreate {
+	mutation := newUserHostingEntitlementMutation(c.config, OpCreate)
+	return &UserHostingEntitlementCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of UserHostingEntitlement entities.
+func (c *UserHostingEntitlementClient) CreateBulk(builders ...*UserHostingEntitlementCreate) *UserHostingEntitlementCreateBulk {
+	return &UserHostingEntitlementCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *UserHostingEntitlementClient) MapCreateBulk(slice any, setFunc func(*UserHostingEntitlementCreate, int)) *UserHostingEntitlementCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &UserHostingEntitlementCreateBulk{err: fmt.Errorf("calling to UserHostingEntitlementClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*UserHostingEntitlementCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &UserHostingEntitlementCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for UserHostingEntitlement.
+func (c *UserHostingEntitlementClient) Update() *UserHostingEntitlementUpdate {
+	mutation := newUserHostingEntitlementMutation(c.config, OpUpdate)
+	return &UserHostingEntitlementUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *UserHostingEntitlementClient) UpdateOne(_m *UserHostingEntitlement) *UserHostingEntitlementUpdateOne {
+	mutation := newUserHostingEntitlementMutation(c.config, OpUpdateOne, withUserHostingEntitlement(_m))
+	return &UserHostingEntitlementUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *UserHostingEntitlementClient) UpdateOneID(id int64) *UserHostingEntitlementUpdateOne {
+	mutation := newUserHostingEntitlementMutation(c.config, OpUpdateOne, withUserHostingEntitlementID(id))
+	return &UserHostingEntitlementUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for UserHostingEntitlement.
+func (c *UserHostingEntitlementClient) Delete() *UserHostingEntitlementDelete {
+	mutation := newUserHostingEntitlementMutation(c.config, OpDelete)
+	return &UserHostingEntitlementDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *UserHostingEntitlementClient) DeleteOne(_m *UserHostingEntitlement) *UserHostingEntitlementDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *UserHostingEntitlementClient) DeleteOneID(id int64) *UserHostingEntitlementDeleteOne {
+	builder := c.Delete().Where(userhostingentitlement.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &UserHostingEntitlementDeleteOne{builder}
+}
+
+// Query returns a query builder for UserHostingEntitlement.
+func (c *UserHostingEntitlementClient) Query() *UserHostingEntitlementQuery {
+	return &UserHostingEntitlementQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeUserHostingEntitlement},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a UserHostingEntitlement entity by its id.
+func (c *UserHostingEntitlementClient) Get(ctx context.Context, id int64) (*UserHostingEntitlement, error) {
+	return c.Query().Where(userhostingentitlement.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *UserHostingEntitlementClient) GetX(ctx context.Context, id int64) *UserHostingEntitlement {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryUser queries the user edge of a UserHostingEntitlement.
+func (c *UserHostingEntitlementClient) QueryUser(_m *UserHostingEntitlement) *UserQuery {
+	query := (&UserClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(userhostingentitlement.Table, userhostingentitlement.FieldID, id),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, true, userhostingentitlement.UserTable, userhostingentitlement.UserColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryCreatedBy queries the created_by edge of a UserHostingEntitlement.
+func (c *UserHostingEntitlementClient) QueryCreatedBy(_m *UserHostingEntitlement) *UserQuery {
+	query := (&UserClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(userhostingentitlement.Table, userhostingentitlement.FieldID, id),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, userhostingentitlement.CreatedByTable, userhostingentitlement.CreatedByColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryUpdatedBy queries the updated_by edge of a UserHostingEntitlement.
+func (c *UserHostingEntitlementClient) QueryUpdatedBy(_m *UserHostingEntitlement) *UserQuery {
+	query := (&UserClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(userhostingentitlement.Table, userhostingentitlement.FieldID, id),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, userhostingentitlement.UpdatedByTable, userhostingentitlement.UpdatedByColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *UserHostingEntitlementClient) Hooks() []Hook {
+	return c.hooks.UserHostingEntitlement
+}
+
+// Interceptors returns the client interceptors.
+func (c *UserHostingEntitlementClient) Interceptors() []Interceptor {
+	return c.inters.UserHostingEntitlement
+}
+
+func (c *UserHostingEntitlementClient) mutate(ctx context.Context, m *UserHostingEntitlementMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&UserHostingEntitlementCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&UserHostingEntitlementUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&UserHostingEntitlementUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&UserHostingEntitlementDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown UserHostingEntitlement mutation op: %q", m.Op())
 	}
 }
 
@@ -8890,8 +9127,8 @@ type (
 		RolePermission, SecuritySecret, ServicePrincipal, ServicePrincipalRole,
 		ServicePrincipalWorkerPermission, Setting, SubscriptionPlan,
 		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota, UserRole,
-		UserSubscription []ent.Hook
+		UserAttributeDefinition, UserAttributeValue, UserHostingEntitlement,
+		UserPlatformQuota, UserRole, UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountAccessGrant, AccountGroup, Announcement,
@@ -8905,8 +9142,8 @@ type (
 		RolePermission, SecuritySecret, ServicePrincipal, ServicePrincipalRole,
 		ServicePrincipalWorkerPermission, Setting, SubscriptionPlan,
 		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota, UserRole,
-		UserSubscription []ent.Interceptor
+		UserAttributeDefinition, UserAttributeValue, UserHostingEntitlement,
+		UserPlatformQuota, UserRole, UserSubscription []ent.Interceptor
 	}
 )
 

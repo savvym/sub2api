@@ -141,6 +141,8 @@ func registerAuthorizationRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		authorization.GET("/role-mode", h.Admin.Authorization.GetRoleAuthorizationMode)
 		authorization.POST("/role-mode/transitions", h.Admin.Authorization.TransitionRoleAuthorizationMode)
+		authorization.GET("/hosting-entitlements/:user_id", h.Admin.HostingEntitlement.Get)
+		authorization.PUT("/hosting-entitlements/:user_id", h.Admin.HostingEntitlement.Update)
 	}
 }
 

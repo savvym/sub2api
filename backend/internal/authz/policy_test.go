@@ -202,10 +202,29 @@ func TestCanCreateEnforcesCapabilityModeAndFeatureGates(t *testing.T) {
 			source:             MatchSourceLegacyAdmin,
 		},
 		{
-			name:         "shadow rbac create capability is non-authoritative",
+			name:         "shadow ordinary user uses rbac create capability",
 			mode:         RoleAuthorizationModeShadow,
 			capabilities: []Capability{CapabilityAccountCreate},
-			reason:       DenyReasonMissingCapability,
+			allowed:      true,
+			source:       MatchSourcePlatformCapability,
+		},
+		{
+			name: "shadow ordinary user still requires self service",
+			mode: RoleAuthorizationModeShadow,
+			configuration: PolicyConfigurationInput{
+				RoleAuthorizationMode:        RoleAuthorizationModeShadow,
+				ResourceAccessControlEnabled: true,
+			},
+			capabilities: []Capability{CapabilityAccountCreate},
+			reason:       DenyReasonFeatureDisabled,
+		},
+		{
+			name:               "shadow legacy admin retains legacy create authority",
+			mode:               RoleAuthorizationModeShadow,
+			actorLegacyAdmin:   true,
+			currentLegacyAdmin: true,
+			allowed:            true,
+			source:             MatchSourceLegacyAdmin,
 		},
 	}
 

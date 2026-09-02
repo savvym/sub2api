@@ -2477,6 +2477,44 @@ var (
 			},
 		},
 	}
+	// UserHostingEntitlementsColumns holds the columns for the "user_hosting_entitlements" table.
+	UserHostingEntitlementsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "account_limit", Type: field.TypeInt64, Default: 0},
+		{Name: "group_limit", Type: field.TypeInt64, Default: 0},
+		{Name: "version", Type: field.TypeInt64, Default: 1},
+		{Name: "user_id", Type: field.TypeInt64, Unique: true},
+		{Name: "created_by_user_id", Type: field.TypeInt64},
+		{Name: "updated_by_user_id", Type: field.TypeInt64},
+	}
+	// UserHostingEntitlementsTable holds the schema information for the "user_hosting_entitlements" table.
+	UserHostingEntitlementsTable = &schema.Table{
+		Name:       "user_hosting_entitlements",
+		Columns:    UserHostingEntitlementsColumns,
+		PrimaryKey: []*schema.Column{UserHostingEntitlementsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "user_hosting_entitlements_user_id_fkey",
+				Columns:    []*schema.Column{UserHostingEntitlementsColumns[6]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "user_hosting_entitlements_created_by_user_id_fkey",
+				Columns:    []*schema.Column{UserHostingEntitlementsColumns[7]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+			{
+				Symbol:     "user_hosting_entitlements_updated_by_user_id_fkey",
+				Columns:    []*schema.Column{UserHostingEntitlementsColumns[8]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Restrict,
+			},
+		},
+	}
 	// UserPlatformQuotasColumns holds the columns for the "user_platform_quotas" table.
 	UserPlatformQuotasColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2724,6 +2762,7 @@ var (
 		UserAllowedGroupsTable,
 		UserAttributeDefinitionsTable,
 		UserAttributeValuesTable,
+		UserHostingEntitlementsTable,
 		UserPlatformQuotasTable,
 		UserRolesTable,
 		UserSubscriptionsTable,
@@ -2962,6 +3001,17 @@ func init() {
 	UserAttributeValuesTable.ForeignKeys[1].RefTable = UserAttributeDefinitionsTable
 	UserAttributeValuesTable.Annotation = &entsql.Annotation{
 		Table: "user_attribute_values",
+	}
+	UserHostingEntitlementsTable.ForeignKeys[0].RefTable = UsersTable
+	UserHostingEntitlementsTable.ForeignKeys[1].RefTable = UsersTable
+	UserHostingEntitlementsTable.ForeignKeys[2].RefTable = UsersTable
+	UserHostingEntitlementsTable.Annotation = &entsql.Annotation{
+		Table: "user_hosting_entitlements",
+	}
+	UserHostingEntitlementsTable.Annotation.Checks = map[string]string{
+		"user_hosting_entitlements_account_limit_nonnegative": "account_limit >= 0",
+		"user_hosting_entitlements_group_limit_nonnegative":   "group_limit >= 0",
+		"user_hosting_entitlements_version_positive":          "version > 0",
 	}
 	UserPlatformQuotasTable.ForeignKeys[0].RefTable = UsersTable
 	UserPlatformQuotasTable.Annotation = &entsql.Annotation{

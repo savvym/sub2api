@@ -10,7 +10,7 @@
 | resource-authorization | 平台能力与资源动作分离 | Actor/Policy 单测、创建/分享 API 测试 | 待实现 |
 | resource-authorization | SQL 范围过滤与不可枚举 | Repository integration、IDOR E2E、EXPLAIN | 待实现 |
 | resource-authorization | 凭证与字段投影 | DTO/序列化 canary、日志/错误泄漏扫描 | 待实现 |
-| self-service-resource-hosting | 有资格用户私有托管 | hoster/API/UI E2E、配额并发测试 | 待实现 |
+| self-service-resource-hosting | 有资格用户私有托管 | 2.1 已完成 hoster/配额/管理员 API 与容量并发契约；普通用户 Account/Group API/UI E2E 仍待 2.2-2.7 | 待实现 |
 | self-service-resource-hosting | 私有默认组与 group 0 隔离 | Scheduler repository/integration 测试 | 待实现 |
 | self-service-resource-hosting | Backend/SIMPLE Mode 优先 | 模式组合测试 | 待实现 |
 | resource-sharing | 分级、多主体分享 | Grant schema/Policy/API/UI 测试 | 待实现 |
@@ -131,6 +131,23 @@
 | 完整 `account_groups` 授权来源、验证版本和撤权/到期/角色变化关系重算 | 任务 4.2/4.4；1.11 只产生 durable Scheduler 事件 | 待实现 |
 | CI/Testcontainers 1.11 repository dynamic suite | GitHub Actions push Run `32711471080` 完整 integration suite；`make test-integration` → `go test -tags=integration ./...` | 通过；test job `97383587468`，SHA `2d203b601c5d5b6578e91020bdbfbff4eb5bae6b` |
 
+## Hosting Qualification 与 Quota Foundation 门禁（2.1）
+
+本节只验收资格、配额和管理员分配基础设施，不把普通用户 Account/Group CRUD、私有默认组、出站安全或完整 self-service E2E 提前标记完成。
+
+| 门禁 | 证据 | 状态 |
+| --- | --- | --- |
+| migration 244 与 Ent Schema 一致；一用户一行、非负配额、正版本、显式 FK 名称和删除策略 | migration contract、generated schema contract、Ent schema/migrate tests | 通过 |
+| hoster 资格只由系统 `user_roles` 的 `hoster` 角色决定；配额 `0` 表示无容量 | service/repository contract tests；migration 不写角色、setting 或 Feature Flag | 通过 |
+| 管理员 GET 提供资格、配额、实时用量和 CAS 版本；PUT 使用完整严格 JSON 与 expected version | handler/service/routes unit tests | 通过 |
+| PUT 只接受 session-bound JWT TOTP，拒绝 Admin API Key；事务内重解析 active legacy admin | step-up、stale actor、malformed payload 与零副作用 tests | 通过 |
+| hoster 角色变化与配额写、`users.authz_version`、API Key invalidation Outbox 和成功 durable audit 原子提交；纯 quota 变化不递增授权版本 | repository/service contract、audit failure rollback 与 integration 场景 | 通过；本地 unit/标签编译已通过，动态场景待本次 push CI |
+| 首次配置从 version 0 物化为 1，后续 CAS 串行化；no-op 不写成功 durable audit | service/repository tests | 通过 |
+| Account/Group 容量检查要求调用方持有 `SERIALIZABLE` 事务，锁持续到资源写入结束；其他隔离级别拒绝，降额不删除存量资源，并发创建至多一个越过最后容量 | capacity guard unit 与 PostgreSQL integration 场景 | 通过；unit 契约已通过，PostgreSQL 动态场景待本次 push CI |
+| role shadow 仅让普通 JWT User 的 Account/Group `CanCreate` 使用 RBAC；管理员、Service Principal 和其他 Policy API 保持 legacy | Policy/role-shadow tests、兼容矩阵与 runtime consistency spec | 通过 |
+| 不注册普通用户资源路由，不修改设置值；所有新增 Feature Flag 关闭且当前 mode 为 legacy | route/migration contract、生产 Wire build、工作区配置边界审查 | 通过 |
+| 当前提交 Testcontainers repository 动态套件 | `CI=1 go test -tags=integration ./... -count=1` | 待实现；本机无 Docker，命令仅因环境门禁失败，推送后由 GitHub Actions 执行并补录 |
+
 ## Phase 0 Exit Review（0.8）
 
 Phase 0 退出是设计治理门禁，不是 Phase 2 发布验收。它确认安全边界、责任和验证计划已经冻结；不要求 `credential-inventory.md` 第 8.2 节、`outbound-security.md` 第 6/7/8.2 节的代码/目标环境证据已经完成，也不要求尚不存在的生产预检或 shadow 观察已经执行。这些证据转为首次部署/首次启用触发门禁，不能因勾选 0.8 被豁免。当前项目的单维护者、无部署范围决定记录在 [`phase-0-exit-record.md`](phase-0-exit-record.md)，并明确不声称存在独立三方评审。
@@ -167,7 +184,7 @@ Phase 0 退出是设计治理门禁，不是 Phase 2 发布验收。它确认安
 | 228 到当前 migration 243 持久升级、重复 apply | 当前代码 SHA `aeb967ebe` 的 GitHub Actions push/PR CI 均运行无 `-run` 过滤的完整 integration suite；包含 `TestResourceAccessControlUpgradeFrom228ThroughCurrent` | 通过；PostgreSQL `18.1-alpine3.23` Testcontainers 动态升级/reapply 成功，覆盖 migration 243 |
 | 完整 backend unit、聚焦 race/vet、默认与 integration 标签编译、build | 当前代码 SHA 的本地验证与 GitHub Actions | 通过；本地命令结果见 `implementation-evidence.md` 最新小节，远端完整 unit/integration、lint 亦成功 |
 | CI repository Testcontainers 动态套件（当前代码 SHA） | [push Run 33608505225](https://github.com/savvym/sub2api/actions/runs/33608505225) / [test job 100177927975](https://github.com/savvym/sub2api/actions/runs/33608505225/job/100177927975) 与 [PR Run 33608510880](https://github.com/savvym/sub2api/actions/runs/33608510880) / [test job 100177945050](https://github.com/savvym/sub2api/actions/runs/33608510880/job/100177945050)：`make test-integration` → `go test -tags=integration ./...`；Ubuntu、Go 1.27.0、PostgreSQL `18.1-alpine3.23`、Redis `8.4-alpine` | 通过；attempt 1、SHA `aeb967ebe0d9ed9aa5b43f0f9e60dc030f3839e6`，integration step 均为 `3m38s`，repository 分别非缓存运行 `50.632s`/`49.677s` |
-| production role shadow 差异记录能力 | `PolicyService` 四个入口并行计算 legacy/RBAC 且保持 legacy 响应；管理员 JWT/Admin API Key 生产入口接线；低基数、无 ID 的结构化 INFO/WARN 日志与 observer panic 隔离测试 | 通过（日志可由外部系统聚合；未新增独立进程内指标） |
+| production role shadow 差异记录能力 | `PolicyService` 四个入口并行计算 legacy/RBAC；普通 JWT User 的 Account/Group `CanCreate` 是唯一 RBAC 响应例外，管理员、Service Principal 和其他 Policy API 保持 legacy；低基数、无 ID 的结构化 INFO/WARN 日志与 observer panic 隔离测试 | 通过（日志可由外部系统聚合；未新增独立进程内指标） |
 | Phase 0 安全决策与退出批准 | 0.4/0.5 达到设计级 `Decision Accepted`，0.8 记录责任、范围、未决项与自动重开条件 | 通过；由 sole maintainer 接受无部署、空 allowlist 范围，明确不声称独立三方评审 |
 | 生产只读数据预检与凭据键名统计 | 对批准的只读副本运行 `data-preflight.sql` 与 `credential-key-preflight.sql`，归档异常/回填规模及受限结果 | 当前不适用；不存在 production/staging 或真实数据。首次导入/升级现有数据库或处理真实帐号数据时自动成为阻塞门禁，异常分类和处理要求保持不变 |
 | 目标环境 shadow readiness 与观察 | 专用 role-mode readiness、legacy→shadow 执行、具体差异指标、日志量与 sink `dropped_count`、观察窗口和回滚证据 | 当前不适用；不存在目标环境且 mode 不切换。首次进入 `shadow` 前自动成为阻塞门禁 |

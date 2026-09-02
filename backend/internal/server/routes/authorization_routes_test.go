@@ -17,7 +17,8 @@ func TestRoleAuthorizationModeRoutesAreRegisteredBehindAdminAuthentication(t *te
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	handlers := &handler.Handlers{Admin: &handler.AdminHandlers{
-		Authorization: adminhandler.NewAuthorizationHandler(nil, nil, nil),
+		Authorization:      adminhandler.NewAuthorizationHandler(nil, nil, nil),
+		HostingEntitlement: adminhandler.NewHostingEntitlementHandler(nil, nil, nil),
 	}}
 	adminAuth := servermiddleware.AdminAuthMiddleware(func(c *gin.Context) {
 		if c.GetHeader("Authorization") == "" {
@@ -31,8 +32,10 @@ func TestRoleAuthorizationModeRoutesAreRegisteredBehindAdminAuthentication(t *te
 	RegisterAdminRoutes(router.Group("/api/v1"), handlers, adminAuth, auditLog, stepUp, nil, nil)
 
 	expectedRoutes := map[string]bool{
-		"GET /api/v1/admin/authorization/role-mode":              false,
-		"POST /api/v1/admin/authorization/role-mode/transitions": false,
+		"GET /api/v1/admin/authorization/role-mode":                     false,
+		"POST /api/v1/admin/authorization/role-mode/transitions":        false,
+		"GET /api/v1/admin/authorization/hosting-entitlements/:user_id": false,
+		"PUT /api/v1/admin/authorization/hosting-entitlements/:user_id": false,
 	}
 	for _, route := range router.Routes() {
 		key := route.Method + " " + route.Path

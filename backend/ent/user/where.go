@@ -1752,6 +1752,75 @@ func HasPlatformQuotasWith(preds ...predicate.UserPlatformQuota) predicate.User 
 	})
 }
 
+// HasHostingEntitlement applies the HasEdge predicate on the "hosting_entitlement" edge.
+func HasHostingEntitlement() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, HostingEntitlementTable, HostingEntitlementColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasHostingEntitlementWith applies the HasEdge predicate on the "hosting_entitlement" edge with a given conditions (other predicates).
+func HasHostingEntitlementWith(preds ...predicate.UserHostingEntitlement) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newHostingEntitlementStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasCreatedHostingEntitlements applies the HasEdge predicate on the "created_hosting_entitlements" edge.
+func HasCreatedHostingEntitlements() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, CreatedHostingEntitlementsTable, CreatedHostingEntitlementsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasCreatedHostingEntitlementsWith applies the HasEdge predicate on the "created_hosting_entitlements" edge with a given conditions (other predicates).
+func HasCreatedHostingEntitlementsWith(preds ...predicate.UserHostingEntitlement) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newCreatedHostingEntitlementsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasUpdatedHostingEntitlements applies the HasEdge predicate on the "updated_hosting_entitlements" edge.
+func HasUpdatedHostingEntitlements() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, UpdatedHostingEntitlementsTable, UpdatedHostingEntitlementsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasUpdatedHostingEntitlementsWith applies the HasEdge predicate on the "updated_hosting_entitlements" edge with a given conditions (other predicates).
+func HasUpdatedHostingEntitlementsWith(preds ...predicate.UserHostingEntitlement) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newUpdatedHostingEntitlementsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasUserAllowedGroups applies the HasEdge predicate on the "user_allowed_groups" edge.
 func HasUserAllowedGroups() predicate.User {
 	return predicate.User(func(s *sql.Selector) {

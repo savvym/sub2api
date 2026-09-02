@@ -143,6 +143,16 @@ func (User) Edges() []ent.Edge {
 			Annotations(entsql.OnDelete(entsql.Cascade)),
 		edge.To("pending_auth_sessions", PendingAuthSession.Type),
 		edge.To("platform_quotas", UserPlatformQuota.Type),
+		edge.To("hosting_entitlement", UserHostingEntitlement.Type).
+			Unique().
+			StorageKey(edge.Symbol("user_hosting_entitlements_user_id_fkey")).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
+		edge.To("created_hosting_entitlements", UserHostingEntitlement.Type).
+			StorageKey(edge.Symbol("user_hosting_entitlements_created_by_user_id_fkey")).
+			Annotations(entsql.OnDelete(entsql.Restrict)),
+		edge.To("updated_hosting_entitlements", UserHostingEntitlement.Type).
+			StorageKey(edge.Symbol("user_hosting_entitlements_updated_by_user_id_fkey")).
+			Annotations(entsql.OnDelete(entsql.Restrict)),
 	}
 }
 

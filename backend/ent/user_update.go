@@ -24,6 +24,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
+	"github.com/Wei-Shaw/sub2api/ent/userhostingentitlement"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
 	"github.com/Wei-Shaw/sub2api/ent/userrole"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
@@ -665,6 +666,55 @@ func (_u *UserUpdate) AddPlatformQuotas(v ...*UserPlatformQuota) *UserUpdate {
 	return _u.AddPlatformQuotaIDs(ids...)
 }
 
+// SetHostingEntitlementID sets the "hosting_entitlement" edge to the UserHostingEntitlement entity by ID.
+func (_u *UserUpdate) SetHostingEntitlementID(id int64) *UserUpdate {
+	_u.mutation.SetHostingEntitlementID(id)
+	return _u
+}
+
+// SetNillableHostingEntitlementID sets the "hosting_entitlement" edge to the UserHostingEntitlement entity by ID if the given value is not nil.
+func (_u *UserUpdate) SetNillableHostingEntitlementID(id *int64) *UserUpdate {
+	if id != nil {
+		_u = _u.SetHostingEntitlementID(*id)
+	}
+	return _u
+}
+
+// SetHostingEntitlement sets the "hosting_entitlement" edge to the UserHostingEntitlement entity.
+func (_u *UserUpdate) SetHostingEntitlement(v *UserHostingEntitlement) *UserUpdate {
+	return _u.SetHostingEntitlementID(v.ID)
+}
+
+// AddCreatedHostingEntitlementIDs adds the "created_hosting_entitlements" edge to the UserHostingEntitlement entity by IDs.
+func (_u *UserUpdate) AddCreatedHostingEntitlementIDs(ids ...int64) *UserUpdate {
+	_u.mutation.AddCreatedHostingEntitlementIDs(ids...)
+	return _u
+}
+
+// AddCreatedHostingEntitlements adds the "created_hosting_entitlements" edges to the UserHostingEntitlement entity.
+func (_u *UserUpdate) AddCreatedHostingEntitlements(v ...*UserHostingEntitlement) *UserUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddCreatedHostingEntitlementIDs(ids...)
+}
+
+// AddUpdatedHostingEntitlementIDs adds the "updated_hosting_entitlements" edge to the UserHostingEntitlement entity by IDs.
+func (_u *UserUpdate) AddUpdatedHostingEntitlementIDs(ids ...int64) *UserUpdate {
+	_u.mutation.AddUpdatedHostingEntitlementIDs(ids...)
+	return _u
+}
+
+// AddUpdatedHostingEntitlements adds the "updated_hosting_entitlements" edges to the UserHostingEntitlement entity.
+func (_u *UserUpdate) AddUpdatedHostingEntitlements(v ...*UserHostingEntitlement) *UserUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddUpdatedHostingEntitlementIDs(ids...)
+}
+
 // AddUserRoleIDs adds the "user_roles" edge to the UserRole entity by IDs.
 func (_u *UserUpdate) AddUserRoleIDs(ids ...int64) *UserUpdate {
 	_u.mutation.AddUserRoleIDs(ids...)
@@ -977,6 +1027,54 @@ func (_u *UserUpdate) RemovePlatformQuotas(v ...*UserPlatformQuota) *UserUpdate 
 		ids[i] = v[i].ID
 	}
 	return _u.RemovePlatformQuotaIDs(ids...)
+}
+
+// ClearHostingEntitlement clears the "hosting_entitlement" edge to the UserHostingEntitlement entity.
+func (_u *UserUpdate) ClearHostingEntitlement() *UserUpdate {
+	_u.mutation.ClearHostingEntitlement()
+	return _u
+}
+
+// ClearCreatedHostingEntitlements clears all "created_hosting_entitlements" edges to the UserHostingEntitlement entity.
+func (_u *UserUpdate) ClearCreatedHostingEntitlements() *UserUpdate {
+	_u.mutation.ClearCreatedHostingEntitlements()
+	return _u
+}
+
+// RemoveCreatedHostingEntitlementIDs removes the "created_hosting_entitlements" edge to UserHostingEntitlement entities by IDs.
+func (_u *UserUpdate) RemoveCreatedHostingEntitlementIDs(ids ...int64) *UserUpdate {
+	_u.mutation.RemoveCreatedHostingEntitlementIDs(ids...)
+	return _u
+}
+
+// RemoveCreatedHostingEntitlements removes "created_hosting_entitlements" edges to UserHostingEntitlement entities.
+func (_u *UserUpdate) RemoveCreatedHostingEntitlements(v ...*UserHostingEntitlement) *UserUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveCreatedHostingEntitlementIDs(ids...)
+}
+
+// ClearUpdatedHostingEntitlements clears all "updated_hosting_entitlements" edges to the UserHostingEntitlement entity.
+func (_u *UserUpdate) ClearUpdatedHostingEntitlements() *UserUpdate {
+	_u.mutation.ClearUpdatedHostingEntitlements()
+	return _u
+}
+
+// RemoveUpdatedHostingEntitlementIDs removes the "updated_hosting_entitlements" edge to UserHostingEntitlement entities by IDs.
+func (_u *UserUpdate) RemoveUpdatedHostingEntitlementIDs(ids ...int64) *UserUpdate {
+	_u.mutation.RemoveUpdatedHostingEntitlementIDs(ids...)
+	return _u
+}
+
+// RemoveUpdatedHostingEntitlements removes "updated_hosting_entitlements" edges to UserHostingEntitlement entities.
+func (_u *UserUpdate) RemoveUpdatedHostingEntitlements(v ...*UserHostingEntitlement) *UserUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveUpdatedHostingEntitlementIDs(ids...)
 }
 
 // ClearUserRoles clears all "user_roles" edges to the UserRole entity.
@@ -1854,6 +1952,125 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.HostingEntitlementCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   user.HostingEntitlementTable,
+			Columns: []string{user.HostingEntitlementColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.HostingEntitlementIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   user.HostingEntitlementTable,
+			Columns: []string{user.HostingEntitlementColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.CreatedHostingEntitlementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.CreatedHostingEntitlementsTable,
+			Columns: []string{user.CreatedHostingEntitlementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedCreatedHostingEntitlementsIDs(); len(nodes) > 0 && !_u.mutation.CreatedHostingEntitlementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.CreatedHostingEntitlementsTable,
+			Columns: []string{user.CreatedHostingEntitlementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.CreatedHostingEntitlementsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.CreatedHostingEntitlementsTable,
+			Columns: []string{user.CreatedHostingEntitlementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.UpdatedHostingEntitlementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.UpdatedHostingEntitlementsTable,
+			Columns: []string{user.UpdatedHostingEntitlementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedUpdatedHostingEntitlementsIDs(); len(nodes) > 0 && !_u.mutation.UpdatedHostingEntitlementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.UpdatedHostingEntitlementsTable,
+			Columns: []string{user.UpdatedHostingEntitlementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UpdatedHostingEntitlementsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.UpdatedHostingEntitlementsTable,
+			Columns: []string{user.UpdatedHostingEntitlementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _u.mutation.UserRolesCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -2542,6 +2759,55 @@ func (_u *UserUpdateOne) AddPlatformQuotas(v ...*UserPlatformQuota) *UserUpdateO
 	return _u.AddPlatformQuotaIDs(ids...)
 }
 
+// SetHostingEntitlementID sets the "hosting_entitlement" edge to the UserHostingEntitlement entity by ID.
+func (_u *UserUpdateOne) SetHostingEntitlementID(id int64) *UserUpdateOne {
+	_u.mutation.SetHostingEntitlementID(id)
+	return _u
+}
+
+// SetNillableHostingEntitlementID sets the "hosting_entitlement" edge to the UserHostingEntitlement entity by ID if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableHostingEntitlementID(id *int64) *UserUpdateOne {
+	if id != nil {
+		_u = _u.SetHostingEntitlementID(*id)
+	}
+	return _u
+}
+
+// SetHostingEntitlement sets the "hosting_entitlement" edge to the UserHostingEntitlement entity.
+func (_u *UserUpdateOne) SetHostingEntitlement(v *UserHostingEntitlement) *UserUpdateOne {
+	return _u.SetHostingEntitlementID(v.ID)
+}
+
+// AddCreatedHostingEntitlementIDs adds the "created_hosting_entitlements" edge to the UserHostingEntitlement entity by IDs.
+func (_u *UserUpdateOne) AddCreatedHostingEntitlementIDs(ids ...int64) *UserUpdateOne {
+	_u.mutation.AddCreatedHostingEntitlementIDs(ids...)
+	return _u
+}
+
+// AddCreatedHostingEntitlements adds the "created_hosting_entitlements" edges to the UserHostingEntitlement entity.
+func (_u *UserUpdateOne) AddCreatedHostingEntitlements(v ...*UserHostingEntitlement) *UserUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddCreatedHostingEntitlementIDs(ids...)
+}
+
+// AddUpdatedHostingEntitlementIDs adds the "updated_hosting_entitlements" edge to the UserHostingEntitlement entity by IDs.
+func (_u *UserUpdateOne) AddUpdatedHostingEntitlementIDs(ids ...int64) *UserUpdateOne {
+	_u.mutation.AddUpdatedHostingEntitlementIDs(ids...)
+	return _u
+}
+
+// AddUpdatedHostingEntitlements adds the "updated_hosting_entitlements" edges to the UserHostingEntitlement entity.
+func (_u *UserUpdateOne) AddUpdatedHostingEntitlements(v ...*UserHostingEntitlement) *UserUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddUpdatedHostingEntitlementIDs(ids...)
+}
+
 // AddUserRoleIDs adds the "user_roles" edge to the UserRole entity by IDs.
 func (_u *UserUpdateOne) AddUserRoleIDs(ids ...int64) *UserUpdateOne {
 	_u.mutation.AddUserRoleIDs(ids...)
@@ -2854,6 +3120,54 @@ func (_u *UserUpdateOne) RemovePlatformQuotas(v ...*UserPlatformQuota) *UserUpda
 		ids[i] = v[i].ID
 	}
 	return _u.RemovePlatformQuotaIDs(ids...)
+}
+
+// ClearHostingEntitlement clears the "hosting_entitlement" edge to the UserHostingEntitlement entity.
+func (_u *UserUpdateOne) ClearHostingEntitlement() *UserUpdateOne {
+	_u.mutation.ClearHostingEntitlement()
+	return _u
+}
+
+// ClearCreatedHostingEntitlements clears all "created_hosting_entitlements" edges to the UserHostingEntitlement entity.
+func (_u *UserUpdateOne) ClearCreatedHostingEntitlements() *UserUpdateOne {
+	_u.mutation.ClearCreatedHostingEntitlements()
+	return _u
+}
+
+// RemoveCreatedHostingEntitlementIDs removes the "created_hosting_entitlements" edge to UserHostingEntitlement entities by IDs.
+func (_u *UserUpdateOne) RemoveCreatedHostingEntitlementIDs(ids ...int64) *UserUpdateOne {
+	_u.mutation.RemoveCreatedHostingEntitlementIDs(ids...)
+	return _u
+}
+
+// RemoveCreatedHostingEntitlements removes "created_hosting_entitlements" edges to UserHostingEntitlement entities.
+func (_u *UserUpdateOne) RemoveCreatedHostingEntitlements(v ...*UserHostingEntitlement) *UserUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveCreatedHostingEntitlementIDs(ids...)
+}
+
+// ClearUpdatedHostingEntitlements clears all "updated_hosting_entitlements" edges to the UserHostingEntitlement entity.
+func (_u *UserUpdateOne) ClearUpdatedHostingEntitlements() *UserUpdateOne {
+	_u.mutation.ClearUpdatedHostingEntitlements()
+	return _u
+}
+
+// RemoveUpdatedHostingEntitlementIDs removes the "updated_hosting_entitlements" edge to UserHostingEntitlement entities by IDs.
+func (_u *UserUpdateOne) RemoveUpdatedHostingEntitlementIDs(ids ...int64) *UserUpdateOne {
+	_u.mutation.RemoveUpdatedHostingEntitlementIDs(ids...)
+	return _u
+}
+
+// RemoveUpdatedHostingEntitlements removes "updated_hosting_entitlements" edges to UserHostingEntitlement entities.
+func (_u *UserUpdateOne) RemoveUpdatedHostingEntitlements(v ...*UserHostingEntitlement) *UserUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveUpdatedHostingEntitlementIDs(ids...)
 }
 
 // ClearUserRoles clears all "user_roles" edges to the UserRole entity.
@@ -3754,6 +4068,125 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(userplatformquota.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.HostingEntitlementCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   user.HostingEntitlementTable,
+			Columns: []string{user.HostingEntitlementColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.HostingEntitlementIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   user.HostingEntitlementTable,
+			Columns: []string{user.HostingEntitlementColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.CreatedHostingEntitlementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.CreatedHostingEntitlementsTable,
+			Columns: []string{user.CreatedHostingEntitlementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedCreatedHostingEntitlementsIDs(); len(nodes) > 0 && !_u.mutation.CreatedHostingEntitlementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.CreatedHostingEntitlementsTable,
+			Columns: []string{user.CreatedHostingEntitlementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.CreatedHostingEntitlementsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.CreatedHostingEntitlementsTable,
+			Columns: []string{user.CreatedHostingEntitlementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.UpdatedHostingEntitlementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.UpdatedHostingEntitlementsTable,
+			Columns: []string{user.UpdatedHostingEntitlementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedUpdatedHostingEntitlementsIDs(); len(nodes) > 0 && !_u.mutation.UpdatedHostingEntitlementsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.UpdatedHostingEntitlementsTable,
+			Columns: []string{user.UpdatedHostingEntitlementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UpdatedHostingEntitlementsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.UpdatedHostingEntitlementsTable,
+			Columns: []string{user.UpdatedHostingEntitlementsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(userhostingentitlement.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

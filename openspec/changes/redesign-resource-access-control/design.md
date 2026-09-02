@@ -103,7 +103,7 @@
 
 ## Risks / Trade-offs
 
-- RBAC、ACL、旧分组资格并存期间容易形成多个允许源；任何阶段只能有一个权威允许判定源，shadow 只比较不放行。
+- RBAC、ACL、旧分组资格并存期间容易形成多个允许源；任何入口在任一时刻只能有一个权威允许判定源。role shadow 默认只比较不放行，唯一例外是普通 JWT 用户的 Account/Group `CanCreate` 使用 RBAC 结果；group shadow 仍只比较不放行。
 - 角色 Grant 可影响大量资源；必须限制规模并使用版本、Outbox 和到期协调器。
 - 分组分享扩大受众可能使借入帐号越权；扩大分享前必须同步校验完整受众闭包。
 - 现有审计队列和部分 Scheduler 写入会 best-effort 丢失；安全关键变更必须改为事务内 durable event/outbox。
@@ -113,7 +113,7 @@
 
 1. **Expand**：新增 RBAC/ACL 结构和默认关闭开关，存量 Owner 为 NULL、分组为 legacy。
 2. **Backfill**：回填系统角色和旧分组等价 Grant，生成数据预检与差异报告。
-3. **Shadow**：新旧角色/分组授权并行计算，响应仍使用旧权威源，只记录差异。
+3. **Shadow**：新旧角色/分组授权并行计算并记录差异；除普通 JWT 用户的 Account/Group `CanCreate` 使用 RBAC 结果外，响应仍使用旧权威源。
 4. **Deploy**：所有实例认识新快照、版本和 Outbox 后才允许新租户资源。
 5. **Cutover**：按明确批次切换到 rbac/acl，递增版本并事务写入失效事件。
 6. **Observe**：至少观察一个发布周期，旧表只读保留，不作为撤权兜底允许源。

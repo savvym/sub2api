@@ -106,6 +106,8 @@ type Tx struct {
 	UserAttributeDefinition *UserAttributeDefinitionClient
 	// UserAttributeValue is the client for interacting with the UserAttributeValue builders.
 	UserAttributeValue *UserAttributeValueClient
+	// UserHostingEntitlement is the client for interacting with the UserHostingEntitlement builders.
+	UserHostingEntitlement *UserHostingEntitlementClient
 	// UserPlatformQuota is the client for interacting with the UserPlatformQuota builders.
 	UserPlatformQuota *UserPlatformQuotaClient
 	// UserRole is the client for interacting with the UserRole builders.
@@ -289,6 +291,7 @@ func (tx *Tx) init() {
 	tx.UserAllowedGroup = NewUserAllowedGroupClient(tx.config)
 	tx.UserAttributeDefinition = NewUserAttributeDefinitionClient(tx.config)
 	tx.UserAttributeValue = NewUserAttributeValueClient(tx.config)
+	tx.UserHostingEntitlement = NewUserHostingEntitlementClient(tx.config)
 	tx.UserPlatformQuota = NewUserPlatformQuotaClient(tx.config)
 	tx.UserRole = NewUserRoleClient(tx.config)
 	tx.UserSubscription = NewUserSubscriptionClient(tx.config)

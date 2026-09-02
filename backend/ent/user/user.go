@@ -93,6 +93,12 @@ const (
 	EdgePendingAuthSessions = "pending_auth_sessions"
 	// EdgePlatformQuotas holds the string denoting the platform_quotas edge name in mutations.
 	EdgePlatformQuotas = "platform_quotas"
+	// EdgeHostingEntitlement holds the string denoting the hosting_entitlement edge name in mutations.
+	EdgeHostingEntitlement = "hosting_entitlement"
+	// EdgeCreatedHostingEntitlements holds the string denoting the created_hosting_entitlements edge name in mutations.
+	EdgeCreatedHostingEntitlements = "created_hosting_entitlements"
+	// EdgeUpdatedHostingEntitlements holds the string denoting the updated_hosting_entitlements edge name in mutations.
+	EdgeUpdatedHostingEntitlements = "updated_hosting_entitlements"
 	// EdgeUserAllowedGroups holds the string denoting the user_allowed_groups edge name in mutations.
 	EdgeUserAllowedGroups = "user_allowed_groups"
 	// EdgeUserRoles holds the string denoting the user_roles edge name in mutations.
@@ -193,6 +199,27 @@ const (
 	PlatformQuotasInverseTable = "user_platform_quotas"
 	// PlatformQuotasColumn is the table column denoting the platform_quotas relation/edge.
 	PlatformQuotasColumn = "user_id"
+	// HostingEntitlementTable is the table that holds the hosting_entitlement relation/edge.
+	HostingEntitlementTable = "user_hosting_entitlements"
+	// HostingEntitlementInverseTable is the table name for the UserHostingEntitlement entity.
+	// It exists in this package in order to avoid circular dependency with the "userhostingentitlement" package.
+	HostingEntitlementInverseTable = "user_hosting_entitlements"
+	// HostingEntitlementColumn is the table column denoting the hosting_entitlement relation/edge.
+	HostingEntitlementColumn = "user_id"
+	// CreatedHostingEntitlementsTable is the table that holds the created_hosting_entitlements relation/edge.
+	CreatedHostingEntitlementsTable = "user_hosting_entitlements"
+	// CreatedHostingEntitlementsInverseTable is the table name for the UserHostingEntitlement entity.
+	// It exists in this package in order to avoid circular dependency with the "userhostingentitlement" package.
+	CreatedHostingEntitlementsInverseTable = "user_hosting_entitlements"
+	// CreatedHostingEntitlementsColumn is the table column denoting the created_hosting_entitlements relation/edge.
+	CreatedHostingEntitlementsColumn = "created_by_user_id"
+	// UpdatedHostingEntitlementsTable is the table that holds the updated_hosting_entitlements relation/edge.
+	UpdatedHostingEntitlementsTable = "user_hosting_entitlements"
+	// UpdatedHostingEntitlementsInverseTable is the table name for the UserHostingEntitlement entity.
+	// It exists in this package in order to avoid circular dependency with the "userhostingentitlement" package.
+	UpdatedHostingEntitlementsInverseTable = "user_hosting_entitlements"
+	// UpdatedHostingEntitlementsColumn is the table column denoting the updated_hosting_entitlements relation/edge.
+	UpdatedHostingEntitlementsColumn = "updated_by_user_id"
 	// UserAllowedGroupsTable is the table that holds the user_allowed_groups relation/edge.
 	UserAllowedGroupsTable = "user_allowed_groups"
 	// UserAllowedGroupsInverseTable is the table name for the UserAllowedGroup entity.
@@ -645,6 +672,41 @@ func ByPlatformQuotas(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByHostingEntitlementField orders the results by hosting_entitlement field.
+func ByHostingEntitlementField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newHostingEntitlementStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// ByCreatedHostingEntitlementsCount orders the results by created_hosting_entitlements count.
+func ByCreatedHostingEntitlementsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newCreatedHostingEntitlementsStep(), opts...)
+	}
+}
+
+// ByCreatedHostingEntitlements orders the results by created_hosting_entitlements terms.
+func ByCreatedHostingEntitlements(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newCreatedHostingEntitlementsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByUpdatedHostingEntitlementsCount orders the results by updated_hosting_entitlements count.
+func ByUpdatedHostingEntitlementsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newUpdatedHostingEntitlementsStep(), opts...)
+	}
+}
+
+// ByUpdatedHostingEntitlements orders the results by updated_hosting_entitlements terms.
+func ByUpdatedHostingEntitlements(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newUpdatedHostingEntitlementsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByUserAllowedGroupsCount orders the results by user_allowed_groups count.
 func ByUserAllowedGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -768,6 +830,27 @@ func newPlatformQuotasStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(PlatformQuotasInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, PlatformQuotasTable, PlatformQuotasColumn),
+	)
+}
+func newHostingEntitlementStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(HostingEntitlementInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2O, false, HostingEntitlementTable, HostingEntitlementColumn),
+	)
+}
+func newCreatedHostingEntitlementsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(CreatedHostingEntitlementsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, CreatedHostingEntitlementsTable, CreatedHostingEntitlementsColumn),
+	)
+}
+func newUpdatedHostingEntitlementsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(UpdatedHostingEntitlementsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, UpdatedHostingEntitlementsTable, UpdatedHostingEntitlementsColumn),
 	)
 }
 func newUserAllowedGroupsStep() *sqlgraph.Step {

@@ -27,6 +27,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/ent/userallowedgroup"
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
+	"github.com/Wei-Shaw/sub2api/ent/userhostingentitlement"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
 	"github.com/Wei-Shaw/sub2api/ent/userrole"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
@@ -35,27 +36,30 @@ import (
 // UserQuery is the builder for querying User entities.
 type UserQuery struct {
 	config
-	ctx                       *QueryContext
-	order                     []user.OrderOption
-	inters                    []Interceptor
-	predicates                []predicate.User
-	withAPIKeys               *APIKeyQuery
-	withRedeemCodes           *RedeemCodeQuery
-	withSubscriptions         *UserSubscriptionQuery
-	withAssignedSubscriptions *UserSubscriptionQuery
-	withAnnouncementReads     *AnnouncementReadQuery
-	withAllowedGroups         *GroupQuery
-	withAuthorizationRoles    *RoleQuery
-	withUsageLogs             *UsageLogQuery
-	withAttributeValues       *UserAttributeValueQuery
-	withPromoCodeUsages       *PromoCodeUsageQuery
-	withPaymentOrders         *PaymentOrderQuery
-	withAuthIdentities        *AuthIdentityQuery
-	withPendingAuthSessions   *PendingAuthSessionQuery
-	withPlatformQuotas        *UserPlatformQuotaQuery
-	withUserAllowedGroups     *UserAllowedGroupQuery
-	withUserRoles             *UserRoleQuery
-	modifiers                 []func(*sql.Selector)
+	ctx                            *QueryContext
+	order                          []user.OrderOption
+	inters                         []Interceptor
+	predicates                     []predicate.User
+	withAPIKeys                    *APIKeyQuery
+	withRedeemCodes                *RedeemCodeQuery
+	withSubscriptions              *UserSubscriptionQuery
+	withAssignedSubscriptions      *UserSubscriptionQuery
+	withAnnouncementReads          *AnnouncementReadQuery
+	withAllowedGroups              *GroupQuery
+	withAuthorizationRoles         *RoleQuery
+	withUsageLogs                  *UsageLogQuery
+	withAttributeValues            *UserAttributeValueQuery
+	withPromoCodeUsages            *PromoCodeUsageQuery
+	withPaymentOrders              *PaymentOrderQuery
+	withAuthIdentities             *AuthIdentityQuery
+	withPendingAuthSessions        *PendingAuthSessionQuery
+	withPlatformQuotas             *UserPlatformQuotaQuery
+	withHostingEntitlement         *UserHostingEntitlementQuery
+	withCreatedHostingEntitlements *UserHostingEntitlementQuery
+	withUpdatedHostingEntitlements *UserHostingEntitlementQuery
+	withUserAllowedGroups          *UserAllowedGroupQuery
+	withUserRoles                  *UserRoleQuery
+	modifiers                      []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -400,6 +404,72 @@ func (_q *UserQuery) QueryPlatformQuotas() *UserPlatformQuotaQuery {
 	return query
 }
 
+// QueryHostingEntitlement chains the current query on the "hosting_entitlement" edge.
+func (_q *UserQuery) QueryHostingEntitlement() *UserHostingEntitlementQuery {
+	query := (&UserHostingEntitlementClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(userhostingentitlement.Table, userhostingentitlement.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, user.HostingEntitlementTable, user.HostingEntitlementColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryCreatedHostingEntitlements chains the current query on the "created_hosting_entitlements" edge.
+func (_q *UserQuery) QueryCreatedHostingEntitlements() *UserHostingEntitlementQuery {
+	query := (&UserHostingEntitlementClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(userhostingentitlement.Table, userhostingentitlement.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.CreatedHostingEntitlementsTable, user.CreatedHostingEntitlementsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryUpdatedHostingEntitlements chains the current query on the "updated_hosting_entitlements" edge.
+func (_q *UserQuery) QueryUpdatedHostingEntitlements() *UserHostingEntitlementQuery {
+	query := (&UserHostingEntitlementClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(userhostingentitlement.Table, userhostingentitlement.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.UpdatedHostingEntitlementsTable, user.UpdatedHostingEntitlementsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
 // QueryUserAllowedGroups chains the current query on the "user_allowed_groups" edge.
 func (_q *UserQuery) QueryUserAllowedGroups() *UserAllowedGroupQuery {
 	query := (&UserAllowedGroupClient{config: _q.config}).Query()
@@ -631,27 +701,30 @@ func (_q *UserQuery) Clone() *UserQuery {
 		return nil
 	}
 	return &UserQuery{
-		config:                    _q.config,
-		ctx:                       _q.ctx.Clone(),
-		order:                     append([]user.OrderOption{}, _q.order...),
-		inters:                    append([]Interceptor{}, _q.inters...),
-		predicates:                append([]predicate.User{}, _q.predicates...),
-		withAPIKeys:               _q.withAPIKeys.Clone(),
-		withRedeemCodes:           _q.withRedeemCodes.Clone(),
-		withSubscriptions:         _q.withSubscriptions.Clone(),
-		withAssignedSubscriptions: _q.withAssignedSubscriptions.Clone(),
-		withAnnouncementReads:     _q.withAnnouncementReads.Clone(),
-		withAllowedGroups:         _q.withAllowedGroups.Clone(),
-		withAuthorizationRoles:    _q.withAuthorizationRoles.Clone(),
-		withUsageLogs:             _q.withUsageLogs.Clone(),
-		withAttributeValues:       _q.withAttributeValues.Clone(),
-		withPromoCodeUsages:       _q.withPromoCodeUsages.Clone(),
-		withPaymentOrders:         _q.withPaymentOrders.Clone(),
-		withAuthIdentities:        _q.withAuthIdentities.Clone(),
-		withPendingAuthSessions:   _q.withPendingAuthSessions.Clone(),
-		withPlatformQuotas:        _q.withPlatformQuotas.Clone(),
-		withUserAllowedGroups:     _q.withUserAllowedGroups.Clone(),
-		withUserRoles:             _q.withUserRoles.Clone(),
+		config:                         _q.config,
+		ctx:                            _q.ctx.Clone(),
+		order:                          append([]user.OrderOption{}, _q.order...),
+		inters:                         append([]Interceptor{}, _q.inters...),
+		predicates:                     append([]predicate.User{}, _q.predicates...),
+		withAPIKeys:                    _q.withAPIKeys.Clone(),
+		withRedeemCodes:                _q.withRedeemCodes.Clone(),
+		withSubscriptions:              _q.withSubscriptions.Clone(),
+		withAssignedSubscriptions:      _q.withAssignedSubscriptions.Clone(),
+		withAnnouncementReads:          _q.withAnnouncementReads.Clone(),
+		withAllowedGroups:              _q.withAllowedGroups.Clone(),
+		withAuthorizationRoles:         _q.withAuthorizationRoles.Clone(),
+		withUsageLogs:                  _q.withUsageLogs.Clone(),
+		withAttributeValues:            _q.withAttributeValues.Clone(),
+		withPromoCodeUsages:            _q.withPromoCodeUsages.Clone(),
+		withPaymentOrders:              _q.withPaymentOrders.Clone(),
+		withAuthIdentities:             _q.withAuthIdentities.Clone(),
+		withPendingAuthSessions:        _q.withPendingAuthSessions.Clone(),
+		withPlatformQuotas:             _q.withPlatformQuotas.Clone(),
+		withHostingEntitlement:         _q.withHostingEntitlement.Clone(),
+		withCreatedHostingEntitlements: _q.withCreatedHostingEntitlements.Clone(),
+		withUpdatedHostingEntitlements: _q.withUpdatedHostingEntitlements.Clone(),
+		withUserAllowedGroups:          _q.withUserAllowedGroups.Clone(),
+		withUserRoles:                  _q.withUserRoles.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -812,6 +885,39 @@ func (_q *UserQuery) WithPlatformQuotas(opts ...func(*UserPlatformQuotaQuery)) *
 	return _q
 }
 
+// WithHostingEntitlement tells the query-builder to eager-load the nodes that are connected to
+// the "hosting_entitlement" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UserQuery) WithHostingEntitlement(opts ...func(*UserHostingEntitlementQuery)) *UserQuery {
+	query := (&UserHostingEntitlementClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withHostingEntitlement = query
+	return _q
+}
+
+// WithCreatedHostingEntitlements tells the query-builder to eager-load the nodes that are connected to
+// the "created_hosting_entitlements" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UserQuery) WithCreatedHostingEntitlements(opts ...func(*UserHostingEntitlementQuery)) *UserQuery {
+	query := (&UserHostingEntitlementClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withCreatedHostingEntitlements = query
+	return _q
+}
+
+// WithUpdatedHostingEntitlements tells the query-builder to eager-load the nodes that are connected to
+// the "updated_hosting_entitlements" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UserQuery) WithUpdatedHostingEntitlements(opts ...func(*UserHostingEntitlementQuery)) *UserQuery {
+	query := (&UserHostingEntitlementClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withUpdatedHostingEntitlements = query
+	return _q
+}
+
 // WithUserAllowedGroups tells the query-builder to eager-load the nodes that are connected to
 // the "user_allowed_groups" edge. The optional arguments are used to configure the query builder of the edge.
 func (_q *UserQuery) WithUserAllowedGroups(opts ...func(*UserAllowedGroupQuery)) *UserQuery {
@@ -912,7 +1018,7 @@ func (_q *UserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*User, e
 	var (
 		nodes       = []*User{}
 		_spec       = _q.querySpec()
-		loadedTypes = [16]bool{
+		loadedTypes = [19]bool{
 			_q.withAPIKeys != nil,
 			_q.withRedeemCodes != nil,
 			_q.withSubscriptions != nil,
@@ -927,6 +1033,9 @@ func (_q *UserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*User, e
 			_q.withAuthIdentities != nil,
 			_q.withPendingAuthSessions != nil,
 			_q.withPlatformQuotas != nil,
+			_q.withHostingEntitlement != nil,
+			_q.withCreatedHostingEntitlements != nil,
+			_q.withUpdatedHostingEntitlements != nil,
 			_q.withUserAllowedGroups != nil,
 			_q.withUserRoles != nil,
 		}
@@ -1051,6 +1160,30 @@ func (_q *UserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*User, e
 		if err := _q.loadPlatformQuotas(ctx, query, nodes,
 			func(n *User) { n.Edges.PlatformQuotas = []*UserPlatformQuota{} },
 			func(n *User, e *UserPlatformQuota) { n.Edges.PlatformQuotas = append(n.Edges.PlatformQuotas, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withHostingEntitlement; query != nil {
+		if err := _q.loadHostingEntitlement(ctx, query, nodes, nil,
+			func(n *User, e *UserHostingEntitlement) { n.Edges.HostingEntitlement = e }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withCreatedHostingEntitlements; query != nil {
+		if err := _q.loadCreatedHostingEntitlements(ctx, query, nodes,
+			func(n *User) { n.Edges.CreatedHostingEntitlements = []*UserHostingEntitlement{} },
+			func(n *User, e *UserHostingEntitlement) {
+				n.Edges.CreatedHostingEntitlements = append(n.Edges.CreatedHostingEntitlements, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withUpdatedHostingEntitlements; query != nil {
+		if err := _q.loadUpdatedHostingEntitlements(ctx, query, nodes,
+			func(n *User) { n.Edges.UpdatedHostingEntitlements = []*UserHostingEntitlement{} },
+			func(n *User, e *UserHostingEntitlement) {
+				n.Edges.UpdatedHostingEntitlements = append(n.Edges.UpdatedHostingEntitlements, e)
+			}); err != nil {
 			return nil, err
 		}
 	}
@@ -1557,6 +1690,93 @@ func (_q *UserQuery) loadPlatformQuotas(ctx context.Context, query *UserPlatform
 		node, ok := nodeids[fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "user_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UserQuery) loadHostingEntitlement(ctx context.Context, query *UserHostingEntitlementQuery, nodes []*User, init func(*User), assign func(*User, *UserHostingEntitlement)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(userhostingentitlement.FieldUserID)
+	}
+	query.Where(predicate.UserHostingEntitlement(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.HostingEntitlementColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.UserID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "user_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UserQuery) loadCreatedHostingEntitlements(ctx context.Context, query *UserHostingEntitlementQuery, nodes []*User, init func(*User), assign func(*User, *UserHostingEntitlement)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(userhostingentitlement.FieldCreatedByUserID)
+	}
+	query.Where(predicate.UserHostingEntitlement(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.CreatedHostingEntitlementsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.CreatedByUserID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "created_by_user_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UserQuery) loadUpdatedHostingEntitlements(ctx context.Context, query *UserHostingEntitlementQuery, nodes []*User, init func(*User), assign func(*User, *UserHostingEntitlement)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(userhostingentitlement.FieldUpdatedByUserID)
+	}
+	query.Where(predicate.UserHostingEntitlement(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.UpdatedHostingEntitlementsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.UpdatedByUserID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "updated_by_user_id" returned %v for node %v`, fk, n.ID)
 		}
 		assign(node, n)
 	}

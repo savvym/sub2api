@@ -1,6 +1,6 @@
 # Compatibility Matrix
 
-状态：Phase 0 兼容基线已建立。矩阵定义有效行为，组合测试必须以此为数据源或保持机械同步。
+状态：Phase 0 兼容基线已建立，Phase 2 任务 2.1 已补充普通用户创建的窄 shadow 例外。矩阵定义有效行为，组合测试必须以此为数据源或保持机械同步。
 
 ## 全局优先级
 
@@ -42,11 +42,13 @@ SIMPLE Mode 的 Phase 1 限制是发布护栏，不修改最终产品语义。�
 | 模式 | 响应依据 | 新模型作用 | 回切条件 |
 | --- | --- | --- | --- |
 | role legacy | `users.role` | seed/backfill/观察 | 默认 |
-| role shadow | `users.role` | 计算 RBAC 并记录差异，不放行 | 差异不可接受可回 legacy |
+| role shadow | 默认由 `users.role` 决定；普通 JWT 用户的 Account/Group `CanCreate` 唯一改用 RBAC 结果 | 全部入口继续记录差异；创建例外仍受总开关、self-service、主体状态、hoster 资格和事务内配额约束 | 差异不可接受可回 legacy；回切后普通用户创建重新拒绝 |
 | role rbac | user_roles/permissions | 唯一允许源；旧 role 只读投影 | 无 RBAC 独有配置且版本一致 |
 | group legacy | is_exclusive/user_allowed_groups/订阅旧逻辑 | ACL 不影响允许 | 默认 |
 | group shadow | legacy | ACL 计算差异，不放行 | 可直接回 legacy |
 | group acl | ACL + 现有业务资格 | 唯一权限源 | 仅旧模型能表达完全相同受众时 |
+
+任务 2.1 后，role shadow 只有一个明确例外：普通 JWT User 调用 Account/Group `CanCreate` 时采用 RBAC 结果，以便后续自助创建链在 RBAC 全量切换前按 hoster 能力受控接入。该例外不是 legacy/RBAC 的 OR 放行；管理员 JWT、Service Principal、`CheckCapability`、`Authorize`、`AccessibleScope` 和其他资源类型仍使用 legacy 响应。总开关或 self-service 有效值关闭、主体失效、缺少对应创建能力或事务内配额耗尽时仍必须拒绝。
 
 ## group 0 不变量
 

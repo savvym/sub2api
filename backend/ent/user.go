@@ -10,6 +10,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/Wei-Shaw/sub2api/ent/user"
+	"github.com/Wei-Shaw/sub2api/ent/userhostingentitlement"
 )
 
 // User is the model entity for the User schema.
@@ -103,13 +104,19 @@ type UserEdges struct {
 	PendingAuthSessions []*PendingAuthSession `json:"pending_auth_sessions,omitempty"`
 	// PlatformQuotas holds the value of the platform_quotas edge.
 	PlatformQuotas []*UserPlatformQuota `json:"platform_quotas,omitempty"`
+	// HostingEntitlement holds the value of the hosting_entitlement edge.
+	HostingEntitlement *UserHostingEntitlement `json:"hosting_entitlement,omitempty"`
+	// CreatedHostingEntitlements holds the value of the created_hosting_entitlements edge.
+	CreatedHostingEntitlements []*UserHostingEntitlement `json:"created_hosting_entitlements,omitempty"`
+	// UpdatedHostingEntitlements holds the value of the updated_hosting_entitlements edge.
+	UpdatedHostingEntitlements []*UserHostingEntitlement `json:"updated_hosting_entitlements,omitempty"`
 	// UserAllowedGroups holds the value of the user_allowed_groups edge.
 	UserAllowedGroups []*UserAllowedGroup `json:"user_allowed_groups,omitempty"`
 	// UserRoles holds the value of the user_roles edge.
 	UserRoles []*UserRole `json:"user_roles,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [16]bool
+	loadedTypes [19]bool
 }
 
 // APIKeysOrErr returns the APIKeys value or an error if the edge
@@ -238,10 +245,39 @@ func (e UserEdges) PlatformQuotasOrErr() ([]*UserPlatformQuota, error) {
 	return nil, &NotLoadedError{edge: "platform_quotas"}
 }
 
+// HostingEntitlementOrErr returns the HostingEntitlement value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e UserEdges) HostingEntitlementOrErr() (*UserHostingEntitlement, error) {
+	if e.HostingEntitlement != nil {
+		return e.HostingEntitlement, nil
+	} else if e.loadedTypes[14] {
+		return nil, &NotFoundError{label: userhostingentitlement.Label}
+	}
+	return nil, &NotLoadedError{edge: "hosting_entitlement"}
+}
+
+// CreatedHostingEntitlementsOrErr returns the CreatedHostingEntitlements value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) CreatedHostingEntitlementsOrErr() ([]*UserHostingEntitlement, error) {
+	if e.loadedTypes[15] {
+		return e.CreatedHostingEntitlements, nil
+	}
+	return nil, &NotLoadedError{edge: "created_hosting_entitlements"}
+}
+
+// UpdatedHostingEntitlementsOrErr returns the UpdatedHostingEntitlements value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) UpdatedHostingEntitlementsOrErr() ([]*UserHostingEntitlement, error) {
+	if e.loadedTypes[16] {
+		return e.UpdatedHostingEntitlements, nil
+	}
+	return nil, &NotLoadedError{edge: "updated_hosting_entitlements"}
+}
+
 // UserAllowedGroupsOrErr returns the UserAllowedGroups value or an error if the edge
 // was not loaded in eager-loading.
 func (e UserEdges) UserAllowedGroupsOrErr() ([]*UserAllowedGroup, error) {
-	if e.loadedTypes[14] {
+	if e.loadedTypes[17] {
 		return e.UserAllowedGroups, nil
 	}
 	return nil, &NotLoadedError{edge: "user_allowed_groups"}
@@ -250,7 +286,7 @@ func (e UserEdges) UserAllowedGroupsOrErr() ([]*UserAllowedGroup, error) {
 // UserRolesOrErr returns the UserRoles value or an error if the edge
 // was not loaded in eager-loading.
 func (e UserEdges) UserRolesOrErr() ([]*UserRole, error) {
-	if e.loadedTypes[15] {
+	if e.loadedTypes[18] {
 		return e.UserRoles, nil
 	}
 	return nil, &NotLoadedError{edge: "user_roles"}
@@ -529,6 +565,21 @@ func (_m *User) QueryPendingAuthSessions() *PendingAuthSessionQuery {
 // QueryPlatformQuotas queries the "platform_quotas" edge of the User entity.
 func (_m *User) QueryPlatformQuotas() *UserPlatformQuotaQuery {
 	return NewUserClient(_m.config).QueryPlatformQuotas(_m)
+}
+
+// QueryHostingEntitlement queries the "hosting_entitlement" edge of the User entity.
+func (_m *User) QueryHostingEntitlement() *UserHostingEntitlementQuery {
+	return NewUserClient(_m.config).QueryHostingEntitlement(_m)
+}
+
+// QueryCreatedHostingEntitlements queries the "created_hosting_entitlements" edge of the User entity.
+func (_m *User) QueryCreatedHostingEntitlements() *UserHostingEntitlementQuery {
+	return NewUserClient(_m.config).QueryCreatedHostingEntitlements(_m)
+}
+
+// QueryUpdatedHostingEntitlements queries the "updated_hosting_entitlements" edge of the User entity.
+func (_m *User) QueryUpdatedHostingEntitlements() *UserHostingEntitlementQuery {
+	return NewUserClient(_m.config).QueryUpdatedHostingEntitlements(_m)
 }
 
 // QueryUserAllowedGroups queries the "user_allowed_groups" edge of the User entity.
