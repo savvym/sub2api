@@ -21,30 +21,33 @@ func TestResourceAccountFromServiceUsesStrictWhitelist(t *testing.T) {
 	updatedAt := createdAt.Add(time.Hour)
 
 	got := ResourceAccountFromService(&service.AccountListItem{
-		ID:                7,
-		Name:              "shared-account",
-		Platform:          "openai",
-		Type:              "oauth",
-		Status:            "active",
-		OwnerUserID:       &ownerID,
-		PublicAccessLevel: &level,
-		CreatedAt:         createdAt,
-		UpdatedAt:         updatedAt,
+		ID:                   7,
+		Name:                 "shared-account",
+		Platform:             "openai",
+		Type:                 "oauth",
+		Status:               "active",
+		CredentialConfigured: true,
+		OwnerUserID:          &ownerID,
+		PublicAccessLevel:    &level,
+		CreatedAt:            createdAt,
+		UpdatedAt:            updatedAt,
 	}, ownerID)
 
 	require.Equal(t, &ResourceAccount{
-		ID:                7,
-		Name:              "shared-account",
-		Platform:          "openai",
-		Type:              "oauth",
-		Status:            "active",
-		OwnedByMe:         true,
-		PublicAccessLevel: accessLevelPointer(authz.AccessLevelConsumer),
-		CreatedAt:         createdAt,
-		UpdatedAt:         updatedAt,
+		ID:                   7,
+		Name:                 "shared-account",
+		Platform:             "openai",
+		Type:                 "oauth",
+		Status:               "active",
+		CredentialConfigured: true,
+		OwnedByMe:            true,
+		PublicAccessLevel:    accessLevelPointer(authz.AccessLevelConsumer),
+		CreatedAt:            createdAt,
+		UpdatedAt:            updatedAt,
 	}, got)
 	assertResourceReadJSONKeys(t, got, []string{
 		"created_at",
+		"credential_configured",
 		"id",
 		"name",
 		"owned_by_me",
@@ -128,6 +131,7 @@ func TestResourceReadMappersComputeOwnershipWithoutExposingOwnerID(t *testing.T)
 func TestResourceReadDTOReflectionRejectsSensitiveFields(t *testing.T) {
 	assertResourceReadTypeKeys(t, reflect.TypeOf(ResourceAccount{}), []string{
 		"created_at",
+		"credential_configured",
 		"id",
 		"name",
 		"owned_by_me",

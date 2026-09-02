@@ -56,6 +56,7 @@ func TestAuthzPolicyStorePostgresCTESnapshotAndExpiry(t *testing.T) {
 	subjectID := insertAuthzPolicyPostgresUser(t, ctx, tx, "authz-subject@example.test")
 	otherUserID := insertAuthzPolicyPostgresUser(t, ctx, tx, "authz-other@example.test")
 	activeRoleID := insertAuthzPolicyPostgresRole(t, ctx, tx, "authz_active", authz.CapabilityAccountCreate)
+	duplicateCapabilityRoleID := insertAuthzPolicyPostgresRole(t, ctx, tx, "authz_duplicate_capability", authz.CapabilityAccountCreate)
 	boundaryRoleID := insertAuthzPolicyPostgresRole(t, ctx, tx, "authz_boundary", authz.CapabilityGroupCreate)
 	pastRoleID := insertAuthzPolicyPostgresRole(t, ctx, tx, "authz_past", authz.CapabilityResourceShare)
 	unassignedRoleID := insertAuthzPolicyPostgresRole(t, ctx, tx, "authz_unassigned", authz.CapabilityPlatformResourceManageAll)
@@ -64,9 +65,10 @@ func TestAuthzPolicyStorePostgresCTESnapshotAndExpiry(t *testing.T) {
 		INSERT INTO user_roles (user_id, role_id, granted_by_user_id, expires_at)
 		VALUES
 			($1, $2, $3, CURRENT_TIMESTAMP + INTERVAL '1 hour'),
+			($1, $6, $3, CURRENT_TIMESTAMP + INTERVAL '1 hour'),
 			($1, $4, $3, CURRENT_TIMESTAMP),
 			($1, $5, $3, CURRENT_TIMESTAMP - INTERVAL '1 second')
-	`, subjectID, activeRoleID, ownerID, boundaryRoleID, pastRoleID); err != nil {
+	`, subjectID, activeRoleID, ownerID, boundaryRoleID, pastRoleID, duplicateCapabilityRoleID); err != nil {
 		t.Fatalf("insert role assignments: %v", err)
 	}
 	var servicePrincipalID int64
@@ -81,9 +83,10 @@ func TestAuthzPolicyStorePostgresCTESnapshotAndExpiry(t *testing.T) {
 		INSERT INTO service_principal_roles (service_principal_id, role_id, granted_by_user_id, expires_at)
 		VALUES
 			($1, $2, $3, CURRENT_TIMESTAMP + INTERVAL '1 hour'),
+			($1, $6, $3, CURRENT_TIMESTAMP + INTERVAL '1 hour'),
 			($1, $4, $3, CURRENT_TIMESTAMP),
 			($1, $5, $3, CURRENT_TIMESTAMP - INTERVAL '1 second')
-	`, servicePrincipalID, activeRoleID, ownerID, boundaryRoleID, pastRoleID); err != nil {
+	`, servicePrincipalID, activeRoleID, ownerID, boundaryRoleID, pastRoleID, duplicateCapabilityRoleID); err != nil {
 		t.Fatalf("insert service principal role assignments: %v", err)
 	}
 	setAuthzPolicyPostgresConfiguration(t, ctx, tx)
@@ -147,7 +150,7 @@ func TestAuthzPolicyStorePostgresCTESnapshotAndExpiry(t *testing.T) {
 	if !subjectSnapshot.Valid() || !subjectSnapshot.Exists() || !subjectSnapshot.Active() {
 		t.Fatalf("unexpected PostgreSQL subject state: %+v", subjectSnapshot)
 	}
-	if got, want := subjectSnapshot.RoleVersions(), map[int64]int64{activeRoleID: 1}; !reflect.DeepEqual(got, want) {
+	if got, want := subjectSnapshot.RoleVersions(), map[int64]int64{activeRoleID: 1, duplicateCapabilityRoleID: 1}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("active PostgreSQL roles = %v, want %v", got, want)
 	}
 	if got, want := subjectSnapshot.Capabilities(), []authz.Capability{authz.CapabilityAccountCreate}; !reflect.DeepEqual(got, want) {
@@ -163,7 +166,7 @@ func TestAuthzPolicyStorePostgresCTESnapshotAndExpiry(t *testing.T) {
 		!servicePrincipalSnapshot.Exists() || !servicePrincipalSnapshot.Active() || servicePrincipalSnapshot.AuthzVersion() != 5 {
 		t.Fatalf("unexpected PostgreSQL service principal state: %+v", servicePrincipalSnapshot)
 	}
-	if got, want := servicePrincipalSnapshot.RoleVersions(), map[int64]int64{activeRoleID: 1}; !reflect.DeepEqual(got, want) {
+	if got, want := servicePrincipalSnapshot.RoleVersions(), map[int64]int64{activeRoleID: 1, duplicateCapabilityRoleID: 1}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("active PostgreSQL service principal roles = %v, want %v", got, want)
 	}
 	if got, want := servicePrincipalSnapshot.Capabilities(), []authz.Capability{authz.CapabilityAccountCreate}; !reflect.DeepEqual(got, want) {
@@ -232,8 +235,8 @@ func TestAuthzPolicyStorePostgresCTESnapshotAndExpiry(t *testing.T) {
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE user_roles
 		SET expires_at = CURRENT_TIMESTAMP
-		WHERE user_id = $1 AND role_id = $2
-	`, subjectID, activeRoleID); err != nil {
+		WHERE user_id = $1 AND role_id IN ($2, $3)
+	`, subjectID, activeRoleID, duplicateCapabilityRoleID); err != nil {
 		t.Fatalf("move role assignment to expiry boundary: %v", err)
 	}
 	subjectSnapshot, err = store.LoadSubjectSnapshot(ctx, subject)

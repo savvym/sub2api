@@ -56,6 +56,13 @@ declare module 'vue-router' {
     requiresRiskControl?: boolean
 
     /**
+     * Whether this route requires effective self-service hosting to be enabled.
+     * This is an opt-in gate and fails closed when public settings are unavailable.
+     * @default false
+     */
+    requiresSelfServiceHosting?: boolean
+
+    /**
      * i18n key for the page title
      */
     titleKey?: string

@@ -165,6 +165,76 @@ func TestSettingService_GetPublicSettings_ExposesAllowUserViewErrorRequests(t *t
 	require.True(t, settings.AllowUserViewErrorRequests)
 }
 
+func TestSettingService_GetPublicSettings_ExposesOnlyEffectiveSelfServiceHosting(t *testing.T) {
+	tests := []struct {
+		name    string
+		values  map[string]string
+		cfg     *config.Config
+		enabled bool
+	}{
+		{
+			name: "enabled",
+			values: map[string]string{
+				SettingKeyResourceAccessControlEnabled: "true",
+				SettingKeySelfServiceHostingEnabled:    "true",
+			},
+			cfg:     &config.Config{},
+			enabled: true,
+		},
+		{
+			name: "master switch disabled",
+			values: map[string]string{
+				SettingKeyResourceAccessControlEnabled: "false",
+				SettingKeySelfServiceHostingEnabled:    "true",
+			},
+			cfg: &config.Config{},
+		},
+		{
+			name: "self service missing",
+			values: map[string]string{
+				SettingKeyResourceAccessControlEnabled: "true",
+			},
+			cfg: &config.Config{},
+		},
+		{
+			name: "backend mode overrides stored values",
+			values: map[string]string{
+				SettingKeyBackendModeEnabled:           "true",
+				SettingKeyResourceAccessControlEnabled: "true",
+				SettingKeySelfServiceHostingEnabled:    "true",
+			},
+			cfg: &config.Config{},
+		},
+		{
+			name: "simple mode overrides stored values",
+			values: map[string]string{
+				SettingKeyResourceAccessControlEnabled: "true",
+				SettingKeySelfServiceHostingEnabled:    "true",
+			},
+			cfg: &config.Config{RunMode: config.RunModeSimple},
+		},
+		{
+			name: "non canonical true fails closed",
+			values: map[string]string{
+				SettingKeyResourceAccessControlEnabled: "true",
+				SettingKeySelfServiceHostingEnabled:    "TRUE",
+			},
+			cfg: &config.Config{},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			svc := NewSettingService(&settingPublicRepoStub{values: testCase.values}, testCase.cfg)
+
+			settings, err := svc.GetPublicSettings(context.Background())
+
+			require.NoError(t, err)
+			require.Equal(t, testCase.enabled, settings.SelfServiceHostingEnabled)
+		})
+	}
+}
+
 func TestSettingService_GetPublicSettings_ExposesWeChatOAuthModeCapabilities(t *testing.T) {
 	svc := NewSettingService(&settingPublicRepoStub{
 		values: map[string]string{

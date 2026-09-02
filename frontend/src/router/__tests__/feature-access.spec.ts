@@ -25,6 +25,7 @@ const appStore = vi.hoisted(() => ({
   cachedPublicSettings: null as null | {
     payment_enabled?: boolean
     risk_control_enabled?: boolean
+    self_service_hosting_enabled?: boolean
     custom_menu_items?: []
   },
   fetchPublicSettings: vi.fn(),
@@ -173,5 +174,65 @@ describe('feature route guard', () => {
     expect(appStore.fetchPublicSettings).not.toHaveBeenCalled()
     expect(next).toHaveBeenCalledOnce()
     expect(next).toHaveBeenCalledWith(target)
+  })
+
+  it('allows self-service accounts only when the effective flag is explicitly enabled', async () => {
+    appStore.cachedPublicSettings = { self_service_hosting_enabled: true }
+    appStore.publicSettingsLoaded = true
+
+    const { navigation, next } = runGuard(
+      { requiresSelfServiceHosting: true },
+      '/accounts'
+    )
+    await navigation
+
+    expect(next).toHaveBeenCalledOnce()
+    expect(next).toHaveBeenCalledWith()
+  })
+
+  it.each([
+    ['disabled', { self_service_hosting_enabled: false }],
+    ['missing', {}],
+  ])('fails closed when self-service settings are %s', async (_name, settings) => {
+    appStore.cachedPublicSettings = settings
+    appStore.publicSettingsLoaded = true
+
+    const { navigation, next } = runGuard(
+      { requiresSelfServiceHosting: true },
+      '/accounts'
+    )
+    await navigation
+
+    expect(next).toHaveBeenCalledOnce()
+    expect(next).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('fails closed when loading self-service settings fails', async () => {
+    appStore.fetchPublicSettings.mockRejectedValue(new Error('offline'))
+
+    const { navigation, next } = runGuard(
+      { requiresSelfServiceHosting: true },
+      '/accounts'
+    )
+    await navigation
+
+    expect(appStore.fetchPublicSettings).toHaveBeenCalledOnce()
+    expect(next).toHaveBeenCalledOnce()
+    expect(next).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('blocks self-service accounts in simple mode even when enabled', async () => {
+    authStore.isSimpleMode = true
+    appStore.cachedPublicSettings = { self_service_hosting_enabled: true }
+    appStore.publicSettingsLoaded = true
+
+    const { navigation, next } = runGuard(
+      { requiresSelfServiceHosting: true },
+      '/accounts'
+    )
+    await navigation
+
+    expect(next).toHaveBeenCalledOnce()
+    expect(next).toHaveBeenCalledWith('/dashboard')
   })
 })

@@ -213,7 +213,17 @@ func (r *resourceMutationRepository) AppendAuthorizationEvents(
 	ctx context.Context,
 	events []service.ResourceAuthorizationEventRecord,
 ) error {
-	client := clientFromContext(ctx, r.client)
+	return appendResourceAuthorizationEvents(ctx, clientFromContext(ctx, r.client), events)
+}
+
+func appendResourceAuthorizationEvents(
+	ctx context.Context,
+	client *dbent.Client,
+	events []service.ResourceAuthorizationEventRecord,
+) error {
+	if client == nil {
+		return service.ErrResourceMutationUnavailable
+	}
 	for _, event := range events {
 		if !event.Key.Valid() || event.ActorID <= 0 || event.ResourceAccessVersion <= 0 {
 			return service.ErrResourceMutationUnavailable

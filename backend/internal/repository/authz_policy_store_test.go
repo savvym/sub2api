@@ -813,6 +813,27 @@ func TestAuthzPolicyStoreSQLLoadsDirectWorkerPermissionsOnlyForServicePrincipals
 	}
 }
 
+func TestAuthzPolicyStoreSQLDeduplicatesCapabilitiesAcrossRoles(t *testing.T) {
+	queries := []struct {
+		name  string
+		query string
+	}{
+		{name: "user subject", query: buildSubjectSnapshotSQL(authz.SubjectKindUser)},
+		{name: "user resource", query: buildResourceSnapshotSQL(authz.SubjectKindUser, authz.ResourceTypeAccount)},
+		{name: "service principal subject", query: buildSubjectSnapshotSQL(authz.SubjectKindServicePrincipal)},
+		{name: "service principal by code", query: buildServicePrincipalSubjectSnapshotByCodeSQL()},
+		{name: "service principal resource", query: buildResourceSnapshotSQL(authz.SubjectKindServicePrincipal, authz.ResourceTypeGroup)},
+	}
+
+	for _, testCase := range queries {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := strings.Count(testCase.query, "SELECT DISTINCT p.code"); got != 1 {
+				t.Fatalf("role capability projections using DISTINCT = %d, want 1:\n%s", got, testCase.query)
+			}
+		})
+	}
+}
+
 func newAuthzPolicyStoreSQLMock(t *testing.T) (*authzPolicyStore, sqlmock.Sqlmock) {
 	t.Helper()
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))

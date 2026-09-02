@@ -10,7 +10,7 @@
 | resource-authorization | 平台能力与资源动作分离 | Actor/Policy 单测、创建/分享 API 测试 | 待实现 |
 | resource-authorization | SQL 范围过滤与不可枚举 | Repository integration、IDOR E2E、EXPLAIN | 待实现 |
 | resource-authorization | 凭证与字段投影 | DTO/序列化 canary、日志/错误泄漏扫描 | 待实现 |
-| self-service-resource-hosting | 有资格用户私有托管 | 2.1 已完成 hoster/配额/管理员 API 与容量并发契约；普通用户 Account/Group API/UI E2E 仍待 2.2-2.7 | 待实现 |
+| self-service-resource-hosting | 有资格用户私有托管 | 2.1 已完成 hoster/配额/管理员 API 与容量并发契约；2.2 已完成普通用户私有 Account CRUD、窄投影和 UI；Group、默认组、出站发布证据与完整 E2E 仍待 2.3-2.7 | 待实现 |
 | self-service-resource-hosting | 私有默认组与 group 0 隔离 | Scheduler repository/integration 测试 | 待实现 |
 | self-service-resource-hosting | Backend/SIMPLE Mode 优先 | 模式组合测试 | 待实现 |
 | resource-sharing | 分级、多主体分享 | Grant schema/Policy/API/UI 测试 | 待实现 |
@@ -147,6 +147,23 @@
 | role shadow 仅让普通 JWT User 的 Account/Group `CanCreate` 使用 RBAC；管理员、Service Principal 和其他 Policy API 保持 legacy | Policy/role-shadow tests、兼容矩阵与 runtime consistency spec | 通过 |
 | 不注册普通用户资源路由，不修改设置值；所有新增 Feature Flag 关闭且当前 mode 为 legacy | route/migration contract、生产 Wire build、工作区配置边界审查 | 通过 |
 | 当前提交 Testcontainers repository 动态套件 | `CI=1 go test -tags=integration ./... -count=1` | 待实现；本机无 Docker，命令仅因环境门禁失败，推送后由 GitHub Actions 执行并补录 |
+
+## Private Self-Service Account CRUD 门禁（2.2）
+
+本节验收普通用户私有 Account 的最小 CRUD 与 UI。生产产品目录仍为空，有效 self-service 开关仍关闭，新建 Account 固定 `schedulable=false` 且不绑定分组；本节不验收 2.3-2.7 的 Group、默认组、group `0`、OAuth/导入/复制/批量、出站安全发布证据或完整 Phase 2 E2E。
+
+| 门禁 | 证据 | 状态 |
+| --- | --- | --- |
+| 普通用户入口只接受可信 JWT User Actor，且必须与认证中间件 `AuthSubject` 的 user ID 一致；Admin API Key、缺失 Actor 和主体不一致拒绝 | handler/service actor contract、route tests | 通过 |
+| list/get 复用 Policy `AccessibleScope` 与 scoped reader；查询参数白名单、单值、范围、排序和分页严格校验，不可见详情统一 404 | handler/service/repository tests，既有 PostgreSQL scope 动态证据 | 通过 |
+| Account HTTP/SQL 投影只含安全字段和 `credential_configured` 布尔值，不查询或返回 credentials、extra、Owner ID、proxy、运行时状态、错误/额度或关系 | DTO canary、SELECT contract、repository/handler tests | 通过 |
+| 创建 DTO 只接受 `name/product_id/api_key`；产品的 platform/type 由服务端不可变目录决定，OAuth、endpoint、自定义认证参数不可提交；生产目录为空 | strict JSON、catalog allowlist 与 product-unavailable tests；生产 Wire 构造审查 | 通过 |
+| 创建在单一 `SERIALIZABLE` 事务内执行容量检查并可信绑定 Owner/creator；Account 为 private、ungrouped、`schedulable=false`，Account、Scheduler Outbox 与 durable event 原子提交 | service/repository contract 与 PostgreSQL integration 场景 | 通过；聚焦 unit/默认测试已通过，当前提交的 Testcontainers 动态结果待 push CI |
+| rename/delete 锁 Actor 授权与 Account，重解析 Actor、比较授权快照、重跑 Policy、校验 Owner/access version；越权 conceal、冲突和 audit/outbox 故障均零部分提交 | service/repository/handler tests 与 integration 场景 | 通过；聚焦 unit/默认测试已通过，当前提交的 Testcontainers 动态结果待 push CI |
+| `GET/POST /accounts`、`GET /accounts/products`、`GET/PATCH/DELETE /accounts/:id` 接入生产 Handler/Wire；Backend Mode、有效 self-service Policy/Scope 和空目录持续 fail closed | route/Wire/settings tests + backend build | 通过 |
+| 公共设置只暴露后端计算的有效 self-service 值；前端路由与侧栏 opt-in，未加载或 false 时不可进入 `/accounts` | setting service/handler、feature flag、router/sidebar tests | 通过 |
+| 前端完成列表、检索、排序、分页、详情、重命名、删除、两步创建向导、空目录和错误重试状态；中英文、响应式、Dialog 标题 ID 和空分页回归覆盖 | 7 个 Vitest 文件、35 tests | 通过 |
+| OpenSpec strict validate、工作区 diff whitespace 检查和前后端全量验证 | 标准命令与 `implementation-evidence.md` 2.2 小节 | 通过；本地结果已归档，远端 CI/Testcontainers 待 push 后补录 |
 
 ## Phase 0 Exit Review（0.8）
 

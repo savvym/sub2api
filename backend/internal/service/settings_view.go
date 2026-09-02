@@ -374,11 +374,15 @@ type PublicSettings struct {
 	WeChatOAuthMobileEnabled bool
 	BackendModeEnabled       bool
 	PaymentEnabled           bool
-	OIDCOAuthEnabled         bool
-	OIDCOAuthProviderName    string
-	GitHubOAuthEnabled       bool
-	GoogleOAuthEnabled       bool
-	Version                  string
+	// SelfServiceHostingEnabled is the public, effective self-service state.
+	// It is false unless the ACL master switch and stored self-service switch
+	// are enabled, and is forced off in Backend Mode and SIMPLE Mode.
+	SelfServiceHostingEnabled bool
+	OIDCOAuthEnabled          bool
+	OIDCOAuthProviderName     string
+	GitHubOAuthEnabled        bool
+	GoogleOAuthEnabled        bool
+	Version                   string
 
 	BalanceLowNotifyEnabled     bool
 	AccountQuotaNotifyEnabled   bool

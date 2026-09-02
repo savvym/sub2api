@@ -11,15 +11,16 @@ import (
 // user. It intentionally contains no credentials, runtime state, proxy data,
 // owner identifier, or resource relationships.
 type ResourceAccount struct {
-	ID                int64              `json:"id"`
-	Name              string             `json:"name"`
-	Platform          string             `json:"platform"`
-	Type              string             `json:"type"`
-	Status            string             `json:"status"`
-	OwnedByMe         bool               `json:"owned_by_me"`
-	PublicAccessLevel *authz.AccessLevel `json:"public_access_level"`
-	CreatedAt         time.Time          `json:"created_at"`
-	UpdatedAt         time.Time          `json:"updated_at"`
+	ID                   int64              `json:"id"`
+	Name                 string             `json:"name"`
+	Platform             string             `json:"platform"`
+	Type                 string             `json:"type"`
+	Status               string             `json:"status"`
+	CredentialConfigured bool               `json:"credential_configured"`
+	OwnedByMe            bool               `json:"owned_by_me"`
+	PublicAccessLevel    *authz.AccessLevel `json:"public_access_level"`
+	CreatedAt            time.Time          `json:"created_at"`
+	UpdatedAt            time.Time          `json:"updated_at"`
 }
 
 // ResourceGroup is the HTTP projection for a group visible to a regular user.
@@ -41,15 +42,16 @@ func ResourceAccountFromService(item *service.AccountListItem, viewerUserID int6
 		return nil
 	}
 	return &ResourceAccount{
-		ID:                item.ID,
-		Name:              item.Name,
-		Platform:          item.Platform,
-		Type:              item.Type,
-		Status:            item.Status,
-		OwnedByMe:         resourceOwnedByViewer(item.OwnerUserID, viewerUserID),
-		PublicAccessLevel: copyResourceAccessLevel(item.PublicAccessLevel),
-		CreatedAt:         item.CreatedAt,
-		UpdatedAt:         item.UpdatedAt,
+		ID:                   item.ID,
+		Name:                 item.Name,
+		Platform:             item.Platform,
+		Type:                 item.Type,
+		Status:               item.Status,
+		CredentialConfigured: item.CredentialConfigured,
+		OwnedByMe:            resourceOwnedByViewer(item.OwnerUserID, viewerUserID),
+		PublicAccessLevel:    copyResourceAccessLevel(item.PublicAccessLevel),
+		CreatedAt:            item.CreatedAt,
+		UpdatedAt:            item.UpdatedAt,
 	}
 }
 

@@ -526,7 +526,7 @@ SELECT jsonb_build_object(
 
 func authzCurrentCapabilitiesCTE(kind authz.SubjectKind) string {
 	roleCapabilities := `
-		SELECT p.code
+		SELECT DISTINCT p.code
 		FROM active_roles ar
 		JOIN role_permissions rp ON rp.role_id = ar.id
 		JOIN permissions p ON p.id = rp.permission_id

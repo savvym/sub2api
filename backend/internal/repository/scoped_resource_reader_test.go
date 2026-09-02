@@ -88,9 +88,9 @@ func TestScopedResourceReaderListAccountsScopesCountAndPageBeforeNormalizedFilte
 	mock.ExpectQuery("scoped account count").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
 	mock.ExpectQuery("scoped account page").
-		WillReturnRows(sqlmock.NewRows(scopedAccountColumns).
-			AddRow(int64(11), "alpha", "openai", "oauth", "active", int64(42), nil, now, now.Add(time.Minute)).
-			AddRow(int64(12), "beta", "openai", "oauth", "active", int64(99), viewer, now, now.Add(2*time.Minute)))
+		WillReturnRows(sqlmock.NewRows(scopedAccountResultColumns).
+			AddRow(int64(11), "alpha", "openai", "oauth", "active", int64(42), nil, now, now.Add(time.Minute), true).
+			AddRow(int64(12), "beta", "openai", "oauth", "active", int64(99), viewer, now, now.Add(2*time.Minute), false))
 
 	items, result, err := reader.listAccessibleAccounts(context.Background(), validScopedAccountClaims(), service.AccountReadQuery{
 		Pagination: pagination.PaginationParams{
@@ -107,7 +107,9 @@ func TestScopedResourceReaderListAccountsScopesCountAndPageBeforeNormalizedFilte
 	require.NoError(t, err)
 	require.Len(t, items, 2)
 	require.Equal(t, int64(11), items[0].ID)
+	require.True(t, items[0].CredentialConfigured)
 	require.Nil(t, items[0].PublicAccessLevel)
+	require.False(t, items[1].CredentialConfigured)
 	require.NotNil(t, items[1].PublicAccessLevel)
 	require.Equal(t, authz.AccessLevelViewer, *items[1].PublicAccessLevel)
 	require.Equal(t, int64(3), result.Total)
@@ -193,7 +195,7 @@ func TestScopedResourceReaderGetUsesNarrowScopeAndUnifiesInvisibleAndMissing(t *
 		reader, mock, recorder := newScopedReaderTestHarness(t)
 		for range 2 {
 			mock.ExpectQuery("scoped account detail").
-				WillReturnRows(sqlmock.NewRows(scopedAccountColumns))
+				WillReturnRows(sqlmock.NewRows(scopedAccountResultColumns))
 		}
 
 		invisible, err := reader.getAccessibleAccount(context.Background(), validScopedAccountClaims(), 71)
@@ -328,12 +330,14 @@ func requireScopedAccountProjection(t *testing.T, query string) {
 	requireScopedReaderProjection(t, query, []string{
 		`"id"`, `"name"`, `"platform"`, `"type"`, `"status"`,
 		`"owner_user_id"`, `"public_access_level"`, `"created_at"`, `"updated_at"`,
+		`COALESCE("accounts"."credentials" <> '{}'::jsonb, FALSE) AS "credential_configured"`,
 	}, []string{
-		"credentials", "extra", "proxy_id", "proxy_fallback_origin_id", "notes", "error_message",
+		`"accounts"."extra"`, "proxy_id", "proxy_fallback_origin_id", "notes", "error_message",
 		"concurrency", "priority", "rate_multiplier", "load_factor", "schedulable", "rate_limited_at",
 		"rate_limit_reset_at", "overload_until", "temp_unschedulable", "session_window", "parent_account_id",
 		"quota_dimension", "account_groups", "group_ids", "account_count",
 	})
+	require.Equal(t, 1, strings.Count(query, `"accounts"."credentials"`), "credentials may only appear in the configured boolean expression")
 }
 
 func requireScopedGroupProjection(t *testing.T, query string) {
@@ -352,13 +356,45 @@ func requireScopedReaderProjection(t *testing.T, query string, required, forbidd
 	t.Helper()
 	selectClause, _, found := strings.Cut(query, " FROM ")
 	require.True(t, found, "unexpected projection SQL: %s", query)
-	require.Equal(t, len(required)-1, strings.Count(selectClause, ","), "projection column count changed: %s", selectClause)
+	require.Equal(t, len(required)-1, countScopedProjectionSeparators(selectClause), "projection column count changed: %s", selectClause)
 	for _, field := range required {
 		require.Contains(t, selectClause, field)
 	}
 	for _, field := range forbidden {
 		require.NotContains(t, selectClause, field)
 	}
+}
+
+func countScopedProjectionSeparators(query string) int {
+	depth := 0
+	inSingleQuote := false
+	inDoubleQuote := false
+	count := 0
+	for _, character := range query {
+		switch character {
+		case '\'':
+			if !inDoubleQuote {
+				inSingleQuote = !inSingleQuote
+			}
+		case '"':
+			if !inSingleQuote {
+				inDoubleQuote = !inDoubleQuote
+			}
+		case '(':
+			if !inSingleQuote && !inDoubleQuote {
+				depth++
+			}
+		case ')':
+			if !inSingleQuote && !inDoubleQuote && depth > 0 {
+				depth--
+			}
+		case ',':
+			if !inSingleQuote && !inDoubleQuote && depth == 0 {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 func compactScopedReaderSQL(query string) string {

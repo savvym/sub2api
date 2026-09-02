@@ -214,6 +214,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyWeChatConnectRedirectURL,
 		SettingKeyWeChatConnectFrontendRedirectURL,
 		SettingKeyBackendModeEnabled,
+		SettingKeyResourceAccessControlEnabled,
+		SettingKeySelfServiceHostingEnabled,
 		SettingPaymentEnabled,
 		SettingKeyOIDCConnectEnabled,
 		SettingKeyOIDCConnectProviderName,
@@ -274,6 +276,11 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	gitHubEnabled := s.emailOAuthPublicEnabled(settings, "github")
 	googleEnabled := s.emailOAuthPublicEnabled(settings, "google")
 	weChatEnabled, weChatOpenEnabled, weChatMPEnabled, weChatMobileEnabled := s.weChatOAuthCapabilitiesFromSettings(settings)
+	backendModeEnabled := settings[SettingKeyBackendModeEnabled] == "true"
+	resourceAccessControl := resourceAccessControlExpansionStateFromValues(
+		settings,
+		s.resourceAccessControlSelfServiceAllowed(),
+	)
 
 	// Password reset requires email verification to be enabled
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
@@ -342,7 +349,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		WeChatOAuthOpenEnabled:              weChatOpenEnabled,
 		WeChatOAuthMPEnabled:                weChatMPEnabled,
 		WeChatOAuthMobileEnabled:            weChatMobileEnabled,
-		BackendModeEnabled:                  settings[SettingKeyBackendModeEnabled] == "true",
+		BackendModeEnabled:                  backendModeEnabled,
+		SelfServiceHostingEnabled:           !backendModeEnabled && resourceAccessControl.selfServe,
 		PaymentEnabled:                      settings[SettingPaymentEnabled] == "true",
 		OIDCOAuthEnabled:                    oidcEnabled,
 		OIDCOAuthProviderName:               oidcProviderName,
@@ -597,6 +605,7 @@ type PublicSettingsInjectionPayload struct {
 	GitHubOAuthEnabled                  bool                     `json:"github_oauth_enabled"`
 	GoogleOAuthEnabled                  bool                     `json:"google_oauth_enabled"`
 	BackendModeEnabled                  bool                     `json:"backend_mode_enabled"`
+	SelfServiceHostingEnabled           bool                     `json:"self_service_hosting_enabled"`
 	PaymentEnabled                      bool                     `json:"payment_enabled"`
 	Version                             string                   `json:"version"`
 	// 服务器全局时区（IANA 名称与当前 UTC 偏移），高峰时段等服务端本地时间窗口的展示标注用
@@ -686,6 +695,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		GitHubOAuthEnabled:                  settings.GitHubOAuthEnabled,
 		GoogleOAuthEnabled:                  settings.GoogleOAuthEnabled,
 		BackendModeEnabled:                  settings.BackendModeEnabled,
+		SelfServiceHostingEnabled:           settings.SelfServiceHostingEnabled,
 		PaymentEnabled:                      settings.PaymentEnabled,
 		Version:                             s.version,
 		ServerTimezone:                      timezone.Name(),

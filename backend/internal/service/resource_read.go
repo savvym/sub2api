@@ -38,15 +38,16 @@ var (
 // fields include credentials, extra, proxy details, errors, quotas, scheduler
 // state, parent-account metadata, and account/group relationships.
 type AccountListItem struct {
-	ID                int64
-	Name              string
-	Platform          string
-	Type              string
-	Status            string
-	OwnerUserID       *int64
-	PublicAccessLevel *authz.AccessLevel
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID                   int64
+	Name                 string
+	Platform             string
+	Type                 string
+	Status               string
+	CredentialConfigured bool
+	OwnerUserID          *int64
+	PublicAccessLevel    *authz.AccessLevel
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 // GroupListItem is the shared-safe group projection. Account topology, account

@@ -31,6 +31,14 @@ func NewScopedResourceReader(client *dbent.Client) *scopedResourceReader {
 	return &scopedResourceReader{client: client}
 }
 
+func ProvideScopedAccountReader(reader *scopedResourceReader) service.ScopedAccountReader {
+	return reader
+}
+
+func ProvideScopedGroupReader(reader *scopedResourceReader) service.ScopedGroupReader {
+	return reader
+}
+
 func (r *scopedResourceReader) ListAccessibleAccounts(
 	ctx context.Context,
 	scope authz.AccessibleScope,
@@ -83,6 +91,7 @@ func (r *scopedResourceReader) listAccessibleAccounts(
 	}
 	err = pageQuery.
 		Select(scopedAccountColumns...).
+		Aggregate(scopedAccountCredentialConfiguredProjection).
 		Scan(ctx, &rows)
 	if err != nil {
 		return nil, nil, err
@@ -122,6 +131,7 @@ func (r *scopedResourceReader) getAccessibleAccount(
 		Where(predicate, dbaccount.IDEQ(id)).
 		Limit(1).
 		Select(scopedAccountColumns...).
+		Aggregate(scopedAccountCredentialConfiguredProjection).
 		Scan(ctx, &rows)
 	if err != nil {
 		return nil, err
@@ -253,16 +263,29 @@ var scopedAccountColumns = []string{
 	dbaccount.FieldUpdatedAt,
 }
 
+var scopedAccountResultColumns = append(
+	append([]string(nil), scopedAccountColumns...),
+	"credential_configured",
+)
+
+func scopedAccountCredentialConfiguredProjection(selector *entsql.Selector) string {
+	return entsql.As(
+		"COALESCE("+selector.C(dbaccount.FieldCredentials)+" <> '{}'::jsonb, FALSE)",
+		"credential_configured",
+	)
+}
+
 type scopedAccountRow struct {
-	ID                int64     `sql:"id"`
-	Name              string    `sql:"name"`
-	Platform          string    `sql:"platform"`
-	Type              string    `sql:"type"`
-	Status            string    `sql:"status"`
-	OwnerUserID       *int64    `sql:"owner_user_id"`
-	PublicAccessLevel *string   `sql:"public_access_level"`
-	CreatedAt         time.Time `sql:"created_at"`
-	UpdatedAt         time.Time `sql:"updated_at"`
+	ID                   int64     `sql:"id"`
+	Name                 string    `sql:"name"`
+	Platform             string    `sql:"platform"`
+	Type                 string    `sql:"type"`
+	Status               string    `sql:"status"`
+	CredentialConfigured bool      `sql:"credential_configured"`
+	OwnerUserID          *int64    `sql:"owner_user_id"`
+	PublicAccessLevel    *string   `sql:"public_access_level"`
+	CreatedAt            time.Time `sql:"created_at"`
+	UpdatedAt            time.Time `sql:"updated_at"`
 }
 
 var scopedGroupColumns = []string{
@@ -301,15 +324,16 @@ func scopedAccountRowsToService(rows []scopedAccountRow) ([]service.AccountListI
 			return nil, authz.ErrInvalidPolicySnapshot
 		}
 		items = append(items, service.AccountListItem{
-			ID:                row.ID,
-			Name:              row.Name,
-			Platform:          row.Platform,
-			Type:              row.Type,
-			Status:            row.Status,
-			OwnerUserID:       row.OwnerUserID,
-			PublicAccessLevel: level,
-			CreatedAt:         row.CreatedAt,
-			UpdatedAt:         row.UpdatedAt,
+			ID:                   row.ID,
+			Name:                 row.Name,
+			Platform:             row.Platform,
+			Type:                 row.Type,
+			Status:               row.Status,
+			CredentialConfigured: row.CredentialConfigured,
+			OwnerUserID:          row.OwnerUserID,
+			PublicAccessLevel:    level,
+			CreatedAt:            row.CreatedAt,
+			UpdatedAt:            row.UpdatedAt,
 		})
 	}
 	return items, nil

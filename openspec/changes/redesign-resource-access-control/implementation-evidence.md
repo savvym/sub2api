@@ -730,3 +730,38 @@ Draft PR #1 继续保持 Draft，不因本次阶段退出自动转 Ready 或合�
 ### PostgreSQL/Testcontainers 待补证据
 
 新增 integration 场景已经覆盖 migration/schema、hoster grant/quota/revoke、授权版本与 cache Outbox、audit failure 全事务回滚、首次及后续版本并发 CAS、非 `SERIALIZABLE` 容量事务拒绝、降额低于 usage 后拒绝，以及 Account/Group 两类并发创建至多一个成功。当前机器没有 Docker，这些场景只完成标签编译和显式本地跳过；本次提交推送后必须由 Draft PR #1 的 GitHub Actions 无过滤 integration suite 动态执行并补录 run/job/SHA。该外部结果不影响代码提交，但在记录成功前不得把 Testcontainers 门禁标为通过或启用 self-service。
+
+## 2026-09-02 - Private Self-Service Account CRUD（2.2）
+
+### 实现范围
+
+- 新增普通 JWT 用户 `GET/POST /api/v1/accounts`、`GET /api/v1/accounts/products`、`GET/PATCH/DELETE /api/v1/accounts/:id`。入口在解析查询、path 或 body 后进入业务前要求可信 JWT User Actor，并校验其 user ID 与认证中间件 `AuthSubject` 一致；Admin API Key、缺失 Actor、主体不一致、未知查询键、重复查询值、未知 JSON 字段和尾随 JSON 均 fail closed。
+- list/get 复用既有 `ResourceReadService`、Policy `AccessibleScope` 与 PostgreSQL scoped reader。Scope 先于筛选、Count、排序和分页应用，并重校验主体/角色/能力/开关快照；详情不可见与不存在统一返回 not found。Account SELECT/HTTP DTO 新增 `credential_configured` 布尔值，但继续不查询或序列化 credentials、extra、Owner ID、proxy、运行时状态、错误/额度、父帐号或帐号-分组关系。
+- 简化创建只接受 `name`、服务端 `product_id` 和 `api_key`。平台与认证类型只能来自不可变服务端目录，客户端不能提交 endpoint、OAuth、proxy 或其他平台配置；生产 `SelfServiceAccountCatalog` 为空，测试目录也只允许 OpenAI/Anthropic/Gemini 的 API Key 类型候选，所有 OAuth 与其他候选继续禁止。
+- Account 创建在单一 `SERIALIZABLE` 事务内调用 `HostingCapacityGuard`，从 JWT User 绑定相同的 `owner_user_id` 与 `created_by_user_id`，写入 private、ungrouped、`schedulable=false`、access version 1 的帐号。Account insert、Scheduler Outbox 和 `account.created` durable authorization event 原子提交；配额、资格、Policy、目录或任一写失败整体回滚。
+- rename/delete 在同一事务内按 Actor 授权行与 Account 的顺序加锁，重新解析当前 JWT User、比较授权快照、校验 Owner、重跑 edit/delete Policy，并以锁内 `access_version` 执行更新。非 Owner conceal 为 not found；成功写业务状态、版本、Scheduler Outbox 和 durable event。删除会清理现有关联并携带受影响 group IDs 触发 Scheduler 重建，但 2.5 的默认私有组绑定和 2.6 的 group `0` 隔离仍未提前实现。
+- 公共设置响应与注入 payload 新增后端计算的有效 `self_service_hosting_enabled`，Backend/SIMPLE/原始 flag 组合继续 fail closed。前端新增 `/accounts` opt-in 路由与侧栏项、API/types、中英文文案和完整 CRUD 页面，覆盖检索、排序、分页、详情、重命名、删除、两步创建、空产品目录、错误重试和响应式布局；同时修复 `BaseDialog` 标题 ID 冲突与空结果分页显示。
+
+### 本地自动化验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| `go test ./internal/service ./internal/repository ./internal/handler ./internal/server/routes -run 'SelfServiceAccount\|ScopedResourceReader\|GetPublicSettings_ExposesEffectiveSelfServiceHosting\|GetPublicSettings_ExposesOnlyEffectiveSelfServiceHosting\|AuthzCurrentCapabilities' -count=1` | 通过；覆盖 service/repository/handler/routes、公共有效开关、Owner conceal、strict DTO、窄 SELECT、事务 rollback 和路由接线 |
+| 7 个 2.2 前端聚焦 Vitest 文件 | 通过；35 tests，覆盖 Account API/view、feature flag、router/sidebar、Dialog 与 Pagination |
+| `cd backend && go test ./...` | 通过；默认标签全仓测试成功 |
+| `cd backend && go vet ./...` | 通过；全仓静态检查成功 |
+| `make -C backend build` | 通过；版本 `0.1.183` 的生产 server 构建成功 |
+| `cd backend && go test -tags=integration ./... -run '^$' -count=1` | 通过；全 integration 标签树编译成功，不代表 Testcontainers 动态执行 |
+| `cd frontend && npm run test:run` | 通过；251 files、1797 tests，耗时 50.09s；仅有仓库既有 jsdom/Vue/i18n 警告 |
+| `cd frontend && npm run typecheck` | 通过 |
+| `cd frontend && npm run lint:check` | 通过，0 errors |
+| `cd frontend && npm run build` | 通过；Vite production build 完成，仅有既有动态/静态 import 与 chunk size 警告 |
+| `openspec status --change redesign-resource-access-control` | 通过；4/4 planning artifacts complete |
+| `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
+| `git diff --check` | 通过 |
+
+### 剩余发布边界
+
+- 生产 self-service 产品目录保持空数组，OAuth 与全部候选产品保持禁止；Feature Flag 仍默认关闭，`role_authorization_mode` 仍为 `legacy`。公共设置只暴露有效值，因此前端路由/侧栏与后端 Policy/Scope 在当前配置下都不会开放该能力。
+- 新建租户 Account 固定 private、ungrouped、`schedulable=false`。在 2.5/2.6 完成 Owner 私有默认组绑定和 group `0`/平台默认组隔离前，它不会进入调度；这些规则不属于 2.2，不能通过临时前端或配置绕过。
+- 当前没有 production/staging、真实数据或旧 Worker。本次提交的远端无过滤 Testcontainers、lint 与 Security Scan 结果需在推送后补录；在此之前不得把动态 CI 门禁标记为通过，也不得把 2.2 完成解释为 self-service `Release Accepted`。

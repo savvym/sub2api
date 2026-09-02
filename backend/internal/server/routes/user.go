@@ -82,6 +82,16 @@ func RegisterUserRoutes(
 			keys.DELETE("/:id", h.APIKey.Delete)
 		}
 
+		accounts := authenticated.Group("/accounts")
+		{
+			accounts.GET("", h.Account.List)
+			accounts.POST("", h.Account.Create)
+			accounts.GET("/products", h.Account.Products)
+			accounts.GET("/:id", h.Account.Get)
+			accounts.PATCH("/:id", h.Account.Rename)
+			accounts.DELETE("/:id", h.Account.Delete)
+		}
+
 		// 用户可用分组（非管理员接口）
 		groups := authenticated.Group("/groups")
 		{

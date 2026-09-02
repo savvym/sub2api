@@ -53,3 +53,14 @@ describe('AppSidebar header styles', () => {
     expect(sidebarBrandBlockMatch?.[0]).not.toContain('overflow: hidden;')
   })
 })
+
+describe('AppSidebar self-service account entry', () => {
+  it('uses the opt-in feature registry and remains hidden in simple mode', () => {
+    expect(componentSource).toContain(
+      'makeSidebarFlag(FeatureFlags.selfServiceAccounts)'
+    )
+    expect(componentSource).toContain(
+      "{ path: '/accounts', label: t('nav.myAccounts'), icon: GlobeIcon, hideInSimpleMode: true, featureFlag: flagSelfServiceAccounts }"
+    )
+  })
+})

@@ -216,6 +216,19 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/accounts',
+    name: 'SelfServiceAccounts',
+    component: () => import('@/views/user/SelfServiceAccountsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      requiresSelfServiceHosting: true,
+      title: 'My Accounts',
+      titleKey: 'selfServiceAccounts.title',
+      descriptionKey: 'selfServiceAccounts.description'
+    }
+  },
+  {
     path: '/batch-image',
     name: 'BatchImageGuide',
     alias: '/docs/batch-image',
@@ -907,7 +920,12 @@ router.beforeEach(async (to, _from, next) => {
   // 公共设置可能尚未加载（App.vue 的 onMounted 异步拉取晚于首次导航，且纯静态部署
   // 无 __APP_CONFIG__ 注入）。此时 cachedPublicSettings 为空会把 payment/risk_control
   // 误判为“未启用”而错误拦截，故这里先确保设置加载完成。
-  if ((to.meta.requiresPayment || to.meta.requiresRiskControl) && !appStore.publicSettingsLoaded) {
+  if (
+    (to.meta.requiresPayment ||
+      to.meta.requiresRiskControl ||
+      to.meta.requiresSelfServiceHosting) &&
+    !appStore.publicSettingsLoaded
+  ) {
     try {
       await appStore.fetchPublicSettings()
     } catch (error) {
@@ -935,6 +953,17 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
+  // Self-service is opt-in and security-sensitive. Missing settings or a
+  // failed load are treated as disabled; the backend independently enforces
+  // the same effective runtime state on every account request.
+  if (
+    to.meta.requiresSelfServiceHosting &&
+    appStore.cachedPublicSettings?.self_service_hosting_enabled !== true
+  ) {
+    next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
+    return
+  }
+
   // 简易模式下限制访问某些页面
   if (authStore.isSimpleMode) {
     const restrictedPaths = [
@@ -942,7 +971,8 @@ router.beforeEach(async (to, _from, next) => {
       '/admin/subscriptions',
       '/admin/redeem',
       '/subscriptions',
-      '/redeem'
+      '/redeem',
+      '/accounts'
     ]
 
     if (restrictedPaths.some((path) => to.path.startsWith(path))) {
