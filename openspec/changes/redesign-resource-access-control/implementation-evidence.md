@@ -797,10 +797,13 @@ Draft PR #1 继续保持 Draft，不因本次阶段退出自动转 Ready 或合�
 | `npm exec --yes --package=pnpm@9.15.9 -- make build` | 通过；根目录前后端构建成功，使用仓库兼容的 pnpm 9，未产生 lockfile churn |
 | `openspec validate redesign-resource-access-control --type change --strict --no-interactive` | 通过，change is valid |
 | `git diff --check` 与 `git diff --quiet -- frontend/pnpm-lock.yaml` | 通过；无 whitespace 错误，锁文件无差异 |
+| GitHub Actions [PR CI Run 33649130206](https://github.com/savvym/sub2api/actions/runs/33649130206) / [test job 100311347354](https://github.com/savvym/sub2api/actions/runs/33649130206/job/100311347354) | 通过；完整 SHA `bf19faedf2bf2b4920d61e7058ae95eabb5d487e`，test 10m03s，其中 unit 6m05s、无过滤 integration 3m35s；golangci-lint、frontend 和 shell 同 Run 成功 |
+| GitHub Actions [push CI Run 33649126676](https://github.com/savvym/sub2api/actions/runs/33649126676) / [test job 100311332689](https://github.com/savvym/sub2api/actions/runs/33649126676/job/100311332689) | 通过；相同 SHA，test 9m58s，其中 unit 6m03s、无过滤 integration 3m33s；golangci-lint、frontend 和 shell 同 Run 成功 |
+| GitHub Actions [PR Security Scan 33649130214](https://github.com/savvym/sub2api/actions/runs/33649130214) 与 [push Security Scan 33649126817](https://github.com/savvym/sub2api/actions/runs/33649126817) | 通过；相同 SHA 的 backend `govulncheck`、frontend `pnpm audit` 与 audit exception 门禁均成功 |
 
 ### 剩余发布边界
 
 - 生产 `SelfServiceAccountCatalog` 与 `SelfServiceGroupCatalog` 均为空，OAuth、导入、复制、批量、自定义 endpoint 和全部候选产品继续禁止；Feature Flag 默认关闭，`role_authorization_mode=legacy`。2.3 完成不启用任何自助资源，也不构成 `Release Accepted`。
 - 新建 Account 仍固定 private、ungrouped、`schedulable=false`。2.5 的 Owner 私有默认组同事务绑定与 2.6 的 group `0`/平台默认组/SIMPLE Mode 租户隔离尚未实现，不能通过创建 Group 规避这些门禁。
-- 当前没有 production/staging、真实数据或旧 Worker。2.3 当前提交的远端无过滤 Testcontainers、lint 与 Security Scan 需在推送后按实际 SHA 补录；结果成功前不得标记为远端通过。
+- 当前没有 production/staging、真实数据或旧 Worker。2.3 SHA `bf19faedf2bf2b4920d61e7058ae95eabb5d487e` 的 PR/push 无过滤 Testcontainers、lint 与 Security Scan 已按上述 Run 归档；这些代码级证据不替代首次真实数据预检、目标环境验证或 `Release Accepted`。
 - 下一切片为 2.4 的 OAuth、导入、复制、批量和 callback 可信 Owner 绑定。即使实现完成，空 allowlist、出站安全清单与首次启用 `Release Accepted` 门禁仍必须保持。

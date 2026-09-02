@@ -175,13 +175,13 @@
 | list/get 复用 Policy `AccessibleScope` 与 scoped Group reader；查询白名单、单值、范围、排序和分页严格校验，不可见详情统一 404 | handler/service/repository tests，既有 PostgreSQL scope 动态证据 | 通过 |
 | Group HTTP/SQL 投影只含名称、描述、平台、状态、Owner 布尔值、公开级别和时间戳，不查询或返回 Owner ID、帐号拓扑/计数、定价、订阅、路由、利润或平台策略 | DTO canary、SELECT contract、repository/handler tests | 通过 |
 | 创建 DTO 只接受 `name/description/platform_id`；platform 只来自服务端不可变目录，生产目录为空；新 Group 固定 private、active、exclusive、legacy authorization mode | strict JSON、catalog allowlist、安全默认值 PostgreSQL 动态测试与生产 Wire 审查 | 通过 |
-| 创建在单一 `SERIALIZABLE` 事务内执行 Group 容量检查并可信绑定 Owner/creator；Group、Scheduler Outbox 与 durable event 原子提交 | service/repository contract、故障注入与 PostgreSQL integration 场景 | 通过；本地动态用例已通过，当前提交的无过滤 Testcontainers 结果待 push CI |
+| 创建在单一 `SERIALIZABLE` 事务内执行 Group 容量检查并可信绑定 Owner/creator；Group、Scheduler Outbox 与 durable event 原子提交 | service/repository contract、故障注入与 PostgreSQL integration 场景 | 通过；本地动态用例及 SHA `bf19faedf2bf2b4920d61e7058ae95eabb5d487e` 的 PR/push 无过滤 Testcontainers 均通过 |
 | update 只接受名称/描述；update/delete 锁 Actor 授权与 Group，重解析 Actor、比较授权快照、重跑 Policy、校验 Owner/access version；越权 conceal、冲突和 audit/outbox 故障零部分提交 | service/repository/handler tests 与 integration 场景 | 通过 |
 | delete 拒绝帐号、授权、订阅、路由、fallback、渠道、监控/定价数组、审计/默认订阅配置、未归档公告和待履约订阅订单引用；历史用量/监控/审计事实、归档公告和完成订单不阻止软删除 | `selfServiceGroupHasBlockingReferences` PostgreSQL 动态矩阵 | 通过 |
 | migration 245 在线替换旧全局名称索引：平台组按 `lower(name)`，租户组按 `(owner_user_id, lower(name))`；预检以相同范围报告普通名称与 `%-default` 冲突 | migration contract、reapply/`indisvalid`、跨 Owner PostgreSQL 动态测试 | 通过 |
 | `GET/POST /groups`、`GET /groups/platforms`、`GET/PATCH/DELETE /groups/:id` 接入生产 Handler/Wire；Backend Mode、有效 self-service Policy/Scope 和空目录持续 fail closed | route/Wire/settings tests + backend build | 通过 |
 | 前端完成 `/groups` 列表、检索、排序、分页、详情、创建、编辑、删除、空目录和错误重试状态；中英文、响应式、router/sidebar/feature flag 覆盖 | 9 个 Vitest 文件、82 tests | 通过 |
-| backend unit/vet/build、integration 标签全树编译、frontend 254 files/1818 tests、typecheck/lint/build、根目录 build、OpenSpec strict validate 与 diff 检查 | 标准命令与 `implementation-evidence.md` 2.3 小节 | 通过；本地结果已归档，远端 CI/Testcontainers/lint/Security Scan 待 push 后补录 |
+| backend unit/vet/build、integration 标签全树编译、frontend 254 files/1818 tests、typecheck/lint/build、根目录 build、OpenSpec strict validate 与 diff 检查 | 标准命令与 `implementation-evidence.md` 2.3 小节；PR CI `33649130206` / test `100311347354`，push CI `33649126676` / test `100311332689`，Security Scan `33649130214` / `33649126817` | 通过；两套 CI、无过滤 Testcontainers、lint、frontend、shell 与 Security Scan 均在 SHA `bf19faedf2bf2b4920d61e7058ae95eabb5d487e` 成功，integration 分别为 3m35s / 3m33s |
 
 ## Phase 0 Exit Review（0.8）
 
