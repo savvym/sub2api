@@ -1,0 +1,80 @@
+backend/internal/pkg/xai/oauth_redis_fallback_test.go
+  s_f888de8e3912e8::t_4868a04b728715 7-8,12,39-86
+backend/internal/pkg/openai/session_consumption_test.go
+  s_f888de8e3912e8::t_4868a04b728715 1-37
+backend/internal/pkg/xai/session_consumption_test.go
+  s_f888de8e3912e8::t_4868a04b728715 1-37
+backend/internal/service/crs_sync_service.go
+  s_f888de8e3912e8::t_b96a16a8cb6e79 98-108
+  s_f888de8e3912e8::t_3732f753a00b59 274-277,407,543,698,849,979,1109
+backend/internal/service/gemini_oauth_service.go
+  s_f888de8e3912e8::t_57c7fe4468ff63 498-500,507-509,528-540,542
+backend/internal/pkg/antigravity/oauth.go
+  s_f888de8e3912e8::t_aafbdec84126f4 19,279-284
+backend/internal/service/openai_oauth_service.go
+  s_f888de8e3912e8::t_57c7fe4468ff63 12,45-49,82,94,97,139-143,149-151,158-166,169-170,176-182,185
+backend/internal/pkg/geminicli/oauth.go
+  s_f888de8e3912e8::t_793082384729c3 36-39
+backend/internal/service/openai_oauth_service_state_test.go
+  s_f888de8e3912e8::t_4dd4a4b7448f7f 41-43,49,53,66-68,74,78,92-94,100,104
+backend/internal/pkg/antigravity/session_consumption_test.go
+  s_f888de8e3912e8::t_4868a04b728715 1-37
+backend/internal/service/antigravity_oauth_service.go
+  s_f888de8e3912e8::t_3b9e717d65d36a 5,12,34-38,65,67,104-108,113-115,117,120-122,128,135-138
+  s_f888de8e3912e8::t_57c7fe4468ff63 123-126,141
+backend/internal/service/oauth_flow_binding.go
+  s_f888de8e3912e8::t_3b9e717d65d36a 1-42
+backend/internal/pkg/xai/oauth.go
+  s_f888de8e3912e8::t_aafbdec84126f4 59-68,98-107
+backend/internal/service/oauth_service.go
+  s_f888de8e3912e8::t_fd08bcf2cbb4a8 7
+  s_f888de8e3912e8::t_57c7fe4468ff63 171-174,176,181-187,190
+backend/internal/service/openai_oauth_service_auth_url_test.go
+  s_f888de8e3912e8::t_faf1fe87b75b5f 31
+backend/internal/pkg/oauth/session_consumption_test.go
+  s_f888de8e3912e8::t_4868a04b728715 1-37
+backend/internal/service/account_creation_authority_test.go
+  s_f888de8e3912e8::t_5fd8d091f3b57e 97-115
+backend/internal/handler/admin/gemini_oauth_handler.go
+  s_f888de8e3912e8::t_4dd4a4b7448f7f 110
+backend/internal/service/admin_account.go
+  s_f888de8e3912e8::t_3732f753a00b59 272,276,361-363,507-508,511-513,561-563,1385-1386,1480-1481
+backend/internal/service/account_service.go
+  s_f888de8e3912e8::t_76d6486b0b5cff 8,224-233,260-261
+backend/internal/pkg/oauthflow/binding_test.go
+  s_f888de8e3912e8::t_aafbdec84126f4 3-25
+backend/internal/service/self_service_account.go
+  s_f888de8e3912e8::t_76d6486b0b5cff 289,293-298,330-331
+backend/internal/pkg/geminicli/session_consumption_test.go
+  s_f888de8e3912e8::t_4868a04b728715 1-37
+backend/internal/pkg/oauth/oauth.go
+  s_f888de8e3912e8::t_793082384729c3 42-48
+backend/internal/service/account_codex_fingerprint_seed_lifecycle_test.go
+  s_f888de8e3912e8::t_76d6486b0b5cff 224
+backend/internal/service/oauth_service_test.go
+  s_f888de8e3912e8::t_cc79d73a4b7195 208,343
+  s_f888de8e3912e8::t_faf1fe87b75b5f 147,188,232,273,279,348,372-373,594-595
+backend/internal/service/gemini_oauth_service_test.go
+  s_f888de8e3912e8::t_faf1fe87b75b5f 105,1400
+  s_f888de8e3912e8::t_4dd4a4b7448f7f 1418-1422,1429,1433,1451-1455,1460,1464
+backend/internal/service/grok_oauth_service_test.go
+  s_f888de8e3912e8::t_faf1fe87b75b5f 81,84,92,100,113,116,131,134,149,152,162,255
+backend/internal/pkg/openai/oauth.go
+  s_f888de8e3912e8::t_793082384729c3 46-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "a875536ccb6f97e58de9d6f81ea4aa71abe6a05b",
+  "prompts": {},
+  "sessions": {
+    "s_f888de8e3912e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06103-92d4-72a1-8af8-9cc9355e6050",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Savin Zhang <savi@base.ctripsmartdns.com>"
+    }
+  }
+}
