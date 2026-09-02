@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/oauthflow"
 )
 
 // OpenAI OAuth Constants (from CRS project - Codex CLI client)
@@ -41,12 +43,15 @@ const (
 
 // OAuthSession stores OAuth flow state for OpenAI
 type OAuthSession struct {
-	State        string    `json:"state"`
-	CodeVerifier string    `json:"code_verifier"`
-	ClientID     string    `json:"client_id,omitempty"`
-	ProxyURL     string    `json:"proxy_url,omitempty"`
-	RedirectURI  string    `json:"redirect_uri"`
-	CreatedAt    time.Time `json:"created_at"`
+	State        string            `json:"state"`
+	CodeVerifier string            `json:"code_verifier"`
+	ClientID     string            `json:"client_id,omitempty"`
+	ProxyID      *int64            `json:"proxy_id,omitempty"`
+	ProxyURL     string            `json:"proxy_url,omitempty"`
+	RedirectURI  string            `json:"redirect_uri"`
+	Binding      oauthflow.Binding `json:"binding"`
+	CreatedAt    time.Time         `json:"created_at"`
+	consumed     bool
 }
 
 // SessionStore manages OAuth sessions in memory
@@ -95,6 +100,21 @@ func (s *SessionStore) Delete(sessionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, sessionID)
+}
+
+// TryConsumeSession atomically claims a live session exactly once.
+func (s *SessionStore) TryConsumeSession(sessionID string) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[sessionID]
+	if !ok || session == nil || time.Since(session.CreatedAt) > SessionTTL || session.consumed {
+		return false
+	}
+	session.consumed = true
+	return true
 }
 
 // Stop stops the cleanup goroutine

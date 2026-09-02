@@ -93,6 +93,9 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 	tempUnschedulableUntil := time.Now().Add(3 * time.Hour)
 	sessionWindowStart := time.Now().Add(-2 * time.Hour)
 	sessionWindowEnd := time.Now().Add(2 * time.Hour)
+	sourceOwnerID := int64(91)
+	sourceCreatorID := int64(92)
+	sourceAccess := "public"
 
 	source := &Account{
 		Name:                  "primary",
@@ -110,6 +113,9 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 		ErrorMessage:          "upstream unavailable",
 		ExpiresAt:             &expiresAt,
 		AutoPauseOnExpired:    false,
+		OwnerUserID:           &sourceOwnerID,
+		CreatedByUserID:       &sourceCreatorID,
+		PublicAccessLevel:     &sourceAccess,
 		Credentials: map[string]any{
 			"api_key": "secret",
 			"nested":  map[string]any{"token": "source-token"},
@@ -176,6 +182,9 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 	require.Equal(t, source.ProxyFallbackOriginID, duplicate.ProxyID)
 	require.Equal(t, source.RateMultiplier, duplicate.RateMultiplier)
 	require.Equal(t, source.LoadFactor, duplicate.LoadFactor)
+	require.Nil(t, duplicate.OwnerUserID, "admin duplicate must be platform-owned")
+	require.Equal(t, int64(1), *duplicate.CreatedByUserID, "JWT actor must be the creator")
+	require.Nil(t, duplicate.PublicAccessLevel)
 	require.Equal(t, source.GroupIDs, repo.groupsOf[duplicate.ID])
 	require.Equal(t, []AccountGroup{
 		{AccountID: duplicate.ID, GroupID: 7, Priority: 50},

@@ -49,7 +49,6 @@ func (h *GeminiOAuthHandler) GenerateAuthURL(c *gin.Context) {
 		return
 	}
 
-	// 默认使用 code_assist 以保持向后兼容
 	oauthType := strings.TrimSpace(req.OAuthType)
 	if oauthType == "" {
 		oauthType = "code_assist"
@@ -107,12 +106,8 @@ func (h *GeminiOAuthHandler) ExchangeCode(c *gin.Context) {
 		return
 	}
 
-	// 默认使用 code_assist 以保持向后兼容
 	oauthType := strings.TrimSpace(req.OAuthType)
-	if oauthType == "" {
-		oauthType = "code_assist"
-	}
-	if oauthType != "code_assist" && oauthType != "google_one" && oauthType != "ai_studio" {
+	if oauthType != "" && oauthType != "code_assist" && oauthType != "google_one" && oauthType != "ai_studio" {
 		response.BadRequest(c, "Invalid oauth_type: must be 'code_assist', 'google_one', or 'ai_studio'")
 		return
 	}

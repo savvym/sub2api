@@ -221,7 +221,7 @@ func TestAccountServiceCreateAndUpdateCodexSeedLifecycle(t *testing.T) {
 	repo := &upstreamBillingProbeAccountRepo{accounts: make(map[int64]*Account)}
 	svc := NewAccountService(repo, nil)
 
-	created, err := svc.Create(ctx, CreateAccountRequest{
+	created, err := svc.AdminCreate(ctx, adminResourceUserTestActor(t), CreateAccountRequest{
 		Name:     "legacy-create",
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,

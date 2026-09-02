@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
@@ -220,8 +221,16 @@ func NewAccountService(accountRepo AccountRepository, groupRepo GroupRepository)
 	}
 }
 
-// Create 创建账号
-func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (*Account, error) {
+// AdminCreate creates a platform-owned account from a trusted admin actor.
+func (s *AccountService) AdminCreate(ctx context.Context, actor authz.Actor, req CreateAccountRequest) (*Account, error) {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
+		return nil, err
+	}
+	return s.create(ctx, authority, req)
+}
+
+func (s *AccountService) create(ctx context.Context, authority accountCreationAuthority, req CreateAccountRequest) (*Account, error) {
 	// 验证分组是否存在（如果指定了分组）
 	if len(req.GroupIDs) > 0 {
 		if err := s.validateGroupIDsExist(ctx, req.GroupIDs); err != nil {
@@ -247,6 +256,9 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
 	} else {
 		account.AutoPauseOnExpired = true
+	}
+	if err := authority.apply(account); err != nil {
+		return nil, err
 	}
 
 	if err := s.accountRepo.Create(ctx, account); err != nil {

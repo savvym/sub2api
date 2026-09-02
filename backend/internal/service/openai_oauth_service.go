@@ -9,6 +9,7 @@ import (
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/oauthflow"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
@@ -41,8 +42,11 @@ type OpenAIAuthURLResult struct {
 	SessionID string `json:"session_id"`
 }
 
-// GenerateAuthURL generates an OpenAI OAuth authorization URL
-func (s *OpenAIOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, redirectURI, platform string) (*OpenAIAuthURLResult, error) {
+// generateAuthURL generates an OpenAI OAuth authorization URL.
+func (s *OpenAIOAuthService) generateAuthURL(ctx context.Context, binding oauthflow.Binding, proxyID *int64, redirectURI, platform string) (*OpenAIAuthURLResult, error) {
+	if !binding.Valid() {
+		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_SESSION_BINDING_INVALID", "oauth flow binding is invalid")
+	}
 	// Generate PKCE values
 	state, err := openai.GenerateState()
 	if err != nil {
@@ -75,6 +79,7 @@ func (s *OpenAIOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64
 	}
 
 	// Use default redirect URI if not specified
+	redirectURI = strings.TrimSpace(redirectURI)
 	if redirectURI == "" {
 		redirectURI = openai.DefaultRedirectURI
 	}
@@ -86,8 +91,10 @@ func (s *OpenAIOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64
 		State:        state,
 		CodeVerifier: codeVerifier,
 		ClientID:     clientID,
+		ProxyID:      cloneOAuthFlowInt64Pointer(proxyID),
 		RedirectURI:  redirectURI,
 		ProxyURL:     proxyURL,
+		Binding:      binding,
 		CreatedAt:    time.Now(),
 	}
 	s.sessionStore.Set(sessionID, session)
@@ -129,12 +136,18 @@ type OpenAITokenInfo struct {
 	PrivacyMode           string `json:"privacy_mode,omitempty"`
 }
 
-// ExchangeCode exchanges authorization code for tokens
-func (s *OpenAIOAuthService) ExchangeCode(ctx context.Context, input *OpenAIExchangeCodeInput) (*OpenAITokenInfo, error) {
+// exchangeCode exchanges authorization code for tokens.
+func (s *OpenAIOAuthService) exchangeCode(ctx context.Context, binding oauthflow.Binding, input *OpenAIExchangeCodeInput) (*OpenAITokenInfo, error) {
+	if input == nil {
+		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_INVALID_INPUT", "input is required")
+	}
 	// Get session
 	session, ok := s.sessionStore.Get(input.SessionID)
 	if !ok {
 		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_SESSION_NOT_FOUND", "session not found or expired")
+	}
+	if err := validateOAuthFlowBinding(session.Binding, binding, "OPENAI_OAUTH"); err != nil {
+		return nil, err
 	}
 	if input.State == "" {
 		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_STATE_REQUIRED", "oauth state is required")
@@ -142,31 +155,34 @@ func (s *OpenAIOAuthService) ExchangeCode(ctx context.Context, input *OpenAIExch
 	if subtle.ConstantTimeCompare([]byte(input.State), []byte(session.State)) != 1 {
 		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_INVALID_STATE", "invalid oauth state")
 	}
+	if err := validateOAuthProxyBinding(input.ProxyID, session.ProxyID, "OPENAI_OAUTH"); err != nil {
+		return nil, err
+	}
+	if redirectURI := strings.TrimSpace(input.RedirectURI); redirectURI != "" && redirectURI != session.RedirectURI {
+		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_REDIRECT_URI_MISMATCH", "redirect_uri does not match the OAuth session")
+	}
+	code := strings.TrimSpace(input.Code)
+	if code == "" {
+		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_CODE_REQUIRED", "authorization code is required")
+	}
 
-	// Get proxy URL: prefer input.ProxyID, fallback to session.ProxyURL
+	// Callback parameters may confirm, but never replace, server-owned flow state.
 	proxyURL := session.ProxyURL
-	if input.ProxyID != nil {
-		proxy, err := s.proxyRepo.GetByID(ctx, *input.ProxyID)
-		if err != nil {
-			return nil, infraerrors.Newf(http.StatusBadRequest, "OPENAI_OAUTH_PROXY_NOT_FOUND", "proxy not found: %v", err)
-		}
-		if proxy != nil {
-			proxyURL = proxy.URL()
-		}
-	}
-
-	// Use redirect URI from session or input
 	redirectURI := session.RedirectURI
-	if input.RedirectURI != "" {
-		redirectURI = input.RedirectURI
-	}
 	clientID := strings.TrimSpace(session.ClientID)
 	if clientID == "" {
 		clientID = openai.ClientID
 	}
+	if s.oauthClient == nil {
+		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_OAUTH_CLIENT_NOT_CONFIGURED", "oauth client is not configured")
+	}
+	if !s.sessionStore.TryConsumeSession(input.SessionID) {
+		return nil, oauthSessionAlreadyUsed("OPENAI_OAUTH")
+	}
+	defer s.sessionStore.Delete(input.SessionID)
 
 	// Exchange code for token
-	tokenResp, err := s.oauthClient.ExchangeCode(ctx, input.Code, session.CodeVerifier, redirectURI, proxyURL, clientID)
+	tokenResp, err := s.oauthClient.ExchangeCode(ctx, code, session.CodeVerifier, redirectURI, proxyURL, clientID)
 	if err != nil {
 		return nil, err
 	}
@@ -181,9 +197,6 @@ func (s *OpenAIOAuthService) ExchangeCode(ctx context.Context, input *OpenAIExch
 			userInfo = claims.GetUserInfo()
 		}
 	}
-
-	// Delete session after successful exchange
-	s.sessionStore.Delete(input.SessionID)
 
 	tokenInfo := &OpenAITokenInfo{
 		AccessToken:  tokenResp.AccessToken,

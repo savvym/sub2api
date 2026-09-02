@@ -102,7 +102,7 @@ func TestGeminiOAuthService_GenerateAuthURL_RedirectURIStrategy(t *testing.T) {
 			t.Parallel()
 
 			svc := NewGeminiOAuthService(nil, nil, nil, nil, tt.cfg)
-			got, err := svc.GenerateAuthURL(context.Background(), nil, "https://example.com/auth/callback", tt.projectID, tt.oauthType, "")
+			got, err := svc.AdminGenerateAuthURL(context.Background(), adminResourceUserTestActor(t), nil, "https://example.com/auth/callback", tt.projectID, tt.oauthType, "")
 			if tt.wantErrSubstr != "" {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got nil", tt.wantErrSubstr)
@@ -1397,7 +1397,7 @@ func TestGeminiOAuthService_ExchangeCode_SessionNotFound(t *testing.T) {
 	svc := NewGeminiOAuthService(nil, nil, nil, nil, &config.Config{})
 	defer svc.Stop()
 
-	_, err := svc.ExchangeCode(context.Background(), &GeminiExchangeCodeInput{
+	_, err := svc.AdminExchangeCode(context.Background(), adminResourceUserTestActor(t), &GeminiExchangeCodeInput{
 		SessionID: "nonexistent",
 		State:     "some-state",
 		Code:      "some-code",
@@ -1415,16 +1415,22 @@ func TestGeminiOAuthService_ExchangeCode_InvalidState(t *testing.T) {
 
 	svc := NewGeminiOAuthService(nil, nil, nil, nil, &config.Config{})
 	defer svc.Stop()
+	actor := adminResourceUserTestActor(t)
+	authority, authorityErr := newPlatformAccountCreationAuthority(actor)
+	if authorityErr != nil {
+		t.Fatalf("create OAuth authority: %v", authorityErr)
+	}
 
 	// 手动创建 session（必须设置 CreatedAt，否则会因 TTL 过期被拒绝）
 	svc.sessionStore.Set("test-session", &geminicli.OAuthSession{
 		State:        "correct-state",
 		CodeVerifier: "verifier",
 		OAuthType:    "ai_studio",
+		Binding:      authority.flowBinding(),
 		CreatedAt:    time.Now(),
 	})
 
-	_, err := svc.ExchangeCode(context.Background(), &GeminiExchangeCodeInput{
+	_, err := svc.AdminExchangeCode(context.Background(), actor, &GeminiExchangeCodeInput{
 		SessionID: "test-session",
 		State:     "wrong-state",
 		Code:      "code",
@@ -1442,14 +1448,20 @@ func TestGeminiOAuthService_ExchangeCode_EmptyState(t *testing.T) {
 
 	svc := NewGeminiOAuthService(nil, nil, nil, nil, &config.Config{})
 	defer svc.Stop()
+	actor := adminResourceUserTestActor(t)
+	authority, authorityErr := newPlatformAccountCreationAuthority(actor)
+	if authorityErr != nil {
+		t.Fatalf("create OAuth authority: %v", authorityErr)
+	}
 
 	svc.sessionStore.Set("test-session", &geminicli.OAuthSession{
 		State:        "correct-state",
 		CodeVerifier: "verifier",
+		Binding:      authority.flowBinding(),
 		CreatedAt:    time.Now(),
 	})
 
-	_, err := svc.ExchangeCode(context.Background(), &GeminiExchangeCodeInput{
+	_, err := svc.AdminExchangeCode(context.Background(), actor, &GeminiExchangeCodeInput{
 		SessionID: "test-session",
 		State:     "",
 		Code:      "code",

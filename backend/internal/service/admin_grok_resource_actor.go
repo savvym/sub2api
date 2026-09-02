@@ -7,17 +7,19 @@ import (
 )
 
 func (s *GrokOAuthService) AdminGenerateAuthURL(ctx context.Context, actor authz.Actor, proxyID *int64, redirectURI string) (*GrokAuthURLResult, error) {
-	if err := ValidateAdminResourceActor(actor); err != nil {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
 		return nil, err
 	}
-	return s.GenerateAuthURL(ctx, proxyID, redirectURI)
+	return s.generateAuthURL(ctx, authority.flowBinding(), proxyID, redirectURI)
 }
 
 func (s *GrokOAuthService) AdminExchangeCode(ctx context.Context, actor authz.Actor, input *GrokExchangeCodeInput) (*GrokTokenInfo, error) {
-	if err := ValidateAdminResourceActor(actor); err != nil {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
 		return nil, err
 	}
-	return s.ExchangeCode(ctx, input)
+	return s.exchangeCode(ctx, authority.flowBinding(), input)
 }
 
 func (s *GrokOAuthService) AdminRefreshToken(ctx context.Context, actor authz.Actor, refreshToken, proxyURL, clientID string) (*GrokTokenInfo, error) {

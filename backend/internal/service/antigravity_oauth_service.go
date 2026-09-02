@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/oauthflow"
 )
 
 type AntigravityOAuthService struct {
@@ -29,8 +31,11 @@ type AntigravityAuthURLResult struct {
 	State     string `json:"state"`
 }
 
-// GenerateAuthURL 生成 Google OAuth 授权链接
-func (s *AntigravityOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64) (*AntigravityAuthURLResult, error) {
+// generateAuthURL 生成 Google OAuth 授权链接。
+func (s *AntigravityOAuthService) generateAuthURL(ctx context.Context, binding oauthflow.Binding, proxyID *int64) (*AntigravityAuthURLResult, error) {
+	if !binding.Valid() {
+		return nil, fmt.Errorf("oauth flow binding is invalid")
+	}
 	state, err := antigravity.GenerateState()
 	if err != nil {
 		return nil, fmt.Errorf("生成 state 失败: %w", err)
@@ -57,7 +62,9 @@ func (s *AntigravityOAuthService) GenerateAuthURL(ctx context.Context, proxyID *
 	session := &antigravity.OAuthSession{
 		State:        state,
 		CodeVerifier: codeVerifier,
+		ProxyID:      cloneOAuthFlowInt64Pointer(proxyID),
 		ProxyURL:     proxyURL,
+		Binding:      binding,
 		CreatedAt:    time.Now(),
 	}
 	s.sessionStore.Set(sessionID, session)
@@ -94,39 +101,47 @@ type AntigravityTokenInfo struct {
 	PrivacyMode      string `json:"-"`
 }
 
-// ExchangeCode 用 authorization code 交换 token
-func (s *AntigravityOAuthService) ExchangeCode(ctx context.Context, input *AntigravityExchangeCodeInput) (*AntigravityTokenInfo, error) {
+// exchangeCode 用 authorization code 交换 token。
+func (s *AntigravityOAuthService) exchangeCode(ctx context.Context, binding oauthflow.Binding, input *AntigravityExchangeCodeInput) (*AntigravityTokenInfo, error) {
+	if input == nil {
+		return nil, fmt.Errorf("input is required")
+	}
 	session, ok := s.sessionStore.Get(input.SessionID)
 	if !ok {
 		return nil, fmt.Errorf("session 不存在或已过期")
 	}
+	if err := validateOAuthFlowBinding(session.Binding, binding, "ANTIGRAVITY_OAUTH"); err != nil {
+		return nil, err
+	}
 
-	if strings.TrimSpace(input.State) == "" || input.State != session.State {
+	if strings.TrimSpace(input.State) == "" || subtle.ConstantTimeCompare([]byte(input.State), []byte(session.State)) != 1 {
 		return nil, fmt.Errorf("state 无效")
 	}
-
-	// 确定代理 URL
-	proxyURL := session.ProxyURL
-	if input.ProxyID != nil {
-		proxy, err := s.proxyRepo.GetByID(ctx, *input.ProxyID)
-		if err == nil && proxy != nil {
-			proxyURL = proxy.URL()
-		}
+	if err := validateOAuthProxyBinding(input.ProxyID, session.ProxyID, "ANTIGRAVITY_OAUTH"); err != nil {
+		return nil, err
 	}
+	code := strings.TrimSpace(input.Code)
+	if code == "" {
+		return nil, fmt.Errorf("authorization code is required")
+	}
+
+	// 回调只能确认会话中的代理，不能替换它。
+	proxyURL := session.ProxyURL
 
 	client, err := antigravity.NewClient(proxyURL)
 	if err != nil {
 		return nil, fmt.Errorf("create antigravity client failed: %w", err)
 	}
+	if !s.sessionStore.TryConsumeSession(input.SessionID) {
+		return nil, oauthSessionAlreadyUsed("ANTIGRAVITY_OAUTH")
+	}
+	defer s.sessionStore.Delete(input.SessionID)
 
 	// 交换 token
-	tokenResp, err := client.ExchangeCode(ctx, input.Code, session.CodeVerifier)
+	tokenResp, err := client.ExchangeCode(ctx, code, session.CodeVerifier)
 	if err != nil {
 		return nil, fmt.Errorf("token 交换失败: %w", err)
 	}
-
-	// 删除 session
-	s.sessionStore.Delete(input.SessionID)
 
 	// 计算过期时间（减去 5 分钟安全窗口）
 	expiresAt := time.Now().Unix() + tokenResp.ExpiresIn - 300

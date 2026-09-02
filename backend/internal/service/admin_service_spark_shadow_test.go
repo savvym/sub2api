@@ -127,12 +127,16 @@ func TestCreateShadow(t *testing.T) {
 	svc := &adminServiceImpl{accountRepo: repo}
 
 	proxyID := int64(7)
+	parentOwnerID := int64(91)
+	parentCreatorID := int64(92)
 	parent := &Account{
-		Name:     "p",
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeOAuth,
-		Status:   StatusActive,
-		ProxyID:  &proxyID,
+		Name:            "p",
+		Platform:        PlatformOpenAI,
+		Type:            AccountTypeOAuth,
+		Status:          StatusActive,
+		ProxyID:         &proxyID,
+		OwnerUserID:     &parentOwnerID,
+		CreatedByUserID: &parentCreatorID,
 		Credentials: map[string]any{
 			"refresh_token":      "RT",
 			"chatgpt_account_id": "org-x",
@@ -151,6 +155,9 @@ func TestCreateShadow(t *testing.T) {
 	require.Nil(t, shadow.Credentials["refresh_token"], "影子不得持有 auth token")
 	require.Nil(t, shadow.Credentials["access_token"], "影子不得持有 auth token")
 	require.Equal(t, parent.ProxyID, shadow.ProxyID)
+	require.Nil(t, shadow.OwnerUserID, "admin-created shadow must be platform-owned")
+	require.Equal(t, int64(1), *shadow.CreatedByUserID, "JWT actor must be the creator")
+	require.Nil(t, shadow.PublicAccessLevel)
 
 	// Test 2: 一母一影 — 再作成は拒否
 	_, err = svc.CreateShadow(ctx, adminResourceUserTestActor(t), parent.ID, ShadowOptions{Name: "dup"})

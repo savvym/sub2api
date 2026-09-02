@@ -807,3 +807,38 @@ Draft PR #1 继续保持 Draft，不因本次阶段退出自动转 Ready 或合�
 - 新建 Account 仍固定 private、ungrouped、`schedulable=false`。2.5 的 Owner 私有默认组同事务绑定与 2.6 的 group `0`/平台默认组/SIMPLE Mode 租户隔离尚未实现，不能通过创建 Group 规避这些门禁。
 - 当前没有 production/staging、真实数据或旧 Worker。2.3 SHA `bf19faedf2bf2b4920d61e7058ae95eabb5d487e` 的 PR/push 无过滤 Testcontainers、lint 与 Security Scan 已按上述 Run 归档；这些代码级证据不替代首次真实数据预检、目标环境验证或 `Release Accepted`。
 - 下一切片为 2.4 的 OAuth、导入、复制、批量和 callback 可信 Owner 绑定。即使实现完成，空 allowlist、出站安全清单与首次启用 `Release Accepted` 门禁仍必须保持。
+
+## 2026-09-03 - Trusted Account Creation and OAuth Callback Binding（2.4）
+
+### 实现范围
+
+- 新增 server-owned `accountCreationAuthority` 与 `oauthflow.Binding`。authority 只能从可信 `authz.Actor` 构造，HTTP/import DTO 不能提交或替换它；管理员 JWT 产生平台 Owner、记录相同 JWT user creator，Admin API Key Service Principal 产生平台 Owner且 creator 为空。应用 authority 时会覆盖输入中的 `owner_user_id`、`created_by_user_id` 和 `public_access_level`，防止复制、导入或批量 payload 继承/伪造租户归属。
+- 管理员基础 `AccountService` 创建、AdminService 单建及其 OAuth 后建号/导入/批量 sink、复制、OpenAI spark shadow 和 CRS 新建帐号统一应用平台 authority。复制和 shadow 不再继承源帐号 Owner；CRS 只对新建帐号应用 authority，匹配到的存量帐号更新继续保留已有 Owner/creator。普通自助 Account 创建改为从同一 authority 构造可信 JWT User Owner/creator，Service Principal 不能进入自助创建。
+- Claude、OpenAI、Grok、Gemini 和 Antigravity OAuth session 新增 server-owned Actor subject、Owner kind、可选 Owner user ID、proxy ID 和已有流程参数。管理员生成 URL 时写入平台 binding；callback 重新从当前可信 Actor 构造 binding 并与 session 精确比较，missing/tampered binding 或其他 Actor 均在上游和 session 消费前拒绝。
+- callback 只能确认、不能替换 session 中的 proxy、redirect URI、OAuth type、tier 与 state。OpenAI/Grok 校验 redirect，Gemini 校验 type/tier，五类流程都校验 proxy；OpenAI/Gemini/Antigravity/Grok 以固定时间比较 callback state，Claude callback 不接受可覆盖 state，而是把 session state 直接传给 token exchange。空 code、缺失依赖和不合法 flow state 也在消费前失败。
+- 五个 session store 新增一次性 `TryConsumeSession`。所有合法 callback 都在首次上游 token exchange 前原子 claim，并在结束时删除；上游失败后也不能重放。并发 callback 只有一个能到达上游，loser 在 winner 尚未完成时即失败。无效 Actor/state/proxy/redirect/type/tier 不消费 session，修正请求后仍可继续。
+- xAI/Grok Redis session DTO 同步持久化 binding 与 proxy ID，并通过 Redis compare-and-delete 跨实例原子消费；remote write 失败才允许本地 fallback，成功写入的 remote session 不因单实例本地状态形成第二个消费机会。
+- 本切片没有新增普通用户 OAuth/import/copy/batch 路由，没有增加生产 self-service 产品或 OAuth allowlist，也没有修改数据库 setting。全部新增 Feature Flag 保持关闭且 `role_authorization_mode=legacy`；2.4 是既有创建和 callback 路径的可信归属/重放加固，不是 self-service `Release Accepted`。
+
+### 本地自动化验证
+
+| 命令/门禁 | 结果 |
+| --- | --- |
+| `cd backend && go test ./internal/pkg/oauthflow -count=1` | 通过；覆盖平台/User binding 的合法形态、subject/Owner 一致性与拒绝边界 |
+| `cd backend && go test -tags=unit ./internal/service -run 'Test(AccountCreationAuthorityOverwritesUntrustedOwnership\|OwnedAccountCreationAuthorityBindsJWTUser\|AccountCreationWriteSinksApplyPlatformAuthority\|AdminOAuthFlowsBindCallbackToInitiatingActor\|OpenAIOAuthCallbackRejectsMissingOrTamperedBindingWithoutConsumption\|OpenAIOAuthCallbackUsesServerFlowStateAndConsumesOnce\|GeminiOAuthCallbackRejectsTypeAndTierOverridesWithoutConsumption\|OpenAIOAuthUpstreamFailureCannotBeReplayed\|OpenAIOAuthConcurrentCallbacksReachUpstreamOnce)$' -count=1` | 通过，1.521s；覆盖五类管理员 flow Actor 绑定、OpenAI/Gemini server-owned 参数、无效 binding 不消费、上游失败不可重放、并发 callback 单 winner，以及管理员/self-service Owner 归属 |
+| `cd backend && go test -tags=unit ./internal/service -count=1` | 通过；`internal/service` 非缓存执行 161.393s |
+| 上述 service 聚焦命令增加 `-race` | 通过，2.781s；覆盖 callback claim 与 Account creation authority 的并发/归属路径 |
+| `cd backend && go test -race ./internal/pkg/oauth ./internal/pkg/openai ./internal/pkg/geminicli ./internal/pkg/antigravity ./internal/pkg/xai -run 'TestSessionStore(TryConsumeSessionConcurrent\|RedisRoundTripsBindingAndConsumesAcrossInstances\|RedisFallbackIsLimitedToFailedWrites)$' -count=10` | 通过；Claude/OpenAI/Gemini/Antigravity/xAI 每轮并发消费恰好一个 winner，xAI 另覆盖跨实例 Redis round-trip/consume |
+| `make -C backend test-unit` | 通过；完整 unit-tag backend tree 成功 |
+| `cd backend && go test ./... -count=1` | 通过；默认标签全仓测试成功 |
+| `cd backend && go vet -tags=unit ./...` | 通过 |
+| `cd backend && go test -tags=integration ./... -run '^$' -count=1` | 通过；全 integration 标签树编译成功，不代表远端无过滤 Testcontainers 动态执行 |
+| `cd backend && CGO_ENABLED=0 go build ./cmd/server` | 通过；生产 server 构建成功 |
+| `openspec validate redesign-resource-access-control --type change --strict --no-interactive` 与 `git diff --check` | 通过 |
+| `golangci-lint run` | 本机不可执行：`golangci-lint: command not found`；固定版本 lint 必须由本次 push 的 GitHub Actions 补证据 |
+
+### 剩余发布边界
+
+- 本次提交推送后必须等待 Draft PR #1 的 push/PR CI、无过滤 Testcontainers、固定版本 golangci-lint 与 Security Scan，并在相同代码 SHA 上补录 run/job；远端结果成功前不把这些门禁标为通过。
+- OAuth session claim 解决 callback 重放与跨 Actor 使用，不提供跨上游与 PostgreSQL 的分布式事务。token exchange 已发生后若后续本地建号失败，不能通过重放 callback 自动补偿；需要沿既有受审计恢复流程处理。
+- 下一切片为 2.5 的 Owner 私有默认分组按需创建及 Account 同事务绑定。生产目录、OAuth allowlist、Feature Flag 和 authorization mode 继续保持当前关闭状态。

@@ -10,7 +10,7 @@
 | resource-authorization | 平台能力与资源动作分离 | Actor/Policy 单测、创建/分享 API 测试 | 待实现 |
 | resource-authorization | SQL 范围过滤与不可枚举 | Repository integration、IDOR E2E、EXPLAIN | 待实现 |
 | resource-authorization | 凭证与字段投影 | DTO/序列化 canary、日志/错误泄漏扫描 | 待实现 |
-| self-service-resource-hosting | 有资格用户私有托管 | 2.1 已完成 hoster/配额/管理员 API 与容量并发契约；2.2/2.3 已完成普通用户私有 Account/Group CRUD、窄投影和 UI；可信 Owner 的 OAuth/导入/复制/批量、默认组、出站发布证据与完整 E2E 仍待 2.4-2.7 | 待实现 |
+| self-service-resource-hosting | 有资格用户私有托管 | 2.1 已完成 hoster/配额/管理员 API 与容量并发契约；2.2/2.3 已完成普通用户私有 Account/Group CRUD、窄投影和 UI；2.4 已完成既有 OAuth/导入/复制/批量/callback 的可信 Owner 与一次性 session 绑定；默认组、出站发布证据与完整 E2E 仍待 2.5-2.7 | 待实现 |
 | self-service-resource-hosting | 私有默认组与 group 0 隔离 | Scheduler repository/integration 测试 | 待实现 |
 | self-service-resource-hosting | Backend/SIMPLE Mode 优先 | 模式组合测试 | 待实现 |
 | resource-sharing | 分级、多主体分享 | Grant schema/Policy/API/UI 测试 | 待实现 |
@@ -182,6 +182,22 @@
 | `GET/POST /groups`、`GET /groups/platforms`、`GET/PATCH/DELETE /groups/:id` 接入生产 Handler/Wire；Backend Mode、有效 self-service Policy/Scope 和空目录持续 fail closed | route/Wire/settings tests + backend build | 通过 |
 | 前端完成 `/groups` 列表、检索、排序、分页、详情、创建、编辑、删除、空目录和错误重试状态；中英文、响应式、router/sidebar/feature flag 覆盖 | 9 个 Vitest 文件、82 tests | 通过 |
 | backend unit/vet/build、integration 标签全树编译、frontend 254 files/1818 tests、typecheck/lint/build、根目录 build、OpenSpec strict validate 与 diff 检查 | 标准命令与 `implementation-evidence.md` 2.3 小节；PR CI `33649130206` / test `100311347354`，push CI `33649126676` / test `100311332689`，Security Scan `33649130214` / `33649126817` | 通过；两套 CI、无过滤 Testcontainers、lint、frontend、shell 与 Security Scan 均在 SHA `bf19faedf2bf2b4920d61e7058ae95eabb5d487e` 成功，integration 分别为 3m35s / 3m33s |
+
+## Trusted Account Creation and OAuth Callback Binding 门禁（2.4）
+
+本节验收既有管理员 Account 创建 sink 与 OAuth callback 的可信 Owner/Actor 绑定。它不新增普通用户 OAuth/import/copy/batch 路由，不开放生产目录或 OAuth allowlist，也不验收 2.5-2.7 的默认组、group `0`、出站发布证据或 Phase 2 E2E。
+
+| 门禁 | 证据 | 状态 |
+| --- | --- | --- |
+| server-owned creation authority 只能由可信 User/Service Principal Actor 构造；DTO 中伪造的 Owner/creator/public level 被覆盖 | `oauthflow.Binding` / `accountCreationAuthority` contract tests | 通过 |
+| JWT 管理员创建固定平台 Owner并记录 JWT creator；Admin API Key Service Principal 创建固定平台 Owner且 creator 为空；普通自助创建只接受 JWT User并绑定相同 Owner/creator | authority、AdminService、AccountService 与 self-service regression tests | 通过 |
+| 管理员基础创建、OAuth 后建号、导入/批量 sink、复制、shadow、CRS 新建统一使用平台 authority；复制/shadow 不继承源 Owner，CRS 更新保留存量 Owner/creator | write-sink、duplicate、shadow、CRS 与长上下文 billing tests | 通过 |
+| Claude/OpenAI/Grok/Gemini/Antigravity session 持久化发起 Actor、Owner kind 与 proxy；callback 必须由相同 Actor 完成，missing/tampered binding 在上游前拒绝且不消费 | `TestAdminOAuthFlowsBindCallbackToInitiatingActor`、`TestOpenAIOAuthCallbackRejectsMissingOrTamperedBindingWithoutConsumption` | 通过 |
+| callback 不能替换服务端 proxy/state/redirect/type/tier；不合法参数零上游调用且 session 可继续使用 | OpenAI server-state、Gemini type/tier 与各 provider state/proxy tests | 通过 |
+| 合法 callback 在首次上游请求前原子消费；上游失败后不可重放，并发 callback 只有一个到达上游 | `TestOpenAIOAuthUpstreamFailureCannotBeReplayed`、`TestOpenAIOAuthConcurrentCallbacksReachUpstreamOnce` 与五个 session store race tests | 通过 |
+| xAI Redis session 跨实例 round-trip binding/proxy 并原子消费；remote 成功写不降级为可双消费的本地副本，只有 remote write 失败才 fallback | `TestSessionStoreRedisRoundTripsBindingAndConsumesAcrossInstances`、`TestSessionStoreRedisFallbackIsLimitedToFailedWrites` | 通过 |
+| 完整 backend unit、默认测试、unit-tag vet、integration 标签编译、CGO-off server build、OpenSpec strict validate 与 diff check | `implementation-evidence.md` 2.4 小节 | 通过；本地结果已归档 |
+| 当前代码 SHA 的 push/PR CI、无过滤 Testcontainers、固定版本 golangci-lint 与 Security Scan | 本次提交推送后的 GitHub Actions run/job/SHA | 待实现；远端结果成功后补录，不提前视为 `Release Accepted` |
 
 ## Phase 0 Exit Review（0.8）
 

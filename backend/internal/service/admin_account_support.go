@@ -10,24 +10,27 @@ import (
 )
 
 func (s *OAuthService) AdminGenerateAuthURL(ctx context.Context, actor authz.Actor, proxyID *int64) (*GenerateAuthURLResult, error) {
-	if err := ValidateAdminResourceActor(actor); err != nil {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
 		return nil, err
 	}
-	return s.GenerateAuthURL(ctx, proxyID)
+	return s.generateAuthURL(ctx, authority.flowBinding(), proxyID)
 }
 
 func (s *OAuthService) AdminGenerateSetupTokenURL(ctx context.Context, actor authz.Actor, proxyID *int64) (*GenerateAuthURLResult, error) {
-	if err := ValidateAdminResourceActor(actor); err != nil {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
 		return nil, err
 	}
-	return s.GenerateSetupTokenURL(ctx, proxyID)
+	return s.generateSetupTokenURL(ctx, authority.flowBinding(), proxyID)
 }
 
 func (s *OAuthService) AdminExchangeCode(ctx context.Context, actor authz.Actor, input *ExchangeCodeInput) (*TokenInfo, error) {
-	if err := ValidateAdminResourceActor(actor); err != nil {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
 		return nil, err
 	}
-	return s.ExchangeCode(ctx, input)
+	return s.exchangeCode(ctx, authority.flowBinding(), input)
 }
 
 func (s *OAuthService) AdminCookieAuth(ctx context.Context, actor authz.Actor, input *CookieAuthInput) (*TokenInfo, error) {
@@ -66,10 +69,11 @@ func (s *AntigravityOAuthService) AdminRefreshAccountToken(ctx context.Context, 
 }
 
 func (s *CRSSyncService) AdminSyncFromCRS(ctx context.Context, actor authz.Actor, input SyncFromCRSInput) (*SyncFromCRSResult, error) {
-	if err := ValidateAdminResourceActor(actor); err != nil {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
 		return nil, err
 	}
-	return s.SyncFromCRS(ctx, input)
+	return s.syncFromCRS(ctx, input, authority)
 }
 
 func (s *CRSSyncService) AdminPreviewFromCRS(ctx context.Context, actor authz.Actor, input SyncFromCRSInput) (*PreviewFromCRSResult, error) {

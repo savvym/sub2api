@@ -95,6 +95,17 @@ type SyncFromCRSResult struct {
 	Items   []SyncFromCRSItemResult `json:"items"`
 }
 
+func (s *CRSSyncService) createAccountFromCRS(
+	ctx context.Context,
+	authority accountCreationAuthority,
+	account *Account,
+) error {
+	if err := authority.apply(account); err != nil {
+		return err
+	}
+	return s.accountRepo.Create(ctx, account)
+}
+
 type crsLoginResponse struct {
 	Success  bool   `json:"success"`
 	Token    string `json:"token"`
@@ -260,7 +271,10 @@ func (s *CRSSyncService) fetchCRSExport(ctx context.Context, baseURL, username, 
 	return crsExportAccounts(ctx, client, normalizedURL, adminToken)
 }
 
-func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput) (*SyncFromCRSResult, error) {
+func (s *CRSSyncService) syncFromCRS(ctx context.Context, input SyncFromCRSInput, authority accountCreationAuthority) (*SyncFromCRSResult, error) {
+	if !authority.flowBinding().Valid() {
+		return nil, ErrAdminResourceActorUnavailable
+	}
 	exported, err := s.fetchCRSExport(ctx, input.BaseURL, input.Username, input.Password)
 	if err != nil {
 		return nil, err
@@ -390,7 +404,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 				Status:      status,
 				Schedulable: src.Schedulable,
 			}
-			if err := s.accountRepo.Create(ctx, account); err != nil {
+			if err := s.createAccountFromCRS(ctx, authority, account); err != nil {
 				item.Action = "failed"
 				item.Error = "create failed: " + err.Error()
 				result.Failed++
@@ -526,7 +540,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 				Status:      status,
 				Schedulable: src.Schedulable,
 			}
-			if err := s.accountRepo.Create(ctx, account); err != nil {
+			if err := s.createAccountFromCRS(ctx, authority, account); err != nil {
 				item.Action = "failed"
 				item.Error = "create failed: " + err.Error()
 				result.Failed++
@@ -681,7 +695,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 				Status:      status,
 				Schedulable: src.Schedulable,
 			}
-			if err := s.accountRepo.Create(ctx, account); err != nil {
+			if err := s.createAccountFromCRS(ctx, authority, account); err != nil {
 				item.Action = "failed"
 				item.Error = "create failed: " + err.Error()
 				result.Failed++
@@ -832,7 +846,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 				Status:      status,
 				Schedulable: src.Schedulable,
 			}
-			if err := s.accountRepo.Create(ctx, account); err != nil {
+			if err := s.createAccountFromCRS(ctx, authority, account); err != nil {
 				item.Action = "failed"
 				item.Error = "create failed: " + err.Error()
 				result.Failed++
@@ -962,7 +976,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 				Status:      mapCRSStatus(src.IsActive, src.Status),
 				Schedulable: src.Schedulable,
 			}
-			if err := s.accountRepo.Create(ctx, account); err != nil {
+			if err := s.createAccountFromCRS(ctx, authority, account); err != nil {
 				item.Action = "failed"
 				item.Error = "create failed: " + err.Error()
 				result.Failed++
@@ -1092,7 +1106,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 				Status:      mapCRSStatus(src.IsActive, src.Status),
 				Schedulable: src.Schedulable,
 			}
-			if err := s.accountRepo.Create(ctx, account); err != nil {
+			if err := s.createAccountFromCRS(ctx, authority, account); err != nil {
 				item.Action = "failed"
 				item.Error = "create failed: " + err.Error()
 				result.Failed++

@@ -8,31 +8,35 @@ import (
 )
 
 func (s *GeminiOAuthService) AdminGenerateAuthURL(ctx context.Context, actor authz.Actor, proxyID *int64, redirectURI, projectID, oauthType, tierID string) (*GeminiAuthURLResult, error) {
-	if err := ValidateAdminResourceActor(actor); err != nil {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
 		return nil, err
 	}
-	return s.GenerateAuthURL(ctx, proxyID, redirectURI, projectID, oauthType, tierID)
+	return s.generateAuthURL(ctx, authority.flowBinding(), proxyID, redirectURI, projectID, oauthType, tierID)
 }
 
 func (s *GeminiOAuthService) AdminExchangeCode(ctx context.Context, actor authz.Actor, input *GeminiExchangeCodeInput) (*GeminiTokenInfo, error) {
-	if err := ValidateAdminResourceActor(actor); err != nil {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
 		return nil, err
 	}
-	return s.ExchangeCode(ctx, input)
+	return s.exchangeCode(ctx, authority.flowBinding(), input)
 }
 
 func (s *AntigravityOAuthService) AdminGenerateAuthURL(ctx context.Context, actor authz.Actor, proxyID *int64) (*AntigravityAuthURLResult, error) {
-	if err := ValidateAdminResourceActor(actor); err != nil {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
 		return nil, err
 	}
-	return s.GenerateAuthURL(ctx, proxyID)
+	return s.generateAuthURL(ctx, authority.flowBinding(), proxyID)
 }
 
 func (s *AntigravityOAuthService) AdminExchangeCode(ctx context.Context, actor authz.Actor, input *AntigravityExchangeCodeInput) (*AntigravityTokenInfo, error) {
-	if err := ValidateAdminResourceActor(actor); err != nil {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
 		return nil, err
 	}
-	return s.ExchangeCode(ctx, input)
+	return s.exchangeCode(ctx, authority.flowBinding(), input)
 }
 
 func (s *AntigravityOAuthService) AdminValidateRefreshToken(ctx context.Context, actor authz.Actor, refreshToken string, proxyID *int64) (*AntigravityTokenInfo, error) {

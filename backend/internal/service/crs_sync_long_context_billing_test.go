@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/authz"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
@@ -100,13 +101,22 @@ func TestCRSSyncOpenAILongContextBilling(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			const crsID = "crs-openai-1"
 			var existing *Account
+			existingOwnerID := int64(81)
+			existingCreatorID := int64(82)
 			if tt.existingExtra != nil {
 				existingExtra := mergeMap(tt.existingExtra, map[string]any{"crs_account_id": crsID})
 				accountType := AccountTypeOAuth
 				if tt.collection == "openaiResponsesAccounts" {
 					accountType = AccountTypeAPIKey
 				}
-				existing = &Account{ID: 41, Platform: PlatformOpenAI, Type: accountType, Extra: existingExtra}
+				existing = &Account{
+					ID:              41,
+					Platform:        PlatformOpenAI,
+					Type:            accountType,
+					Extra:           existingExtra,
+					OwnerUserID:     &existingOwnerID,
+					CreatedByUserID: &existingCreatorID,
+				}
 			}
 			repo := newCRSLongContextAccountRepo(existing)
 			result := runCRSOpenAILongContextSync(t, repo, crsOpenAILongContextSource{
@@ -121,14 +131,46 @@ func TestCRSSyncOpenAILongContextBilling(t *testing.T) {
 				require.Contains(t, result.Items[0].Error, "openai_long_context_billing_enabled must be a boolean")
 				return
 			}
-			stored, ok := repo.accounts[crsID].Extra[openAILongContextBillingEnabledKey]
+			storedAccount := repo.accounts[crsID]
+			stored, ok := storedAccount.Extra[openAILongContextBillingEnabledKey]
 			require.True(t, ok)
 			require.Equal(t, tt.wantEnabled, stored)
+			if existing == nil {
+				require.Nil(t, storedAccount.OwnerUserID, "CRS-created admin account must be platform-owned")
+				require.Equal(t, int64(1), *storedAccount.CreatedByUserID)
+			} else {
+				require.Equal(t, existingOwnerID, *storedAccount.OwnerUserID, "CRS update must preserve owner")
+				require.Equal(t, existingCreatorID, *storedAccount.CreatedByUserID, "CRS update must preserve creator")
+			}
 		})
 	}
 }
 
+func TestCRSSyncServicePrincipalCreationHasNoUserCreator(t *testing.T) {
+	repo := newCRSLongContextAccountRepo()
+	result := runCRSOpenAILongContextSyncAs(t, repo, crsOpenAILongContextSource{
+		collection:  "openaiResponsesAccounts",
+		credentials: map[string]any{"api_key": "sk-test"},
+	}, adminResourceTestActor(t, authz.SubjectKindServicePrincipal, 73))
+
+	require.Len(t, result.Items, 1)
+	require.Equal(t, "created", result.Items[0].Action)
+	stored := repo.accounts["crs-openai-1"]
+	require.Nil(t, stored.OwnerUserID)
+	require.Nil(t, stored.CreatedByUserID)
+}
+
 func runCRSOpenAILongContextSync(t *testing.T, repo AccountRepository, source crsOpenAILongContextSource) *SyncFromCRSResult {
+	t.Helper()
+	return runCRSOpenAILongContextSyncAs(t, repo, source, adminResourceUserTestActor(t))
+}
+
+func runCRSOpenAILongContextSyncAs(
+	t *testing.T,
+	repo AccountRepository,
+	source crsOpenAILongContextSource,
+	actor authz.Actor,
+) *SyncFromCRSResult {
 	t.Helper()
 	account := map[string]any{
 		"kind":        "openai",
@@ -159,7 +201,7 @@ func runCRSOpenAILongContextSync(t *testing.T, repo AccountRepository, source cr
 	cfg := &config.Config{}
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 	service := NewCRSSyncService(repo, nil, nil, nil, nil, cfg)
-	result, err := service.SyncFromCRS(context.Background(), SyncFromCRSInput{
+	result, err := service.AdminSyncFromCRS(context.Background(), actor, SyncFromCRSInput{
 		BaseURL:  server.URL,
 		Username: "admin",
 		Password: "password",

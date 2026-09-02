@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/oauthflow"
 )
 
 const (
@@ -98,7 +100,17 @@ type GeminiAuthURLResult struct {
 	State     string `json:"state"`
 }
 
-func (s *GeminiOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, redirectURI, projectID, oauthType, tierID string) (*GeminiAuthURLResult, error) {
+func (s *GeminiOAuthService) generateAuthURL(ctx context.Context, binding oauthflow.Binding, proxyID *int64, redirectURI, projectID, oauthType, tierID string) (*GeminiAuthURLResult, error) {
+	if !binding.Valid() {
+		return nil, fmt.Errorf("oauth flow binding is invalid")
+	}
+	if s == nil || s.cfg == nil {
+		return nil, fmt.Errorf("Gemini OAuth configuration is unavailable")
+	}
+	oauthType = strings.ToLower(strings.TrimSpace(oauthType))
+	if oauthType != "code_assist" && oauthType != "google_one" && oauthType != "ai_studio" {
+		return nil, fmt.Errorf("invalid oauth_type")
+	}
 	state, err := geminicli.GenerateState()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate state: %w", err)
@@ -136,18 +148,6 @@ func (s *GeminiOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64
 		oauthCfg.ClientSecret = ""
 	}
 
-	session := &geminicli.OAuthSession{
-		State:        state,
-		CodeVerifier: codeVerifier,
-		ProxyURL:     proxyURL,
-		RedirectURI:  redirectURI,
-		ProjectID:    strings.TrimSpace(projectID),
-		TierID:       canonicalGeminiTierIDForOAuthType(oauthType, tierID),
-		OAuthType:    oauthType,
-		CreatedAt:    time.Now(),
-	}
-	s.sessionStore.Set(sessionID, session)
-
 	effectiveCfg, err := geminicli.EffectiveOAuthConfig(oauthCfg, oauthType)
 	if err != nil {
 		return nil, err
@@ -168,13 +168,24 @@ func (s *GeminiOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64
 	} else {
 		redirectURI = geminicli.AIStudioOAuthRedirectURI
 	}
-	session.RedirectURI = redirectURI
-	s.sessionStore.Set(sessionID, session)
-
-	authURL, err := geminicli.BuildAuthorizationURL(effectiveCfg, state, codeChallenge, redirectURI, session.ProjectID, oauthType)
+	projectID = strings.TrimSpace(projectID)
+	authURL, err := geminicli.BuildAuthorizationURL(effectiveCfg, state, codeChallenge, redirectURI, projectID, oauthType)
 	if err != nil {
 		return nil, err
 	}
+
+	s.sessionStore.Set(sessionID, &geminicli.OAuthSession{
+		State:        state,
+		CodeVerifier: codeVerifier,
+		ProxyID:      cloneOAuthFlowInt64Pointer(proxyID),
+		ProxyURL:     proxyURL,
+		RedirectURI:  redirectURI,
+		ProjectID:    projectID,
+		TierID:       canonicalGeminiTierIDForOAuthType(oauthType, tierID),
+		OAuthType:    oauthType,
+		Binding:      binding,
+		CreatedAt:    time.Now(),
+	})
 
 	return &GeminiAuthURLResult{
 		AuthURL:   authURL,
@@ -442,8 +453,11 @@ func (s *GeminiOAuthService) RefreshAccountGoogleOneTier(
 	return tierID, extra, credentials, nil
 }
 
-func (s *GeminiOAuthService) ExchangeCode(ctx context.Context, input *GeminiExchangeCodeInput) (*GeminiTokenInfo, error) {
+func (s *GeminiOAuthService) exchangeCode(ctx context.Context, binding oauthflow.Binding, input *GeminiExchangeCodeInput) (*GeminiTokenInfo, error) {
 	logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] ========== ExchangeCode START ==========")
+	if input == nil {
+		return nil, fmt.Errorf("input is required")
+	}
 	logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] SessionID: %s", input.SessionID)
 
 	session, ok := s.sessionStore.Get(input.SessionID)
@@ -451,32 +465,48 @@ func (s *GeminiOAuthService) ExchangeCode(ctx context.Context, input *GeminiExch
 		logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] ERROR: Session not found or expired")
 		return nil, fmt.Errorf("session not found or expired")
 	}
-	if strings.TrimSpace(input.State) == "" || input.State != session.State {
+	if err := validateOAuthFlowBinding(session.Binding, binding, "GEMINI_OAUTH"); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(input.State) == "" || subtle.ConstantTimeCompare([]byte(input.State), []byte(session.State)) != 1 {
 		logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] ERROR: Invalid state")
 		return nil, fmt.Errorf("invalid state")
 	}
+	if err := validateOAuthProxyBinding(input.ProxyID, session.ProxyID, "GEMINI_OAUTH"); err != nil {
+		return nil, err
+	}
 
 	proxyURL := session.ProxyURL
-	if input.ProxyID != nil {
-		proxy, err := s.proxyRepo.GetByID(ctx, *input.ProxyID)
-		if err == nil && proxy != nil {
-			proxyURL = proxy.URL()
-		}
-	}
 	logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] ProxyURL: %s", proxyURL)
 
 	redirectURI := session.RedirectURI
 
-	// Resolve oauth_type early (defaults to code_assist for backward compatibility).
-	oauthType := session.OAuthType
-	if oauthType == "" {
-		oauthType = "code_assist"
+	oauthType := strings.ToLower(strings.TrimSpace(session.OAuthType))
+	if oauthType != "code_assist" && oauthType != "google_one" && oauthType != "ai_studio" {
+		return nil, fmt.Errorf("oauth session contains invalid oauth_type")
+	}
+	if requestedType := strings.ToLower(strings.TrimSpace(input.OAuthType)); requestedType != "" && requestedType != oauthType {
+		return nil, fmt.Errorf("oauth_type does not match the OAuth session")
+	}
+	sessionTierID := canonicalGeminiTierIDForOAuthType(oauthType, session.TierID)
+	if requestedTierID := strings.TrimSpace(input.TierID); requestedTierID != "" {
+		canonicalRequestedTierID := canonicalGeminiTierIDForOAuthType(oauthType, requestedTierID)
+		if canonicalRequestedTierID == "" || canonicalRequestedTierID != sessionTierID {
+			return nil, fmt.Errorf("tier_id does not match the OAuth session")
+		}
+	}
+	code := strings.TrimSpace(input.Code)
+	if code == "" {
+		return nil, fmt.Errorf("authorization code is required")
 	}
 	logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] OAuth Type: %s", oauthType)
 	logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] Project ID from session: %s", session.ProjectID)
 
 	// If the session was created for AI Studio OAuth, ensure a custom OAuth client is configured.
 	if oauthType == "ai_studio" {
+		if s.cfg == nil {
+			return nil, fmt.Errorf("Gemini OAuth configuration is unavailable")
+		}
 		effectiveCfg, err := geminicli.EffectiveOAuthConfig(geminicli.OAuthConfig{
 			ClientID:     s.cfg.Gemini.OAuth.ClientID,
 			ClientSecret: s.cfg.Gemini.OAuth.ClientSecret,
@@ -495,8 +525,21 @@ func (s *GeminiOAuthService) ExchangeCode(ctx context.Context, input *GeminiExch
 	if oauthType == "code_assist" || oauthType == "google_one" {
 		redirectURI = geminicli.GeminiCLIRedirectURI
 	}
+	if s.oauthClient == nil {
+		return nil, fmt.Errorf("Gemini OAuth client is not configured")
+	}
+	if (oauthType == "code_assist" || oauthType == "google_one") && s.codeAssist == nil {
+		return nil, fmt.Errorf("Gemini Code Assist client is not configured")
+	}
+	if oauthType == "google_one" && s.driveClient == nil {
+		return nil, fmt.Errorf("Gemini Drive client is not configured")
+	}
+	if !s.sessionStore.TryConsumeSession(input.SessionID) {
+		return nil, oauthSessionAlreadyUsed("GEMINI_OAUTH")
+	}
+	defer s.sessionStore.Delete(input.SessionID)
 
-	tokenResp, err := s.oauthClient.ExchangeCode(ctx, oauthType, input.Code, session.CodeVerifier, redirectURI, proxyURL)
+	tokenResp, err := s.oauthClient.ExchangeCode(ctx, oauthType, code, session.CodeVerifier, redirectURI, proxyURL)
 	if err != nil {
 		logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] ERROR: Failed to exchange code: %v", err)
 		return nil, fmt.Errorf("failed to exchange code: %w", err)
@@ -506,7 +549,6 @@ func (s *GeminiOAuthService) ExchangeCode(ctx context.Context, input *GeminiExch
 	logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] Token expires_in: %d seconds", tokenResp.ExpiresIn)
 
 	sessionProjectID := strings.TrimSpace(session.ProjectID)
-	s.sessionStore.Delete(input.SessionID)
 
 	// 计算过期时间：减去 5 分钟安全时间窗口（考虑网络延迟和时钟偏差）
 	// 同时设置下界保护，防止 expires_in 过小导致过去时间（引发刷新风暴）
@@ -520,10 +562,7 @@ func (s *GeminiOAuthService) ExchangeCode(ctx context.Context, input *GeminiExch
 
 	projectID := sessionProjectID
 	var tierID string
-	fallbackTierID := canonicalGeminiTierIDForOAuthType(oauthType, input.TierID)
-	if fallbackTierID == "" {
-		fallbackTierID = canonicalGeminiTierIDForOAuthType(oauthType, session.TierID)
-	}
+	fallbackTierID := sessionTierID
 
 	logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] ========== Account Type Detection START ==========")
 	logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] OAuth Type: %s", oauthType)

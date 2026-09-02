@@ -269,10 +269,11 @@ func cloneAccountValuePointer[T any](value *T) *T {
 // intentionally do not own credentials and must be created through CreateShadow.
 
 func (s *adminServiceImpl) duplicateAccountInResourceTx(ctx context.Context, actor authz.Actor, id int64, operationKey string) (*Account, error) {
-	actorScope, err := adminResourceActorSubjectKey(actor)
+	authority, err := newPlatformAccountCreationAuthority(actor)
 	if err != nil {
 		return nil, err
 	}
+	actorScope := authority.flowBinding().ActorSubjectKey
 	operationID := duplicateAccountOperationID(id, actorScope, operationKey)
 	existing, err := s.RecoverDuplicateAccount(ctx, actor, id, operationKey)
 	if err != nil {
@@ -357,7 +358,9 @@ func (s *adminServiceImpl) duplicateAccountInResourceTx(ctx context.Context, act
 	}
 	// A copied credential must be reviewed before it can share live traffic with its source.
 	duplicate.Schedulable = false
-	setPlatformResourceCreator(&duplicate.CreatedByUserID, actor)
+	if err := authority.apply(duplicate); err != nil {
+		return nil, err
+	}
 	if s.accountDuplicateRepo == nil {
 		return nil, errors.New("account duplicate repository is not configured")
 	}
@@ -501,8 +504,12 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 }
 
 func (s *adminServiceImpl) createAccountInResourceTx(ctx context.Context, actor authz.Actor, input *CreateAccountInput) (*Account, error) {
-	if err := ValidateAdminResourceActor(actor); err != nil {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
 		return nil, err
+	}
+	if input == nil {
+		return nil, ErrAccountNilInput
 	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
@@ -551,7 +558,9 @@ func (s *adminServiceImpl) createAccountInResourceTx(ctx context.Context, actor 
 	if err != nil {
 		return nil, err
 	}
-	setPlatformResourceCreator(&account.CreatedByUserID, actor)
+	if err := authority.apply(account); err != nil {
+		return nil, err
+	}
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, err
 	}
@@ -1373,7 +1382,8 @@ func (s *adminServiceImpl) revertAccountProxyFallbackInResourceTx(ctx context.Co
 // CreateShadow 为指定 OpenAI OAuth 母账号创建 spark 维度影子账号（一母一影）。
 // 安全不变量：Credentials 恒不含 auth token（仅 model_mapping，守卫 isAllowedSparkShadowCredentialsUpdate 放行）。
 func (s *adminServiceImpl) createShadowInResourceTx(ctx context.Context, actor authz.Actor, parentID int64, opts ShadowOptions) (*Account, error) {
-	if err := ValidateAdminResourceActor(actor); err != nil {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
 		return nil, err
 	}
 	// 1. 加载母账号并校验平台/类型
@@ -1467,7 +1477,9 @@ func (s *adminServiceImpl) createShadowInResourceTx(ctx context.Context, actor a
 			openAILongContextBillingEnabledKey: parent.IsOpenAILongContextBillingEnabled(),
 		},
 	}
-	setPlatformResourceCreator(&shadow.CreatedByUserID, actor)
+	if err := authority.apply(shadow); err != nil {
+		return nil, err
+	}
 
 	// 5. 持久化（Create 填充 shadow.ID）。并发竞态:预查(步骤2)放行后另一请求抢先建成,本次会撞
 	// 一母一影唯一索引。复查确认确为"已存在"竞态时返回结构化 409 而非裸 500——外审 A/P1。

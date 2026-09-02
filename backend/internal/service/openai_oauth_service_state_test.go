@@ -38,15 +38,19 @@ func TestOpenAIOAuthService_ExchangeCode_StateRequired(t *testing.T) {
 	client := &openaiOAuthClientStateStub{}
 	svc := NewOpenAIOAuthService(nil, client)
 	defer svc.Stop()
+	actor := adminResourceUserTestActor(t)
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	require.NoError(t, err)
 
 	svc.sessionStore.Set("sid", &openai.OAuthSession{
 		State:        "expected-state",
 		CodeVerifier: "verifier",
 		RedirectURI:  openai.DefaultRedirectURI,
+		Binding:      authority.flowBinding(),
 		CreatedAt:    time.Now(),
 	})
 
-	_, err := svc.ExchangeCode(context.Background(), &OpenAIExchangeCodeInput{
+	_, err = svc.AdminExchangeCode(context.Background(), actor, &OpenAIExchangeCodeInput{
 		SessionID: "sid",
 		Code:      "auth-code",
 	})
@@ -59,15 +63,19 @@ func TestOpenAIOAuthService_ExchangeCode_StateMismatch(t *testing.T) {
 	client := &openaiOAuthClientStateStub{}
 	svc := NewOpenAIOAuthService(nil, client)
 	defer svc.Stop()
+	actor := adminResourceUserTestActor(t)
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	require.NoError(t, err)
 
 	svc.sessionStore.Set("sid", &openai.OAuthSession{
 		State:        "expected-state",
 		CodeVerifier: "verifier",
 		RedirectURI:  openai.DefaultRedirectURI,
+		Binding:      authority.flowBinding(),
 		CreatedAt:    time.Now(),
 	})
 
-	_, err := svc.ExchangeCode(context.Background(), &OpenAIExchangeCodeInput{
+	_, err = svc.AdminExchangeCode(context.Background(), actor, &OpenAIExchangeCodeInput{
 		SessionID: "sid",
 		Code:      "auth-code",
 		State:     "wrong-state",
@@ -81,15 +89,19 @@ func TestOpenAIOAuthService_ExchangeCode_StateMatch(t *testing.T) {
 	client := &openaiOAuthClientStateStub{}
 	svc := NewOpenAIOAuthService(nil, client)
 	defer svc.Stop()
+	actor := adminResourceUserTestActor(t)
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	require.NoError(t, err)
 
 	svc.sessionStore.Set("sid", &openai.OAuthSession{
 		State:        "expected-state",
 		CodeVerifier: "verifier",
 		RedirectURI:  openai.DefaultRedirectURI,
+		Binding:      authority.flowBinding(),
 		CreatedAt:    time.Now(),
 	})
 
-	info, err := svc.ExchangeCode(context.Background(), &OpenAIExchangeCodeInput{
+	info, err := svc.AdminExchangeCode(context.Background(), actor, &OpenAIExchangeCodeInput{
 		SessionID: "sid",
 		Code:      "auth-code",
 		State:     "expected-state",

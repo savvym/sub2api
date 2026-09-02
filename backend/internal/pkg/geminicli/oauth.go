@@ -14,6 +14,7 @@ import (
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/oauthflow"
 )
 
 type OAuthConfig struct {
@@ -25,15 +26,18 @@ type OAuthConfig struct {
 type OAuthSession struct {
 	State        string `json:"state"`
 	CodeVerifier string `json:"code_verifier"`
+	ProxyID      *int64 `json:"proxy_id,omitempty"`
 	ProxyURL     string `json:"proxy_url,omitempty"`
 	RedirectURI  string `json:"redirect_uri"`
 	ProjectID    string `json:"project_id,omitempty"`
 	// TierID is a user-selected fallback tier.
 	// For oauth types that support auto detection (google_one/code_assist), the server will prefer
 	// the detected tier and fall back to TierID when detection fails.
-	TierID    string    `json:"tier_id,omitempty"`
-	OAuthType string    `json:"oauth_type"` // "code_assist" 或 "ai_studio"
-	CreatedAt time.Time `json:"created_at"`
+	TierID    string            `json:"tier_id,omitempty"`
+	OAuthType string            `json:"oauth_type"` // "code_assist" 或 "ai_studio"
+	Binding   oauthflow.Binding `json:"binding"`
+	CreatedAt time.Time         `json:"created_at"`
+	consumed  bool
 }
 
 type SessionStore struct {
@@ -74,6 +78,21 @@ func (s *SessionStore) Delete(sessionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, sessionID)
+}
+
+// TryConsumeSession atomically claims a live session exactly once.
+func (s *SessionStore) TryConsumeSession(sessionID string) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[sessionID]
+	if !ok || session == nil || time.Since(session.CreatedAt) > SessionTTL || session.consumed {
+		return false
+	}
+	session.consumed = true
+	return true
 }
 
 func (s *SessionStore) Stop() {

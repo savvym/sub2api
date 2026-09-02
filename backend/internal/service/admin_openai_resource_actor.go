@@ -7,17 +7,19 @@ import (
 )
 
 func (s *OpenAIOAuthService) AdminGenerateAuthURL(ctx context.Context, actor authz.Actor, proxyID *int64, redirectURI, platform string) (*OpenAIAuthURLResult, error) {
-	if err := ValidateAdminResourceActor(actor); err != nil {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
 		return nil, err
 	}
-	return s.GenerateAuthURL(ctx, proxyID, redirectURI, platform)
+	return s.generateAuthURL(ctx, authority.flowBinding(), proxyID, redirectURI, platform)
 }
 
 func (s *OpenAIOAuthService) AdminExchangeCode(ctx context.Context, actor authz.Actor, input *OpenAIExchangeCodeInput) (*OpenAITokenInfo, error) {
-	if err := ValidateAdminResourceActor(actor); err != nil {
+	authority, err := newPlatformAccountCreationAuthority(actor)
+	if err != nil {
 		return nil, err
 	}
-	return s.ExchangeCode(ctx, input)
+	return s.exchangeCode(ctx, authority.flowBinding(), input)
 }
 
 func (s *OpenAIOAuthService) AdminRefreshTokenWithClientID(ctx context.Context, actor authz.Actor, refreshToken, proxyURL, clientID string) (*OpenAITokenInfo, error) {

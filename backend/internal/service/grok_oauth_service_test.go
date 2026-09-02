@@ -78,10 +78,10 @@ func TestGrokOAuthServiceExchangeCodeConsumesOnlyAfterValidation(t *testing.T) {
 	svc := NewGrokOAuthService(nil, client)
 	defer svc.Stop()
 
-	auth, err := svc.GenerateAuthURL(context.Background(), nil, "")
+	auth, err := svc.AdminGenerateAuthURL(context.Background(), adminResourceUserTestActor(t), nil, "")
 	require.NoError(t, err)
 
-	_, err = svc.ExchangeCode(context.Background(), &GrokExchangeCodeInput{
+	_, err = svc.AdminExchangeCode(context.Background(), adminResourceUserTestActor(t), &GrokExchangeCodeInput{
 		SessionID: auth.SessionID,
 		Code:      "http://127.0.0.1:56121/callback?code=code-without-state",
 	})
@@ -89,7 +89,7 @@ func TestGrokOAuthServiceExchangeCodeConsumesOnlyAfterValidation(t *testing.T) {
 	require.Contains(t, err.Error(), "GROK_OAUTH_STATE_REQUIRED")
 	require.Zero(t, client.exchangeCalls)
 
-	_, err = svc.ExchangeCode(context.Background(), &GrokExchangeCodeInput{
+	_, err = svc.AdminExchangeCode(context.Background(), adminResourceUserTestActor(t), &GrokExchangeCodeInput{
 		SessionID: auth.SessionID,
 		Code:      "code-with-state",
 		State:     auth.State,
@@ -97,7 +97,7 @@ func TestGrokOAuthServiceExchangeCodeConsumesOnlyAfterValidation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, client.exchangeCalls)
 
-	_, err = svc.ExchangeCode(context.Background(), &GrokExchangeCodeInput{
+	_, err = svc.AdminExchangeCode(context.Background(), adminResourceUserTestActor(t), &GrokExchangeCodeInput{
 		SessionID: auth.SessionID,
 		Code:      "replayed-code",
 		State:     auth.State,
@@ -110,10 +110,10 @@ func TestGrokOAuthServiceExchangeCodeConsumesOnlyAfterValidation(t *testing.T) {
 func TestGrokOAuthServiceExchangeCodeRejectsMissingClientWithoutConsumingSession(t *testing.T) {
 	svc := NewGrokOAuthService(nil, nil)
 	defer svc.Stop()
-	auth, err := svc.GenerateAuthURL(context.Background(), nil, "")
+	auth, err := svc.AdminGenerateAuthURL(context.Background(), adminResourceUserTestActor(t), nil, "")
 	require.NoError(t, err)
 
-	_, err = svc.ExchangeCode(context.Background(), &GrokExchangeCodeInput{
+	_, err = svc.AdminExchangeCode(context.Background(), adminResourceUserTestActor(t), &GrokExchangeCodeInput{
 		SessionID: auth.SessionID,
 		Code:      "code",
 		State:     auth.State,
@@ -128,10 +128,10 @@ func TestGrokOAuthServiceExchangeCodeRequiresStateForBareCode(t *testing.T) {
 	client := &grokOAuthClientStub{}
 	svc := NewGrokOAuthService(nil, client)
 	defer svc.Stop()
-	auth, err := svc.GenerateAuthURL(context.Background(), nil, "")
+	auth, err := svc.AdminGenerateAuthURL(context.Background(), adminResourceUserTestActor(t), nil, "")
 	require.NoError(t, err)
 
-	_, err = svc.ExchangeCode(context.Background(), &GrokExchangeCodeInput{
+	_, err = svc.AdminExchangeCode(context.Background(), adminResourceUserTestActor(t), &GrokExchangeCodeInput{
 		SessionID: auth.SessionID,
 		Code:      "bare-authorization-code",
 	})
@@ -146,10 +146,10 @@ func TestGrokOAuthServiceExchangeCodeRejectsRedirectURIOverride(t *testing.T) {
 	client := &grokOAuthClientStub{}
 	svc := NewGrokOAuthService(nil, client)
 	defer svc.Stop()
-	auth, err := svc.GenerateAuthURL(context.Background(), nil, "")
+	auth, err := svc.AdminGenerateAuthURL(context.Background(), adminResourceUserTestActor(t), nil, "")
 	require.NoError(t, err)
 
-	_, err = svc.ExchangeCode(context.Background(), &GrokExchangeCodeInput{
+	_, err = svc.AdminExchangeCode(context.Background(), adminResourceUserTestActor(t), &GrokExchangeCodeInput{
 		SessionID:   auth.SessionID,
 		Code:        "authorization-code",
 		State:       auth.State,
@@ -159,7 +159,7 @@ func TestGrokOAuthServiceExchangeCodeRejectsRedirectURIOverride(t *testing.T) {
 	require.Contains(t, err.Error(), "GROK_OAUTH_REDIRECT_URI_MISMATCH")
 	require.Zero(t, client.exchangeCalls)
 
-	_, err = svc.ExchangeCode(context.Background(), &GrokExchangeCodeInput{
+	_, err = svc.AdminExchangeCode(context.Background(), adminResourceUserTestActor(t), &GrokExchangeCodeInput{
 		SessionID:   auth.SessionID,
 		Code:        "authorization-code",
 		State:       auth.State,
@@ -252,7 +252,7 @@ func TestGrokOAuthServiceRefreshAccountTokenIgnoresIDTokenTierWhenAccessTokenHas
 	svc := NewGrokOAuthService(nil, &grokOAuthClientStub{
 		refreshResponse: &xai.TokenResponse{
 			AccessToken: "opaque-access-token",
-			IDToken:      makeGrokOAuthJWT(map[string]any{"tier": 5}),
+			IDToken:     makeGrokOAuthJWT(map[string]any{"tier": 5}),
 			TokenType:   "Bearer",
 			ExpiresIn:   3600,
 		},

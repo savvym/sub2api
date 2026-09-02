@@ -286,10 +286,16 @@ func (s *SelfServiceAccountService) CreateAccount(
 	ctx context.Context,
 	input SelfServiceAccountCreateInput,
 ) (*AccountListItem, error) {
-	userID, err := selfServiceAccountActorUserID(input.Actor)
+	authority, err := newOwnedAccountCreationAuthority(input.Actor)
 	if err != nil {
 		return nil, err
 	}
+	ownerUserID := authority.ownerID()
+	creatorUserID := authority.creatorID()
+	if ownerUserID == nil || creatorUserID == nil {
+		return nil, ErrSelfServiceAccountActorRequired
+	}
+	userID := *ownerUserID
 	name, err := normalizeSelfServiceAccountName(input.Name)
 	if err != nil {
 		return nil, err
@@ -321,8 +327,8 @@ func (s *SelfServiceAccountService) CreateAccount(
 			Platform:      product.Platform,
 			AccountType:   product.AccountType,
 			APIKey:        apiKey,
-			OwnerUserID:   userID,
-			CreatorUserID: userID,
+			OwnerUserID:   *ownerUserID,
+			CreatorUserID: *creatorUserID,
 		})
 		if createErr != nil {
 			return createErr
