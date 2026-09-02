@@ -837,8 +837,18 @@ Draft PR #1 继续保持 Draft，不因本次阶段退出自动转 Ready 或合�
 | `openspec validate redesign-resource-access-control --type change --strict --no-interactive` 与 `git diff --check` | 通过 |
 | `cd backend && GOBIN=/tmp/sub2api-tools go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 && /tmp/sub2api-tools/golangci-lint run --timeout=30m` | 通过，`0 issues`；与 GitHub Actions 的 v2.13 系列一致 |
 
+### 远端 CI / Security Scan
+
+首次代码提交 `a875536ccb6f97e58de9d6f81ea4aa71abe6a05b` 的 push [CI Run 33657551511](https://github.com/savvym/sub2api/actions/runs/33657551511) 与 PR [CI Run 33657568910](https://github.com/savvym/sub2api/actions/runs/33657568910) 均只有 golangci-lint job 失败；两边 test job 的 unit 与无过滤 integration、frontend 和 shell 均成功，对应 push/PR Security Scan `33657551526`/`33657569173` 也成功。GitHub lint 输出包含 Gemini OAuth 未使用的 `redirectURI` 参数 SA4009、3 个错误字符串大写 ST1005 和 1 条 SA4009 related annotation；本地固定版本 lint 随后又报告 2 个同类 ST1005。提交 `bf4903ab92095acc4f11cc477cc7777c14d53d8f` 移除无效参数并修复全部 5 个错误字符串，最终本地 lint 为 `0 issues`。
+
+| 远端门禁 | 结果 |
+| --- | --- |
+| [push CI Run 33659274194](https://github.com/savvym/sub2api/actions/runs/33659274194) / [test job 100345512840](https://github.com/savvym/sub2api/actions/runs/33659274194/job/100345512840) | 通过；SHA `bf4903ab92095acc4f11cc477cc7777c14d53d8f`，test 10m19s，unit 6m13s，无过滤 integration 3m40s，repository 非缓存运行 52.288s；[golangci-lint job 100345512876](https://github.com/savvym/sub2api/actions/runs/33659274194/job/100345512876)、frontend 与 shell 同 Run 成功 |
+| [PR CI Run 33659279649](https://github.com/savvym/sub2api/actions/runs/33659279649) / [test job 100345528974](https://github.com/savvym/sub2api/actions/runs/33659279649/job/100345528974) | 通过；相同 SHA，test 9m02s，unit 5m22s，无过滤 integration 3m10s，repository 非缓存运行 36.991s；[golangci-lint job 100345528797](https://github.com/savvym/sub2api/actions/runs/33659279649/job/100345528797)、frontend 与 shell 同 Run 成功 |
+| [push Security Scan 33659274223](https://github.com/savvym/sub2api/actions/runs/33659274223) 与 [PR Security Scan 33659279961](https://github.com/savvym/sub2api/actions/runs/33659279961) | 通过；相同 SHA 的两个 backend `govulncheck ./...` 均报告代码受影响漏洞 0 个，两个 frontend `pnpm audit` 与 audit exception 门禁均成功 |
+
 ### 剩余发布边界
 
-- 本次提交推送后必须等待 Draft PR #1 的 push/PR CI、无过滤 Testcontainers、固定版本 golangci-lint 与 Security Scan，并在相同代码 SHA 上补录 run/job；远端结果成功前不把这些门禁标为通过。
+- Draft PR #1 的 push/PR CI、无过滤 Testcontainers、固定版本 golangci-lint 与 Security Scan 已在相同代码 SHA 上通过并补录。该结果只完成 2.4 的工程门禁；当前无 production/staging、真实数据或旧 Worker，且生产目录、OAuth allowlist 与全部新增 Feature Flag 仍关闭，不能据此标记 self-service `Release Accepted`。
 - OAuth session claim 解决 callback 重放与跨 Actor 使用，不提供跨上游与 PostgreSQL 的分布式事务。token exchange 已发生后若后续本地建号失败，不能通过重放 callback 自动补偿；需要沿既有受审计恢复流程处理。
 - 下一切片为 2.5 的 Owner 私有默认分组按需创建及 Account 同事务绑定。生产目录、OAuth allowlist、Feature Flag 和 authorization mode 继续保持当前关闭状态。

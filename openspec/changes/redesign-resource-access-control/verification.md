@@ -197,7 +197,7 @@
 | 合法 callback 在首次上游请求前原子消费；上游失败后不可重放，并发 callback 只有一个到达上游 | `TestOpenAIOAuthUpstreamFailureCannotBeReplayed`、`TestOpenAIOAuthConcurrentCallbacksReachUpstreamOnce` 与五个 session store race tests | 通过 |
 | xAI Redis session 跨实例 round-trip binding/proxy 并原子消费；remote 成功写不降级为可双消费的本地副本，只有 remote write 失败才 fallback | `TestSessionStoreRedisRoundTripsBindingAndConsumesAcrossInstances`、`TestSessionStoreRedisFallbackIsLimitedToFailedWrites` | 通过 |
 | 完整 backend unit、默认测试、unit-tag vet、integration 标签编译、CGO-off server build、OpenSpec strict validate 与 diff check | `implementation-evidence.md` 2.4 小节 | 通过；本地结果已归档 |
-| 当前代码 SHA 的 push/PR CI、无过滤 Testcontainers、固定版本 golangci-lint 与 Security Scan | 本次提交推送后的 GitHub Actions run/job/SHA | 待实现；远端结果成功后补录，不提前视为 `Release Accepted` |
+| 当前代码 SHA 的 push/PR CI、无过滤 Testcontainers、固定版本 golangci-lint 与 Security Scan | push CI `33659274194` / test `100345512840` / lint `100345512876`，PR CI `33659279649` / test `100345528974` / lint `100345528797`，Security Scan `33659274223` / `33659279961` | 通过；均为 SHA `bf4903ab92095acc4f11cc477cc7777c14d53d8f`。integration 分别为 3m40s / 3m10s，repository 分别非缓存运行 52.288s / 36.991s；不据此提前视为 `Release Accepted` |
 
 ## Phase 0 Exit Review（0.8）
 
