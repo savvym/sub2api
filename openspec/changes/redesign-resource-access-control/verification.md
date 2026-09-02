@@ -205,14 +205,15 @@
 
 | 门禁 | 证据 | 状态 |
 | --- | --- | --- |
-| 默认组按 Owner/平台使用保留名 `<platform>-default`，查找大小写不敏感并锁定 active 未删除记录；已有合法默认组直接复用 | service/repository contract 与 PostgreSQL integration 用例 | 通过；本地 unit 契约已通过，动态 PostgreSQL 待当前提交远端 CI 复核 |
+| 默认组按 Owner/平台使用保留名 `<platform>-default`，查找大小写不敏感并锁定 active 未删除记录；已有合法默认组直接复用 | service/repository contract 与 PostgreSQL integration 用例 | 通过；本地 unit 与远端无过滤 repository 动态套件均通过 |
 | 默认组缺失时先检查 Group 容量，再复用 2.3 的创建 helper 写 private、active、exclusive、legacy、相同 Owner/creator 和 group Scheduler Outbox；已有组不重复检查 Group 配额 | service 调用顺序、配额分支和 group helper tests | 通过 |
 | Account 容量始终先检查；Account 固定 private、`schedulable=true`，以优先级 50 绑定默认组；绑定 SQL重校验 Group ID、Owner、折叠名称、平台、active、private、exclusive、legacy 与未删除状态 | repository SQL、state validation、handler projection tests | 通过 |
-| 新建 Group、Account、`account_groups`、两类 Scheduler Outbox 和 Group/Account durable authorization event 在同一 `SERIALIZABLE` 事务提交 | service/repository contract 与 event/outbox integration 用例 | 通过；本地 unit/race 已通过，远端无过滤 Testcontainers 待 push 后补录 |
-| Group 配额不足、绑定、任一 Outbox、任一 durable event 或 commit 失败不留下 Group、Account、关系或事件半状态 | failure injection unit/integration 用例 | 通过；本地 unit 覆盖完成，动态 failure injection 待远端 CI 复核 |
-| 同 Owner/平台多 Account 只使用一个默认组；并发首次创建通过容量锁、Owner 名称唯一索引和 conflict retry 保持单组 | reuse/concurrent PostgreSQL integration 用例 | 待实现；用例已提交，本机无 Docker，等待当前 SHA 的远端动态结果 |
+| 新建 Group、Account、`account_groups`、两类 Scheduler Outbox 和 Group/Account durable authorization event 在同一 `SERIALIZABLE` 事务提交 | service/repository contract 与 event/outbox integration 用例 | 通过；本地 unit/race 与远端无过滤 Testcontainers 均通过 |
+| Group 配额不足、绑定、任一 Outbox、任一 durable event 或 commit 失败不留下 Group、Account、关系或事件半状态 | failure injection unit/integration 用例 | 通过；本地 unit 与远端动态 failure injection 均通过 |
+| 同 Owner/平台多 Account 只使用一个默认组；并发首次创建通过容量锁、Owner 名称唯一索引和 conflict retry 保持单组 | reuse/concurrent PostgreSQL integration 用例 | 通过；push/PR repository 非缓存套件均成功 |
 | 普通用户 HTTP 响应继续使用窄 Account 投影，不暴露 Group ID、`schedulable`、Owner ID、凭据或关系；客户端不能提交 Group ID | handler strict projection、create DTO 与 catalog tests | 通过 |
-| 默认、unit-tag、聚焦 race、unit-tag vet、integration 标签编译、生产 build、gofmt、固定 v2.13 lint、OpenSpec strict validate 与 diff check | `implementation-evidence.md` 2.5 小节 | 通过；远端 CI/Security Scan 仍待当前提交推送后补录 |
+| 默认、unit-tag、聚焦 race、unit-tag vet、integration 标签编译、生产 build、gofmt、固定 v2.13 lint、OpenSpec strict validate 与 diff check | `implementation-evidence.md` 2.5 小节 | 通过 |
+| 当前代码 SHA 的 push/PR CI、无过滤 Testcontainers、固定版本 golangci-lint 与 Security Scan | push CI `33667177588` / test `100371684868` / lint `100371684889`，PR CI `33667182608` / test `100371700879` / lint `100371700951`，Security Scan `33667177598` / `33667182624` | 通过；均为 SHA `f532b2e5ecc0da16aa6d831d239f82a6633d1290`。integration 分别为 3m12s / 3m37s，repository 分别非缓存运行 39.640s / 53.406s；PR 仍保持 Draft |
 
 ## Phase 0 Exit Review（0.8）
 

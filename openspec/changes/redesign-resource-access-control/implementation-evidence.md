@@ -880,8 +880,16 @@ Draft PR #1 继续保持 Draft，不因本次阶段退出自动转 Ready 或合�
 | changed Go files `gofmt -d` 与 `git diff --check` | 通过；无格式或 whitespace 差异 |
 | `openspec status --change redesign-resource-access-control` 与 strict validate | 通过；4/4 planning artifacts complete，change is valid |
 
-### PostgreSQL / 远端待补证据
+### 远端 CI / Security Scan
 
 - `make -C backend test-integration` 在本机执行到 repository TestMain 后检测到 `docker command unavailable` 并显式跳过，退出码 0 不能作为动态通过证据。聚焦 `TestSelfServiceAccountRepository*` 重跑也明确输出 `docker is not available; skipping integration tests`；因此当前只记录 integration 标签编译与测试代码覆盖，不伪造本机 PostgreSQL/Testcontainers 结果。
-- 当前实现提交推送后，必须等待 Draft PR #1 与 push 两套无过滤 `make test-integration`、固定版本 lint 和 Security Scan 完成，并补录 run/job/SHA。并发首次创建单组、完整原子提交和 binding/Outbox/event failure injection 在远端动态通过前，验证表对应项保持待实现。
+- 代码提交 `f532b2e5ecc0da16aa6d831d239f82a6633d1290` 的 push 与 Draft PR 两套无过滤 `make test-integration` 均成功。repository 包分别非缓存运行 39.640s 和 53.406s，覆盖默认组完整原子提交、已有组复用、并发首次创建单组，以及 binding/Outbox/event failure injection；固定版本 lint、frontend、shell 与两套 Security Scan 同时通过。
+
+| 远端门禁 | 结果 |
+| --- | --- |
+| [push CI Run 33667177588](https://github.com/savvym/sub2api/actions/runs/33667177588) / [test job 100371684868](https://github.com/savvym/sub2api/actions/runs/33667177588/job/100371684868) | 通过；test 8m58s，unit 5m22s，无过滤 integration 3m12s，repository 39.640s；[golangci-lint job 100371684889](https://github.com/savvym/sub2api/actions/runs/33667177588/job/100371684889)、frontend 与 shell 同 Run 成功 |
+| [PR CI Run 33667182608](https://github.com/savvym/sub2api/actions/runs/33667182608) / [test job 100371700879](https://github.com/savvym/sub2api/actions/runs/33667182608/job/100371700879) | 通过；test 10m10s，unit 6m09s，无过滤 integration 3m37s，repository 53.406s；[golangci-lint job 100371700951](https://github.com/savvym/sub2api/actions/runs/33667182608/job/100371700951)、frontend 与 shell 同 Run 成功 |
+| [push Security Scan 33667177598](https://github.com/savvym/sub2api/actions/runs/33667177598) 与 [PR Security Scan 33667182624](https://github.com/savvym/sub2api/actions/runs/33667182624) | 通过；相同 SHA 的 backend `govulncheck`、frontend `pnpm audit` 与 audit exception 门禁均成功 |
+
+- Draft PR #1 的 base 仍为 `main@efb46db0a960fdad94502b1c3a982a0051cf5245`，head 为上述代码 SHA，状态为 Draft/CLEAN；未转 Ready 或合并。
 - 生产目录、OAuth allowlist、Feature Flag 和 authorization mode 继续保持关闭；当前没有 production/staging、真实数据或旧 Worker。远端工程证据完成也不等于 self-service `Release Accepted`，下一切片仍为 2.6 的 group `0`、平台默认组和 SIMPLE Mode 租户隔离。
