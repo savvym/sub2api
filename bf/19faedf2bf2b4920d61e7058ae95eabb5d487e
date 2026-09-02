@@ -1,0 +1,60 @@
+backend/internal/handler/self_service_group_handler.go
+  s_f888de8e3912e8::t_69a77f3256462c 1-320
+backend/internal/server/routes/self_service_group_routes_test.go
+  s_f888de8e3912e8::t_aa9957d05b2b92 1-143
+backend/internal/repository/migrations_runner_notx_test.go
+  s_f888de8e3912e8::t_50ee90dc2af600 520-560
+backend/internal/service/wire.go
+  s_f888de8e3912e8::t_69a77f3256462c 862,865
+backend/internal/service/self_service_group_test.go
+  s_f888de8e3912e8::t_57d82287e43775 1-760
+backend/migrations/group_owner_scoped_name_unique_postgres_test.go
+  s_f888de8e3912e8::t_cdc39016826901 1-109
+frontend/src/views/user/SelfServiceGroupsView.vue
+  ai_agent 1-854
+backend/internal/repository/self_service_group_repo_integration_test.go
+  s_f888de8e3912e8::t_bb2e21fecfc320 1-7,9-525,647-787,816,887-894
+  ai_agent 8,526-646,788-815,817-886
+backend/internal/handler/handler.go
+  s_f888de8e3912e8::t_69a77f3256462c 71
+backend/migrations/245_group_owner_scoped_name_unique_notx.sql
+  ai_agent 1-9
+backend/internal/repository/migrations_runner.go
+  s_f888de8e3912e8::t_7181284ef403e5 71,86-90,351-352
+backend/internal/handler/wire.go
+  s_f888de8e3912e8::t_69a77f3256462c 199,227,255
+backend/internal/repository/self_service_group_repo.go
+  s_f888de8e3912e8::t_5bfaa494296c98 1-540
+backend/ent/schema/group.go
+  s_f888de8e3912e8::t_7181284ef403e5 43-45,348
+backend/internal/repository/wire.go
+  s_f888de8e3912e8::t_69a77f3256462c 72
+backend/internal/service/self_service_group.go
+  s_f888de8e3912e8::t_7dfcdda9b52830 1-661
+backend/migrations/data_preflight_postgres_test.go
+  ai_agent 19-123,747-765
+backend/migrations/group_owner_scoped_name_unique_migration_test.go
+  ai_agent 1-19
+backend/internal/handler/self_service_group_handler_test.go
+  s_f888de8e3912e8::t_aa9957d05b2b92 1-379
+backend/internal/server/routes/user.go
+  s_f888de8e3912e8::t_69a77f3256462c 98-100,103-105
+backend/cmd/server/wire_gen.go
+  s_f888de8e3912e8::t_1204a596b1ba02 333-336,360
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "bf19faedf2bf2b4920d61e7058ae95eabb5d487e",
+  "prompts": {},
+  "sessions": {
+    "s_f888de8e3912e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06103-92d4-72a1-8af8-9cc9355e6050",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Savin Zhang <savi@base.ctripsmartdns.com>"
+    }
+  }
+}
