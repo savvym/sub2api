@@ -1,0 +1,23 @@
+backend/internal/handler/admin/grok_import_probe_handler_test.go
+  s_5a07e519c200c0::t_d6814f4cbf0445 138-152
+backend/internal/handler/admin/grok_oauth_handler.go
+  s_5a07e519c200c0::t_d6814f4cbf0445 676
+backend/internal/handler/admin/grok_import_probe.go
+  s_5a07e519c200c0::t_d6814f4cbf0445 234-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "cb8cf215e295fac709e0ec8668e1fb19832085f5",
+  "prompts": {},
+  "sessions": {
+    "s_5a07e519c200c0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03725-7fe9-74f2-b21c-f5d910f047ed",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Savin Zhang <savi@base.ctripsmartdns.com>"
+    }
+  }
+}

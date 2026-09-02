@@ -1,0 +1,43 @@
+backend/internal/handler/admin/setting_handler.go
+  s_5a07e519c200c0::t_5d321be62f87b2 391-394
+backend/internal/service/domain_constants.go
+  s_5a07e519c200c0::t_5d321be62f87b2 67,520-523,540-541
+backend/ent/mutation.go
+  s_5a07e519c200c0::t_5d321be62f87b2 7,23684-23685,25954-25955,25960,25971,25985-25987,25991,28419,51149-51150,51374-51375,51380,51391,51405-51407,51411,51962
+backend/internal/handler/dto/settings.go
+  s_5a07e519c200c0::t_5d321be62f87b2 327-330,430-432
+backend/internal/service/setting_update.go
+  s_5a07e519c200c0::t_5d321be62f87b2 434,446
+backend/ent/group.go
+  s_5a07e519c200c0::t_5d321be62f87b2 7,105
+backend/ent/group_create.go
+  s_5a07e519c200c0::t_5d321be62f87b2 7,578,2626,3880,5368
+backend/internal/server/api_contract_test.go
+  s_5a07e519c200c0::t_5d321be62f87b2 889,1003,1179,1321
+openspec/changes/redesign-resource-access-control/implementation-evidence.md
+  s_5a07e519c200c0::t_9336599e9876a6 77
+backend/internal/service/setting_parse.go
+  s_5a07e519c200c0::t_5d321be62f87b2 196,204-207,822,836
+backend/internal/handler/admin/setting_handler_update.go
+  s_5a07e519c200c0::t_5d321be62f87b2 358-360,452,1958-1963,2390-2393
+backend/internal/service/settings_view.go
+  s_5a07e519c200c0::t_5d321be62f87b2 215-218,404-406,578-592
+backend/ent/group_update.go
+  s_5a07e519c200c0::t_5d321be62f87b2 7,806,812,3155,3161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "76b3060a1dc8d3a4fb198c92c8d1cf329f403c12",
+  "prompts": {},
+  "sessions": {
+    "s_5a07e519c200c0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03725-7fe9-74f2-b21c-f5d910f047ed",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Savin Zhang <savi@base.ctripsmartdns.com>"
+    }
+  }
+}

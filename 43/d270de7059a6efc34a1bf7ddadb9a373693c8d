@@ -1,0 +1,34 @@
+backend/cmd/server/wire.go
+  s_5a07e519c200c0::t_5d321be62f87b2 29-32,57,63,79-85,131,133,146-157,173-175
+deploy/config.example.yaml
+  s_5a07e519c200c0::t_5d321be62f87b2 184,189-198,217-219,238-240,335-336,1032-1050
+backend/internal/service/wire.go
+  s_5a07e519c200c0::t_5d321be62f87b2 197-219,262,276,495-497,790-792,887,943,954
+backend/cmd/server/wire_gen_test.go
+  s_5a07e519c200c0::t_5d321be62f87b2 98,100
+backend/internal/service/setting_service.go
+  s_5a07e519c200c0::t_5d321be62f87b2 153
+backend/internal/repository/wire.go
+  s_5a07e519c200c0::t_5d321be62f87b2 103
+openspec/changes/redesign-resource-access-control/implementation-evidence.md
+  s_5a07e519c200c0::t_9336599e9876a6 77,81,83,87,89,91,98,100,107,109,111,113,117,119,121,129,131-132,137-138,140,142,144,146,154,156-157,162-163,174,176,178,180,187,189-190,200,202,204,208,210,212,220,222-223,225,229,235,237,239,243,245,247,258,260-261,263,274,276,280,282,284,293,295-296,300,302,307,309,311,313,315,329,331-332,334-335,346,348,352,354,356,363,365-366,372,375,377,381,383,385,396,398-399,401,406,412,414,419,421,423,433,435-436,448,450
+  s_5a07e519c200c0::t_f7d202f06157f5 133,158,191,224,262,297,333,367,400,437
+backend/internal/server/routes/admin.go
+  s_5a07e519c200c0::t_5d321be62f87b2 23-25,109-111,757-769
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "43d270de7059a6efc34a1bf7ddadb9a373693c8d",
+  "prompts": {},
+  "sessions": {
+    "s_5a07e519c200c0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03725-7fe9-74f2-b21c-f5d910f047ed",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Savin Zhang <savi@base.ctripsmartdns.com>"
+    }
+  }
+}

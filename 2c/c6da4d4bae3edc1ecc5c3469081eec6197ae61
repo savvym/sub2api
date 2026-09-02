@@ -1,0 +1,19 @@
+.gitignore
+  s_5a07e519c200c0::t_5d321be62f87b2 1-2,141-144,147-149,155,159-160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.43-trip",
+  "base_commit_sha": "2cc6da4d4bae3edc1ecc5c3469081eec6197ae61",
+  "prompts": {},
+  "sessions": {
+    "s_5a07e519c200c0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03725-7fe9-74f2-b21c-f5d910f047ed",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Savin Zhang <savi@base.ctripsmartdns.com>"
+    }
+  }
+}
